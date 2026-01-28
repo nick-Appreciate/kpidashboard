@@ -6,6 +6,7 @@ import Chart from 'chart.js/auto';
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
   const [stats, setStats] = useState(null);
+  const [funnelData, setFunnelData] = useState(null);
   const [properties, setProperties] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [selectedProperty, setSelectedProperty] = useState('all');
@@ -51,6 +52,11 @@ export default function Dashboard() {
       const statsRes = await fetch(`/api/stats?${params}`);
       const statsData = await statsRes.json();
       setStats(statsData);
+      
+      // Fetch funnel data
+      const funnelRes = await fetch(`/api/funnel?${params}`);
+      const funnelDataRes = await funnelRes.json();
+      setFunnelData(funnelDataRes);
       
       // Fetch filter options
       const propertiesRes = await fetch('/api/inquiries/properties');
@@ -382,6 +388,176 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        
+        {/* Tenant Lifecycle Funnel */}
+        {funnelData && funnelData.stages && (
+          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-2 pb-2 border-b-2">
+              Tenant Lifecycle Funnel
+            </h2>
+            <p className="text-gray-500 text-sm mb-6">
+              Track conversion rates and fallout reasons from inquiry to tenant
+            </p>
+            
+            {/* Funnel Visualization with Fallout */}
+            <div className="mb-8">
+              {funnelData.stages.map((stage, idx) => {
+                const widthPercent = Math.max(35, 100 - (idx * 14));
+                const nextStage = funnelData.stages[idx + 1];
+                const showFallout = stage.fallout && stage.fallout.count > 0;
+                
+                return (
+                  <div key={stage.name}>
+                    {/* Main Stage Row */}
+                    <div className="flex items-center">
+                      {/* Funnel Bar - Left Side */}
+                      <div className="flex-1 flex justify-start pl-4 md:pl-8">
+                        <div 
+                          className="py-4 px-5 text-white font-semibold rounded-xl transition-all hover:scale-[1.01] cursor-default shadow-lg"
+                          style={{ 
+                            width: `${widthPercent}%`,
+                            backgroundColor: stage.color,
+                            minWidth: '200px'
+                          }}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm md:text-base font-medium">{stage.name}</span>
+                            <div className="text-right">
+                              <span className="text-2xl md:text-3xl font-bold">{stage.count.toLocaleString()}</span>
+                              {stage.conversionFromPrevious !== null && (
+                                <span className="text-xs ml-2 opacity-75 bg-white/20 px-2 py-0.5 rounded">
+                                  {stage.conversionFromPrevious}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Fallout Section - Between Stages */}
+                    {showFallout && idx < funnelData.stages.length - 1 && (
+                      <div className="flex items-stretch my-1">
+                        {/* Connector Line */}
+                        <div className="w-16 md:w-24 flex justify-center">
+                          <div className="w-0.5 bg-gray-300 h-full min-h-[60px]"></div>
+                        </div>
+                        
+                        {/* Arrow pointing to fallout */}
+                        <div className="flex items-center">
+                          <div className="text-gray-400 text-lg mr-2">→</div>
+                          
+                          {/* Fallout Box */}
+                          <div className="bg-red-50 border-l-4 border-red-400 rounded-r-lg p-3 shadow-sm max-w-xs">
+                            <div className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
+                              Lost: {stage.fallout.count} ({stage.fallout.percentage}%)
+                            </div>
+                            <div className="space-y-1">
+                              {stage.fallout.reasons.filter(r => r.count > 0).map((reason, rIdx) => (
+                                <div key={rIdx} className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    <div 
+                                      className="w-2.5 h-2.5 rounded-full" 
+                                      style={{ backgroundColor: reason.color }}
+                                    />
+                                    <span className="text-gray-700">{reason.label}</span>
+                                  </div>
+                                  <span className="font-bold ml-3" style={{ color: reason.color }}>
+                                    {reason.count}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Simple connector for stages without fallout or last stage */}
+                    {(!showFallout && idx < funnelData.stages.length - 1) && (
+                      <div className="flex my-2">
+                        <div className="w-16 md:w-24 flex justify-center">
+                          <div className="text-gray-400 text-2xl">↓</div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Final stage fallout (Denied) */}
+                    {showFallout && idx === funnelData.stages.length - 1 && (
+                      <div className="flex items-center mt-2 ml-16 md:ml-24">
+                        <div className="text-gray-400 text-lg mr-2">↳</div>
+                        <div className="bg-red-50 border-l-4 border-red-400 rounded-r-lg p-3 shadow-sm">
+                          <div className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                            </svg>
+                            Rejected: {stage.fallout.count} ({stage.fallout.percentage}%)
+                          </div>
+                          <div className="space-y-1">
+                            {stage.fallout.reasons.filter(r => r.count > 0).map((reason, rIdx) => (
+                              <div key={rIdx} className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <div 
+                                    className="w-2.5 h-2.5 rounded-full" 
+                                    style={{ backgroundColor: reason.color }}
+                                  />
+                                  <span className="text-gray-700">{reason.label}</span>
+                                </div>
+                                <span className="font-bold ml-3" style={{ color: reason.color }}>
+                                  {reason.count}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Funnel Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t">
+              <div className="text-center p-4 bg-indigo-50 rounded-xl">
+                <p className="text-2xl md:text-3xl font-bold text-indigo-600">{funnelData.summary.overallConversion}%</p>
+                <p className="text-xs md:text-sm text-gray-600 mt-1">Overall Conversion</p>
+                <p className="text-xs text-gray-400">Inquiry → Tenant</p>
+              </div>
+              <div className="text-center p-4 bg-violet-50 rounded-xl">
+                <p className="text-2xl md:text-3xl font-bold text-violet-600">
+                  {funnelData.stages[1]?.conversionFromPrevious || 0}%
+                </p>
+                <p className="text-xs md:text-sm text-gray-600 mt-1">Scheduling Rate</p>
+                <p className="text-xs text-gray-400">Inquiry → Scheduled</p>
+              </div>
+              <div className="text-center p-4 bg-purple-50 rounded-xl">
+                <p className="text-2xl md:text-3xl font-bold text-purple-600">
+                  {funnelData.summary.showingCompletionRate || 0}%
+                </p>
+                <p className="text-xs md:text-sm text-gray-600 mt-1">Completion Rate</p>
+                <p className="text-xs text-gray-400">Scheduled → Completed</p>
+              </div>
+              <div className="text-center p-4 bg-pink-50 rounded-xl">
+                <p className="text-2xl md:text-3xl font-bold text-pink-600">
+                  {funnelData.stages[3]?.conversionFromPrevious || 0}%
+                </p>
+                <p className="text-xs md:text-sm text-gray-600 mt-1">Application Rate</p>
+                <p className="text-xs text-gray-400">Completed → Applied</p>
+              </div>
+              <div className="text-center p-4 bg-green-50 rounded-xl">
+                <p className="text-2xl md:text-3xl font-bold text-green-600">
+                  {funnelData.summary.applicationApprovalRate || 0}%
+                </p>
+                <p className="text-xs md:text-sm text-gray-600 mt-1">Approval Rate</p>
+                <p className="text-xs text-gray-400">Applied → Approved</p>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
