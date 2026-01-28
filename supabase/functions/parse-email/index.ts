@@ -64,6 +64,26 @@ interface ShowingRecord {
   source_file: string | null;
 }
 
+interface RentalApplicationRecord {
+  unit: string | null;
+  applicants: string | null;
+  received: string | null;
+  desired_move_in: string | null;
+  lead_source: string | null;
+  status: string | null;
+  screening: string | null;
+  approved_at: string | null;
+  denied_at: string | null;
+  rental_application_id: string | null;
+  move_in_date: string | null;
+  lease_start_date: string | null;
+  lease_end_date: string | null;
+  inquiry_id: string | null;
+  application_status: string | null;
+  tenant_id: string | null;
+  source_file: string | null;
+}
+
 interface PropertyRecord {
   property: string;
   unit: string;
@@ -321,6 +341,82 @@ function parseShowingsReport(
   return records;
 }
 
+function parseRentalApplicationsReport(
+  workbook: XLSX.WorkBook,
+  filename: string
+): RentalApplicationRecord[] {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+  const records: RentalApplicationRecord[] = [];
+  const seen = new Set<string>();
+  let currentUnit = "";
+  
+  // Find header row
+  let startRow = 1;
+  for (let i = 0; i < Math.min(15, data.length); i++) {
+    const row = data[i];
+    if (row && row[0] && String(row[0]).toLowerCase().includes('applicant')) {
+      startRow = i + 1;
+      console.log(`Found applications header at row ${i}, starting data at row ${startRow}`);
+      break;
+    }
+  }
+
+  for (let i = startRow; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+    if (row.every((cell) => cell === null || cell === undefined || cell === "")) continue;
+
+    const firstCell = row[0] ? String(row[0]) : "";
+    
+    // Unit header row (starts with "->")
+    if (firstCell.startsWith("->") || firstCell.startsWith("-> ")) {
+      currentUnit = sanitizeString(firstCell.replace(/^->\s*/, "")) || "";
+      continue;
+    }
+    
+    // Skip if only first cell has value (unit header without ->)
+    if (row[0] && row.slice(1).every((cell) => cell === null || cell === undefined || cell === "")) {
+      currentUnit = sanitizeString(row[0]) || "";
+      continue;
+    }
+
+    // Data row - must have rental_application_id (column 8)
+    const rentalApplicationId = sanitizeString(row[8]);
+    if (!rentalApplicationId) continue;
+    
+    // Deduplicate by rental_application_id
+    if (seen.has(rentalApplicationId)) {
+      continue;
+    }
+    seen.add(rentalApplicationId);
+    
+    records.push({
+      unit: currentUnit,
+      applicants: sanitizeString(row[0]),
+      received: parseExcelDate(row[1]),
+      desired_move_in: parseExcelDateOnly(row[2]),
+      lead_source: sanitizeString(row[3]),
+      status: sanitizeString(row[4]),
+      screening: sanitizeString(row[5]),
+      approved_at: parseExcelDate(row[6]),
+      denied_at: parseExcelDate(row[7]),
+      rental_application_id: rentalApplicationId,
+      move_in_date: parseExcelDateOnly(row[9]),
+      lease_start_date: parseExcelDateOnly(row[10]),
+      lease_end_date: parseExcelDateOnly(row[11]),
+      inquiry_id: sanitizeString(row[12]),
+      application_status: sanitizeString(row[13]),
+      tenant_id: sanitizeString(row[14]),
+      source_file: filename,
+    });
+  }
+
+  console.log(`Parsed ${records.length} unique rental application records from ${filename}`);
+  return records;
+}
+
 function parsePropertyReport(
   workbook: XLSX.WorkBook,
   filename: string
@@ -439,7 +535,32 @@ Deno.serve(async (req) => {
 
     let result: { table: string; inserted: number; total: number };
 
-    if (filenameLower.includes("showing")) {
+    if (filenameLower.includes("rental_application") || filenameLower.includes("application")) {
+      // Rental Applications report
+      const records = parseRentalApplicationsReport(workbook, filename);
+
+      if (records.length === 0) {
+        return new Response(JSON.stringify({ error: "No records parsed from rental applications report" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const { data, error } = await supabase
+        .from("rental_applications")
+        .upsert(records, { onConflict: "rental_application_id" })
+        .select();
+
+      if (error) {
+        console.error("Upsert error:", error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      result = { table: "rental_applications", inserted: data?.length || 0, total: records.length };
+    } else if (filenameLower.includes("showing")) {
       // Showings report
       const records = parseShowingsReport(workbook, filename);
 
@@ -516,7 +637,7 @@ Deno.serve(async (req) => {
     } else {
       return new Response(
         JSON.stringify({
-          error: "Unknown report type. Filename must contain 'showing', 'guest_card', 'leasing', 'rent_roll', or 'property'",
+          error: "Unknown report type. Filename must contain 'rental_application', 'application', 'showing', 'guest_card', 'leasing', 'rent_roll', or 'property'",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
