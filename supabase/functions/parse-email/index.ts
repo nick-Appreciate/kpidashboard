@@ -306,13 +306,26 @@ function parseShowingsReport(
     // Use property from column 3 if available, otherwise use currentProperty
     const property = sanitizeString(row[3]) || currentProperty;
     
+    // Parse showing_time and validate it's not more than 3 months in the future
+    const showingTime = parseExcelDate(row[5]);
+    if (showingTime) {
+      const showingDate = new Date(showingTime);
+      const threeMonthsFromNow = new Date();
+      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+      
+      if (showingDate > threeMonthsFromNow) {
+        console.log(`Skipping showing ${showingId}: showing_time ${showingTime} is more than 3 months in the future (likely data entry error)`);
+        continue;
+      }
+    }
+    
     records.push({
       guest_card_name: sanitizeString(row[0]),
       email: sanitizeString(row[1]),
       phone: sanitizeString(row[2]),
       property: property,
       showing_unit: sanitizeString(row[4]),
-      showing_time: parseExcelDate(row[5]),
+      showing_time: showingTime,
       confirmation_time: parseExcelDate(row[6]),
       assigned_user: sanitizeString(row[7]),
       description: sanitizeString(row[8]),

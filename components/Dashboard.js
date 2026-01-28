@@ -16,6 +16,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [selectedStage, setSelectedStage] = useState(null); // null = no stage selected, charts hidden
+  const [stageStats, setStageStats] = useState(null);
   
   // Chart refs
   const statusChartRef = useRef(null);
@@ -32,6 +34,64 @@ export default function Dashboard() {
     const interval = setInterval(fetchData, 5 * 60 * 1000); // Every 5 minutes
     return () => clearInterval(interval);
   }, [selectedProperty, selectedStatus, startDate, endDate]);
+  
+  // Fetch stage-specific data when a stage is selected or filters change
+  useEffect(() => {
+    const fetchStageData = async () => {
+      if (!selectedStage) {
+        setStageStats(null);
+        return;
+      }
+      
+      try {
+        const params = new URLSearchParams();
+        params.append('stage', selectedStage);
+        if (selectedProperty !== 'all') params.append('property', selectedProperty);
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        
+        const res = await fetch(`/api/stage-stats?${params}`);
+        const data = await res.json();
+        setStageStats(data);
+      } catch (err) {
+        console.error('Error fetching stage data:', err);
+      }
+    };
+    
+    fetchStageData();
+  }, [selectedStage, selectedProperty, startDate, endDate]);
+  
+  const handleStageClick = (stageName) => {
+    // Map stage names to API stage values
+    const stageMap = {
+      'Inquiries': 'inquiries',
+      'Showings Scheduled': 'showings_scheduled',
+      'Showings Completed': 'showings_completed',
+      'Applications': 'applications',
+      'Tenants': 'tenants'
+    };
+    
+    const stageKey = stageMap[stageName];
+    
+    // Toggle selection - if clicking same stage, deselect
+    if (selectedStage === stageKey) {
+      setSelectedStage(null);
+    } else {
+      setSelectedStage(stageKey);
+    }
+  };
+  
+  // Get display name for selected stage
+  const getStageDisplayName = () => {
+    const nameMap = {
+      'inquiries': 'Inquiries',
+      'showings_scheduled': 'Showings Scheduled',
+      'showings_completed': 'Showings Completed',
+      'applications': 'Applications',
+      'tenants': 'Tenants'
+    };
+    return nameMap[selectedStage] || '';
+  };
   
   const fetchData = async () => {
     try {
@@ -77,11 +137,11 @@ export default function Dashboard() {
     }
   };
   
-  // Update charts
+  // Update charts when stage stats change
   useEffect(() => {
-    if (!stats) return;
+    if (!selectedStage || !stageStats) return;
     
-    updateCharts();
+    updateChartsWithData(stageStats, getStageDisplayName());
     
     return () => {
       [statusChartRef, weeklyChartRef, dailyChartRef, propertyChartRef, leadTypeChartRef, sourceChartRef, unitTypeChartRef].forEach(ref => {
@@ -90,8 +150,216 @@ export default function Dashboard() {
         }
       });
     };
-  }, [stats]);
+  }, [stageStats, selectedStage]);
   
+  const updateChartsWithData = (data, stageName) => {
+    const stageColor = {
+      'Inquiries': '#667eea',
+      'Showings Scheduled': '#8b5cf6',
+      'Showings Completed': '#764ba2',
+      'Applications': '#f093fb',
+      'Tenants': '#43e97b'
+    }[stageName] || '#667eea';
+
+    if (weeklyChartRef.current && data.weeklyData?.length > 0) {
+      const ctx = weeklyChartRef.current.getContext('2d');
+      if (weeklyChartRef.current.chart) weeklyChartRef.current.chart.destroy();
+      
+      // Store details for tooltip
+      const weeklyDetails = data.weeklyData.map(w => w.details || []);
+      
+      weeklyChartRef.current.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.weeklyData.map(w => {
+            const [year, month, day] = w.week.split('-').map(Number);
+            const weekStart = new Date(year, month - 1, day);
+            const weekEnd = new Date(year, month - 1, day + 6);
+            return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
+          }),
+          datasets: [{
+            label: `Weekly ${stageName}`,
+            data: data.weeklyData.map(w => w.count),
+            borderColor: stageColor,
+            backgroundColor: `${stageColor}20`,
+            fill: true,
+            tension: 0.4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { 
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                afterBody: function(context) {
+                  const idx = context[0].dataIndex;
+                  const details = weeklyDetails[idx];
+                  if (!details || details.length === 0) return '';
+                  
+                  const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
+                  if (details.length > 10) {
+                    lines.push(`... and ${details.length - 10} more`);
+                  }
+                  return lines;
+                }
+              }
+            }
+          },
+          scales: { 
+            y: { beginAtZero: true, ticks: { stepSize: 1 } },
+            x: { 
+              ticks: { maxRotation: 45, minRotation: 45 },
+              title: { display: true, text: 'Week (Start - End)' }
+            }
+          }
+        }
+      });
+    }
+    
+    if (dailyChartRef.current && data.dailyData?.length > 0) {
+      const ctx = dailyChartRef.current.getContext('2d');
+      if (dailyChartRef.current.chart) dailyChartRef.current.chart.destroy();
+      
+      // Store details for tooltip
+      const dailyDetails = data.dailyData.map(d => d.details || []);
+      
+      dailyChartRef.current.chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.dailyData.map(d => {
+            const [year, month, day] = d.inquiry_date.split('-').map(Number);
+            return `${month}/${day}`;
+          }),
+          datasets: [{
+            label: `Daily ${stageName}`,
+            data: data.dailyData.map(d => d.count),
+            backgroundColor: stageColor,
+            borderColor: stageColor,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { 
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                afterBody: function(context) {
+                  const idx = context[0].dataIndex;
+                  const details = dailyDetails[idx];
+                  if (!details || details.length === 0) return '';
+                  
+                  const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
+                  if (details.length > 10) {
+                    lines.push(`... and ${details.length - 10} more`);
+                  }
+                  return lines;
+                }
+              }
+            }
+          },
+          scales: { 
+            y: { beginAtZero: true, ticks: { stepSize: 1 } },
+            x: { ticks: { maxRotation: 45, minRotation: 45 } }
+          }
+        }
+      });
+    }
+    
+    if (propertyChartRef.current && data.topProperties?.length > 0) {
+      const ctx = propertyChartRef.current.getContext('2d');
+      if (propertyChartRef.current.chart) propertyChartRef.current.chart.destroy();
+      
+      propertyChartRef.current.chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.topProperties.map(p => {
+            const parts = p.property.split('-');
+            return parts[0].trim().substring(0, 30) + '...';
+          }),
+          datasets: [{
+            label: stageName,
+            data: data.topProperties.map(p => p.count),
+            backgroundColor: stageColor
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+      });
+    }
+    
+    if (leadTypeChartRef.current && data.leadTypeDistribution?.length > 0) {
+      const ctx = leadTypeChartRef.current.getContext('2d');
+      if (leadTypeChartRef.current.chart) leadTypeChartRef.current.chart.destroy();
+      
+      leadTypeChartRef.current.chart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: data.leadTypeDistribution.map(l => l.lead_type),
+          datasets: [{
+            data: data.leadTypeDistribution.map(l => l.count),
+            backgroundColor: ['#667eea', '#43e97b', '#f093fb', '#4facfe', '#764ba2', '#ff6b6b']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+    
+    if (sourceChartRef.current && data.sourceDistribution?.length > 0) {
+      const ctx = sourceChartRef.current.getContext('2d');
+      if (sourceChartRef.current.chart) sourceChartRef.current.chart.destroy();
+      
+      sourceChartRef.current.chart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: data.sourceDistribution.map(s => s.source || 'Unknown'),
+          datasets: [{
+            data: data.sourceDistribution.map(s => s.count),
+            backgroundColor: ['#f093fb', '#4facfe', '#43e97b', '#667eea', '#764ba2', '#ff6b6b', '#feca57', '#48dbfb']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+    
+    if (statusChartRef.current && data.statusDistribution?.length > 0) {
+      const ctx = statusChartRef.current.getContext('2d');
+      if (statusChartRef.current.chart) statusChartRef.current.chart.destroy();
+      
+      statusChartRef.current.chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: data.statusDistribution.map(s => s.status),
+          datasets: [{
+            data: data.statusDistribution.map(s => s.count),
+            backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b', '#ff6b6b', '#feca57']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+  };
+
   const updateCharts = () => {
     if (weeklyChartRef.current && stats.weeklyData?.length > 0) {
       const ctx = weeklyChartRef.current.getContext('2d');
@@ -395,9 +663,31 @@ export default function Dashboard() {
             <h2 className="text-xl font-semibold text-gray-800 mb-2 pb-2 border-b-2">
               Tenant Lifecycle Funnel
             </h2>
-            <p className="text-gray-500 text-sm mb-6">
-              Track conversion rates and fallout reasons from inquiry to tenant
+            <p className="text-gray-500 text-sm mb-4">
+              Click on any stage to view detailed analytics for that stage
             </p>
+            {selectedStage && (
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-sm text-gray-600">Viewing:</span>
+                <span className="px-3 py-1 rounded-full text-white text-sm font-medium" style={{
+                  backgroundColor: {
+                    'inquiries': '#667eea',
+                    'showings_scheduled': '#8b5cf6',
+                    'showings_completed': '#764ba2',
+                    'applications': '#f093fb',
+                    'tenants': '#43e97b'
+                  }[selectedStage]
+                }}>
+                  {getStageDisplayName()}
+                </span>
+                <button 
+                  onClick={() => setSelectedStage(null)}
+                  className="text-xs text-gray-500 hover:text-gray-700 underline"
+                >
+                  Clear selection
+                </button>
+              </div>
+            )}
             
             {/* Funnel Visualization with Fallout */}
             <div className="mb-8">
@@ -405,6 +695,14 @@ export default function Dashboard() {
                 const widthPercent = Math.max(35, 100 - (idx * 14));
                 const nextStage = funnelData.stages[idx + 1];
                 const showFallout = stage.fallout && stage.fallout.count > 0;
+                const stageKey = {
+                  'Inquiries': 'inquiries',
+                  'Showings Scheduled': 'showings_scheduled',
+                  'Showings Completed': 'showings_completed',
+                  'Applications': 'applications',
+                  'Tenants': 'tenants'
+                }[stage.name];
+                const isSelected = selectedStage === stageKey;
                 
                 return (
                   <div key={stage.name}>
@@ -413,7 +711,12 @@ export default function Dashboard() {
                       {/* Funnel Bar - Left Side */}
                       <div className="flex-1 flex justify-start pl-4 md:pl-8">
                         <div 
-                          className="py-4 px-5 text-white font-semibold rounded-xl transition-all hover:scale-[1.01] cursor-default shadow-lg"
+                          onClick={() => handleStageClick(stage.name)}
+                          className={`py-4 px-5 text-white font-semibold rounded-xl transition-all cursor-pointer shadow-lg ${
+                            isSelected 
+                              ? 'ring-4 ring-offset-2 ring-gray-400 scale-[1.02]' 
+                              : 'hover:scale-[1.02] hover:shadow-xl'
+                          }`}
                           style={{ 
                             width: `${widthPercent}%`,
                             backgroundColor: stage.color,
@@ -421,7 +724,14 @@ export default function Dashboard() {
                           }}
                         >
                           <div className="flex justify-between items-center">
-                            <span className="text-sm md:text-base font-medium">{stage.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm md:text-base font-medium">{stage.name}</span>
+                              {isSelected && (
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </div>
                             <div className="text-right">
                               <span className="text-2xl md:text-3xl font-bold">{stage.count.toLocaleString()}</span>
                               {stage.conversionFromPrevious !== null && (
@@ -559,97 +869,88 @@ export default function Dashboard() {
           </div>
         )}
         
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
-            <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Total Inquiries</p>
-            <p className="text-4xl font-bold text-indigo-600">{stats?.total || 0}</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
-            <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Active Leads</p>
-            <p className="text-4xl font-bold text-indigo-600">{activeCount}</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
-            <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Properties</p>
-            <p className="text-4xl font-bold text-indigo-600">{stats?.propertyCount || 0}</p>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
-            <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Avg per Property</p>
-            <p className="text-4xl font-bold text-indigo-600">{avgPerProperty}</p>
-          </div>
-        </div>
+        {/* Charts Section - Only visible when a stage is selected */}
+        {selectedStage && stageStats && (
+          <>
+            {/* Stats Cards for Selected Stage */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
+                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Total {getStageDisplayName()}</p>
+                <p className="text-4xl font-bold" style={{ color: {
+                  'inquiries': '#667eea',
+                  'showings_scheduled': '#8b5cf6',
+                  'showings_completed': '#764ba2',
+                  'applications': '#f093fb',
+                  'tenants': '#43e97b'
+                }[selectedStage] }}>{stageStats?.total || 0}</p>
+              </div>
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
+                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Properties</p>
+                <p className="text-4xl font-bold text-indigo-600">{stageStats?.propertyCount || 0}</p>
+              </div>
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
+                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Status Types</p>
+                <p className="text-4xl font-bold text-indigo-600">{stageStats?.statusDistribution?.length || 0}</p>
+              </div>
+              <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
+                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Sources</p>
+                <p className="text-4xl font-bold text-indigo-600">{stageStats?.sourceDistribution?.length || 0}</p>
+              </div>
+            </div>
+            
+            {/* Daily Chart - Full Width */}
+            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Daily {getStageDisplayName()}</h2>
+              <canvas ref={dailyChartRef}></canvas>
+            </div>
+            
+            {/* Weekly Chart - Full Width */}
+            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">{getStageDisplayName()} Over Time (Weekly)</h2>
+              <canvas ref={weeklyChartRef}></canvas>
+            </div>
+            
+            {/* Charts Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <div className="bg-white rounded-2xl shadow-xl p-6">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Status Distribution</h2>
+                <canvas ref={statusChartRef}></canvas>
+              </div>
+              
+              <div className="bg-white rounded-2xl shadow-xl p-6">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Sources</h2>
+                <canvas ref={sourceChartRef}></canvas>
+              </div>
+              
+              {stageStats?.topProperties?.length > 0 && (
+                <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Top Properties</h2>
+                  <canvas ref={propertyChartRef}></canvas>
+                </div>
+              )}
+              
+              {stageStats?.leadTypeDistribution?.length > 0 && (
+                <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Types</h2>
+                  <canvas ref={leadTypeChartRef}></canvas>
+                </div>
+              )}
+            </div>
+          </>
+        )}
         
-        {/* Daily Chart - Full Width */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Daily Inquiries</h2>
-          <canvas ref={dailyChartRef}></canvas>
-        </div>
-        
-        {/* Weekly Chart - Full Width */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Inquiries Over Time (Weekly)</h2>
-          <canvas ref={weeklyChartRef}></canvas>
-        </div>
-        
-        {/* Charts Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Lead Types</h2>
-            <canvas ref={leadTypeChartRef}></canvas>
+        {/* Prompt to select a stage when none selected */}
+        {!selectedStage && (
+          <div className="bg-white rounded-2xl shadow-xl p-8 mb-6 text-center">
+            <div className="text-gray-400 mb-4">
+              <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">Select a Funnel Stage</h3>
+            <p className="text-gray-500">Click on any stage in the funnel above to view detailed analytics and charts for that stage.</p>
           </div>
-          
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Inquiry Sources</h2>
-            <canvas ref={sourceChartRef}></canvas>
-          </div>
-          
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Top 10 Properties</h2>
-            <canvas ref={propertyChartRef}></canvas>
-          </div>
-          
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Top Unit Types</h2>
-            <canvas ref={unitTypeChartRef}></canvas>
-          </div>
-        </div>
-        
-        {/* Recent Inquiries Table */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 overflow-x-auto">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Recent Inquiries (Top 20)</h2>
-          <table className="w-full">
-            <thead>
-              <tr className="bg-indigo-600 text-white">
-                <th className="px-4 py-3 text-left">Name</th>
-                <th className="px-4 py-3 text-left">Property</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Inquiry Date</th>
-                <th className="px-4 py-3 text-left">Phone</th>
-                <th className="px-4 py-3 text-left">Email</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inquiries.slice(0, 20).map((inq, idx) => (
-                <tr key={inq.id || idx} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3">{inq.name}</td>
-                  <td className="px-4 py-3">{inq.property?.substring(0, 40)}...</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                      inq.status === 'Active' ? 'bg-green-100 text-green-800' :
-                      inq.status === 'Pre-Qualified' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {inq.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{new Date(inq.inquiry_received).toLocaleDateString()}</td>
-                  <td className="px-4 py-3">{inq.phone || 'N/A'}</td>
-                  <td className="px-4 py-3">{inq.email || 'N/A'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        )}
       </div>
     </div>
   );
