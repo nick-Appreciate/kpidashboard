@@ -115,30 +115,34 @@ function parseLeasingReport(
   const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
   const records: LeasingRecord[] = [];
+  const seen = new Set<string>();
   let currentProperty = "";
   
-  // Find header row and Inquiry ID column index
-  let inquiryIdColIndex = -1;
+  // Find where data starts - look for header row with "Name" in first column
+  let startRow = 12; // Default for Excel files
   for (let i = 0; i < Math.min(15, data.length); i++) {
     const row = data[i];
-    if (row) {
-      for (let j = 0; j < row.length; j++) {
-        const cell = row[j];
-        if (cell && typeof cell === 'string' && cell.toLowerCase().includes('inquiry') && cell.toLowerCase().includes('id')) {
-          inquiryIdColIndex = j;
-          console.log(`Found Inquiry ID column at index ${j}: ${cell}`);
-          break;
-        }
-      }
-      if (inquiryIdColIndex >= 0) break;
+    if (row && row[0] && String(row[0]).toLowerCase() === 'name') {
+      startRow = i + 1; // Start after header
+      console.log(`Found CSV header at row ${i}, starting data at row ${startRow}`);
+      break;
     }
   }
 
-  for (let i = 12; i < data.length; i++) {
+  for (let i = startRow; i < data.length; i++) {
     const row = data[i];
     if (!row || row.length === 0) continue;
+    
+    // Skip empty rows
+    if (row.every((cell) => cell === null || cell === undefined || cell === "")) continue;
 
-    // Property header row: first cell has value, rest are empty
+    // Property header row: starts with "->" or first cell has value and rest are empty
+    const firstCell = row[0] ? String(row[0]) : "";
+    if (firstCell.startsWith("->") || firstCell.startsWith("-> ")) {
+      currentProperty = firstCell.replace(/^->\s*/, "").trim();
+      continue;
+    }
+    
     if (row[0] && row.slice(1).every((cell) => cell === null || cell === undefined || cell === "")) {
       currentProperty = String(row[0]);
       continue;
@@ -146,12 +150,23 @@ function parseLeasingReport(
 
     // Data row: has name and inquiry_received date
     if (row[0] && row[3]) {
+      const inquiryReceived = parseExcelDate(row[3]);
+      const name = row[0] ? String(row[0]) : null;
+      
+      // Create unique key for deduplication
+      const key = `${currentProperty}|${name}|${inquiryReceived}`;
+      if (seen.has(key)) {
+        console.log(`Skipping duplicate: ${key}`);
+        continue;
+      }
+      seen.add(key);
+      
       records.push({
         property: currentProperty,
-        name: row[0] ? String(row[0]) : null,
+        name: name,
         email: row[1] ? String(row[1]) : null,
         phone: row[2] ? String(row[2]) : null,
-        inquiry_received: parseExcelDate(row[3]),
+        inquiry_received: inquiryReceived,
         first_contact: parseExcelDateOnly(row[4]),
         last_activity_date: parseExcelDateOnly(row[5]),
         last_activity_type: row[6] ? String(row[6]) : null,
@@ -168,11 +183,12 @@ function parseLeasingReport(
         touch_points: parseInteger(row[17]),
         follow_ups: parseInteger(row[18]),
         source_file: filename,
-        inquiry_id: (inquiryIdColIndex >= 0 && inquiryIdColIndex < row.length && row[inquiryIdColIndex]) ? String(row[inquiryIdColIndex]) : null,
+        inquiry_id: row.length > 19 && row[19] ? String(row[19]) : null,
       });
     }
   }
 
+  console.log(`Parsed ${records.length} unique records from ${filename}`);
   return records;
 }
 
