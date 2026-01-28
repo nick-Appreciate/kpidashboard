@@ -168,7 +168,7 @@ function parseLeasingReport(
         touch_points: parseInteger(row[17]),
         follow_ups: parseInteger(row[18]),
         source_file: filename,
-        inquiry_id: inquiryIdColIndex >= 0 && row[inquiryIdColIndex] ? String(row[inquiryIdColIndex]) : null,
+        inquiry_id: (inquiryIdColIndex >= 0 && inquiryIdColIndex < row.length && row[inquiryIdColIndex]) ? String(row[inquiryIdColIndex]) : null,
       });
     }
   }
