@@ -1,5 +1,14 @@
 import { supabase } from '../../../lib/supabase';
 
+// Convert UTC date to Central Time and return YYYY-MM-DD string
+function toCentralDate(dateStr) {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  // Convert to Central Time (America/Chicago)
+  const centralDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  return `${centralDate.getFullYear()}-${String(centralDate.getMonth() + 1).padStart(2, '0')}-${String(centralDate.getDate()).padStart(2, '0')}`;
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -50,32 +59,23 @@ export async function GET(request) {
       count
     }));
     
-    // Daily data
+    // Daily data (using Central Time)
     const dailyCounts = {};
     inquiries.forEach(inq => {
       if (inq.inquiry_received) {
-        // Handle both ISO format (2026-01-27T...) and other formats
-        let inquiryDate;
-        if (inq.inquiry_received.includes('T')) {
-          inquiryDate = inq.inquiry_received.split('T')[0];
-        } else if (inq.inquiry_received.includes('-')) {
-          inquiryDate = inq.inquiry_received.substring(0, 10);
-        } else {
-          // Fallback: use Date but extract local date parts
-          const d = new Date(inq.inquiry_received);
-          inquiryDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const inquiryDate = toCentralDate(inq.inquiry_received);
+        if (inquiryDate) {
+          dailyCounts[inquiryDate] = (dailyCounts[inquiryDate] || 0) + 1;
         }
-        dailyCounts[inquiryDate] = (dailyCounts[inquiryDate] || 0) + 1;
       }
     });
     const dailyData = Object.entries(dailyCounts)
       .map(([inquiry_date, count]) => ({ inquiry_date, count }))
       .sort((a, b) => a.inquiry_date.localeCompare(b.inquiry_date));
     
-    // Weekly data
-    const getWeekStart = (dateStr) => {
-      // Parse date parts directly to avoid timezone issues
-      const [year, month, day] = dateStr.split('T')[0].split('-').map(Number);
+    // Weekly data (using Central Time)
+    const getWeekStart = (centralDateStr) => {
+      const [year, month, day] = centralDateStr.split('-').map(Number);
       const date = new Date(year, month - 1, day);
       const dayOfWeek = date.getDay();
       date.setDate(date.getDate() - dayOfWeek);
@@ -85,20 +85,26 @@ export async function GET(request) {
     const weeklyCounts = {};
     inquiries.forEach(inq => {
       if (inq.inquiry_received) {
-        const week = getWeekStart(inq.inquiry_received);
-        weeklyCounts[week] = (weeklyCounts[week] || 0) + 1;
+        const centralDate = toCentralDate(inq.inquiry_received);
+        if (centralDate) {
+          const week = getWeekStart(centralDate);
+          weeklyCounts[week] = (weeklyCounts[week] || 0) + 1;
+        }
       }
     });
     const weeklyData = Object.entries(weeklyCounts)
       .map(([week, count]) => ({ week, count }))
       .sort((a, b) => a.week.localeCompare(b.week));
     
-    // Monthly data
+    // Monthly data (using Central Time)
     const monthlyCounts = {};
     inquiries.forEach(inq => {
       if (inq.inquiry_received) {
-        const month = new Date(inq.inquiry_received).toISOString().substring(0, 7);
-        monthlyCounts[month] = (monthlyCounts[month] || 0) + 1;
+        const centralDate = toCentralDate(inq.inquiry_received);
+        if (centralDate) {
+          const month = centralDate.substring(0, 7);
+          monthlyCounts[month] = (monthlyCounts[month] || 0) + 1;
+        }
       }
     });
     const monthlyData = Object.entries(monthlyCounts)
