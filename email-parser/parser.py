@@ -7,12 +7,13 @@ import imaplib
 import email
 from email.header import decode_header
 import openpyxl
+import csv
 from datetime import datetime
 import requests
 import os
 import time
 import logging
-from io import BytesIO
+from io import BytesIO, StringIO
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -125,6 +126,110 @@ class EmailParser:
 
         except Exception as e:
             logger.error(f"Error parsing Leasing Report Excel file: {e}")
+            return None
+
+    def parse_leasing_report_csv(self, file_content):
+        """Parse Leasing Report CSV file and extract inquiry data"""
+        try:
+            # Decode bytes to string
+            content_str = file_content.decode('utf-8-sig')  # utf-8-sig handles BOM
+            reader = csv.DictReader(StringIO(content_str))
+            
+            inquiries = []
+            current_property = None
+            
+            # Get field names to check for Inquiry ID column
+            fieldnames = reader.fieldnames or []
+            logger.info(f"CSV columns: {fieldnames}")
+            inquiry_id_field = None
+            for field in fieldnames:
+                if 'inquiry' in field.lower() and 'id' in field.lower():
+                    inquiry_id_field = field
+                    logger.info(f"Found Inquiry ID column: {inquiry_id_field}")
+                    break
+            
+            for row in reader:
+                name = row.get('Name', '').strip()
+                
+                # Skip empty rows
+                if not name:
+                    continue
+                
+                # Check if this is a property header row (starts with "->")
+                if name.startswith('->'):
+                    current_property = name.replace('->', '').strip()
+                    continue
+                
+                # Skip if no property context
+                if not current_property:
+                    continue
+                
+                # Parse inquiry received date
+                inquiry_received_str = row.get('Inquiry Received', '')
+                if not inquiry_received_str:
+                    continue
+                
+                # Convert date format "12/29/2025 at 01:19 PM" to ISO format
+                try:
+                    dt = datetime.strptime(inquiry_received_str, '%m/%d/%Y at %I:%M %p')
+                    inquiry_received = dt.isoformat()
+                except ValueError:
+                    inquiry_received = inquiry_received_str
+                
+                # Parse first contact date
+                first_contact_str = row.get('First Contact Date', '')
+                first_contact = None
+                if first_contact_str:
+                    try:
+                        dt = datetime.strptime(first_contact_str, '%m/%d/%Y at %I:%M %p')
+                        first_contact = dt.strftime('%Y-%m-%d')
+                    except ValueError:
+                        try:
+                            dt = datetime.strptime(first_contact_str, '%m/%d/%Y')
+                            first_contact = dt.strftime('%Y-%m-%d')
+                        except ValueError:
+                            first_contact = first_contact_str
+                
+                # Parse last activity date
+                last_activity_str = row.get('Last Activity Date', '')
+                last_activity_date = None
+                if last_activity_str:
+                    try:
+                        dt = datetime.strptime(last_activity_str, '%m/%d/%Y')
+                        last_activity_date = dt.strftime('%Y-%m-%d')
+                    except ValueError:
+                        last_activity_date = last_activity_str
+                
+                inquiry = {
+                    'property': current_property,
+                    'name': name,
+                    'email': row.get('Email Address', '').strip() or None,
+                    'phone': row.get('Phone Number', '').strip() or None,
+                    'inquiry_received': inquiry_received,
+                    'first_contact': first_contact,
+                    'last_activity_date': last_activity_date,
+                    'last_activity_type': row.get('Last Activity Type', '').strip() or None,
+                    'status': row.get('Status', '').strip() or None,
+                    'move_in_preference': row.get('Move In Preference', '').strip() or None,
+                    'max_rent': row.get('Max Rent', '').strip() or None,
+                    'bed_bath_preference': row.get('Bed Bath Preference', '').strip() or None,
+                    'pet_preference': row.get('Pet Preference', '').strip() or None,
+                    'monthly_income': row.get('Monthly Income', '').strip() or None,
+                    'credit_score': row.get('Credit Score', '').strip() or None,
+                    'lead_type': row.get('Lead Type', '').strip() or None,
+                    'source': row.get('Source', '').strip() or None,
+                    'unit': row.get('Unit', '').strip() or None,
+                    'touch_points': int(row.get('Touch Points', 0) or 0) if row.get('Touch Points', '').strip() else None,
+                    'follow_ups': int(row.get('Follow Ups', 0) or 0) if row.get('Follow Ups', '').strip() else None,
+                    'inquiry_id': row.get(inquiry_id_field, '').strip() if inquiry_id_field else None
+                }
+                inquiries.append(inquiry)
+            
+            logger.info(f"Parsed {len(inquiries)} leasing inquiries from CSV file")
+            return inquiries
+        
+        except Exception as e:
+            logger.error(f"Error parsing Leasing Report CSV file: {e}")
             return None
 
     def parse_property_report(self, file_content):
@@ -274,7 +379,11 @@ class EmailParser:
                             }
 
                             if 'guest_card' in filename_lower or 'leasing' in filename_lower:
-                                records = self.parse_leasing_report(file_content)
+                                # Use CSV parser for .csv files, Excel parser for .xlsx
+                                if filename_lower.endswith('.csv'):
+                                    records = self.parse_leasing_report_csv(file_content)
+                                else:
+                                    records = self.parse_leasing_report(file_content)
                                 endpoint = 'inquiries'
                             elif 'rent_roll' in filename_lower or 'property' in filename_lower:
                                 records = self.parse_property_report(file_content)

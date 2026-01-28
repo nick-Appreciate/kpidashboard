@@ -58,10 +58,20 @@ export async function POST(request) {
       return Response.json({ error: 'records array is required' }, { status: 400 });
     }
 
-    const recordsWithMetadata = records.map(record => ({
-      ...record,
-      source_file: metadata?.filename
-    }));
+    const recordsWithMetadata = records.map(record => {
+      // Normalize field names - handle variations like "Inquiry ID" -> inquiry_id
+      const normalized = { ...record };
+      if (record['Inquiry ID'] && !record.inquiry_id) {
+        normalized.inquiry_id = record['Inquiry ID'];
+        delete normalized['Inquiry ID'];
+      }
+      if (record['InquiryID'] && !record.inquiry_id) {
+        normalized.inquiry_id = record['InquiryID'];
+        delete normalized['InquiryID'];
+      }
+      normalized.source_file = metadata?.filename;
+      return normalized;
+    });
 
     const { data: upsertedData, error: upsertError } = await supabaseAdmin
       .from('leasing_reports')
