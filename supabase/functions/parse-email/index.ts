@@ -29,6 +29,7 @@ interface LeasingRecord {
   touch_points: number | null;
   follow_ups: number | null;
   source_file: string | null;
+  inquiry_id: string | null;
 }
 
 interface PropertyRecord {
@@ -115,6 +116,23 @@ function parseLeasingReport(
 
   const records: LeasingRecord[] = [];
   let currentProperty = "";
+  
+  // Find header row and Inquiry ID column index
+  let inquiryIdColIndex = -1;
+  for (let i = 0; i < Math.min(15, data.length); i++) {
+    const row = data[i];
+    if (row) {
+      for (let j = 0; j < row.length; j++) {
+        const cell = row[j];
+        if (cell && typeof cell === 'string' && cell.toLowerCase().includes('inquiry') && cell.toLowerCase().includes('id')) {
+          inquiryIdColIndex = j;
+          console.log(`Found Inquiry ID column at index ${j}: ${cell}`);
+          break;
+        }
+      }
+      if (inquiryIdColIndex >= 0) break;
+    }
+  }
 
   for (let i = 12; i < data.length; i++) {
     const row = data[i];
@@ -150,6 +168,7 @@ function parseLeasingReport(
         touch_points: parseInteger(row[17]),
         follow_ups: parseInteger(row[18]),
         source_file: filename,
+        inquiry_id: inquiryIdColIndex >= 0 && row[inquiryIdColIndex] ? String(row[inquiryIdColIndex]) : null,
       });
     }
   }
