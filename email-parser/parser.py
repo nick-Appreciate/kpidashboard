@@ -74,6 +74,23 @@ class EmailParser:
             all_data = list(sheet.iter_rows(values_only=True))
             inquiries = []
             current_property = None
+            
+            # Find header row and column indices dynamically
+            header_row = None
+            column_map = {}
+            for i, row in enumerate(all_data):
+                if row and 'Name' in str(row[0] or '') or (len(row) > 1 and 'Email' in str(row[1] or '')):
+                    header_row = i
+                    for j, cell in enumerate(row):
+                        if cell:
+                            column_map[str(cell).strip()] = j
+                    break
+            
+            # Get Inquiry ID column index if it exists
+            inquiry_id_col = column_map.get('Inquiry ID')
+            logger.info(f"Column map: {column_map}")
+            if inquiry_id_col is not None:
+                logger.info(f"Found Inquiry ID column at index {inquiry_id_col}")
 
             for i, row in enumerate(all_data):
                 if i < 12:
@@ -98,7 +115,8 @@ class EmailParser:
                         'pet_preference': str(row[11]) if row[11] else None,
                         'monthly_income': str(row[12]) if row[12] else None,
                         'credit_score': str(row[13]) if row[13] else None,
-                        'lead_type': str(row[14]) if row[14] else None
+                        'lead_type': str(row[14]) if row[14] else None,
+                        'inquiry_id': str(row[inquiry_id_col]) if inquiry_id_col is not None and len(row) > inquiry_id_col and row[inquiry_id_col] else None
                     }
                     inquiries.append(inquiry)
 
