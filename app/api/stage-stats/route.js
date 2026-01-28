@@ -1,71 +1,143 @@
 import { supabase } from '../../../lib/supabase';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const stage = searchParams.get('stage'); // inquiries, showings_scheduled, showings_completed, applications, tenants
+    const stagesParam = searchParams.get('stages'); // comma-separated list for multi-select
+    const stage = searchParams.get('stage'); // single stage (backwards compatible)
     const property = searchParams.get('property');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    let data = [];
-    let tableName = '';
-    let dateField = '';
-
-    // Determine which table and filters to use based on stage
-    switch (stage) {
-      case 'inquiries':
-        tableName = 'leasing_reports';
-        dateField = 'inquiry_received';
-        break;
-      case 'showings_scheduled':
-        tableName = 'showings';
-        dateField = 'showing_time';
-        break;
-      case 'showings_completed':
-        tableName = 'showings';
-        dateField = 'showing_time';
-        break;
-      case 'applications':
-        tableName = 'rental_applications';
-        dateField = 'received';
-        break;
-      case 'tenants':
-        tableName = 'rental_applications';
-        dateField = 'received';
-        break;
-      default:
-        tableName = 'leasing_reports';
-        dateField = 'inquiry_received';
+    // Support both single stage and multi-select
+    const selectedStages = stagesParam ? stagesParam.split(',') : (stage ? [stage] : []);
+    
+    if (selectedStages.length === 0) {
+      return NextResponse.json({ error: 'No stage selected' }, { status: 400 });
     }
 
-    // Build query based on stage
-    let query = supabase.from(tableName).select('*');
-
-    // Apply date filters
-    if (startDate) query = query.gte(dateField, startDate);
-    if (endDate) query = query.lte(dateField, endDate + 'T23:59:59');
-
-    // Apply stage-specific filters
-    if (stage === 'showings_completed') {
-      query = query.eq('status', 'Completed');
-    } else if (stage === 'tenants') {
-      query = query.or('status.eq.Converted,status.eq.Converting,application_status.eq.Approved');
-    }
-
-    // Apply property filter for tables that have it
-    if (property && property !== 'all') {
-      if (tableName === 'leasing_reports' || tableName === 'showings') {
-        query = query.eq('property', property);
+    // Fetch name lookup from leasing_reports (inquiry_id -> name)
+    // Also fetch all inquiries for baseline conversion calculation
+    let inquiriesQuery = supabase.from('leasing_reports').select('inquiry_id, name, guest_card_id, inquiry_received');
+    if (startDate) inquiriesQuery = inquiriesQuery.gte('inquiry_received', startDate);
+    if (endDate) inquiriesQuery = inquiriesQuery.lte('inquiry_received', endDate + 'T23:59:59');
+    if (property && property !== 'all') inquiriesQuery = inquiriesQuery.eq('property', property);
+    
+    const { data: leasingData } = await inquiriesQuery;
+    
+    const nameLookup = {};
+    const guestCardLookup = {};
+    const dailyInquiryCounts = {}; // For conversion percentage baseline
+    
+    const weeklyInquiryCounts = {}; // For weekly conversion percentage baseline
+    
+    leasingData?.forEach(row => {
+      if (row.inquiry_id && row.name) {
+        nameLookup[row.inquiry_id] = row.name;
       }
+      if (row.guest_card_id && row.name) {
+        guestCardLookup[row.guest_card_id] = row.name;
+      }
+      // Count inquiries by date and week for conversion baseline
+      if (row.inquiry_received) {
+        const date = new Date(row.inquiry_received);
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        dailyInquiryCounts[dateStr] = (dailyInquiryCounts[dateStr] || 0) + 1;
+        
+        // Weekly count
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay());
+        const weekStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+        weeklyInquiryCounts[weekStr] = (weeklyInquiryCounts[weekStr] || 0) + 1;
+      }
+    });
+
+    let allRecords = [];
+
+    for (const currentStage of selectedStages) {
+      let tableName = '';
+      let dateField = '';
+
+      // Determine which table and filters to use based on stage
+      switch (currentStage) {
+        case 'inquiries':
+          tableName = 'leasing_reports';
+          dateField = 'inquiry_received';
+          break;
+        case 'showings_scheduled':
+          tableName = 'showings';
+          dateField = 'showing_time';
+          break;
+        case 'showings_completed':
+          tableName = 'showings';
+          dateField = 'showing_time';
+          break;
+        case 'applications':
+          tableName = 'rental_applications';
+          dateField = 'received';
+          break;
+        case 'tenants':
+          tableName = 'rental_applications';
+          dateField = 'received';
+          break;
+        default:
+          continue;
+      }
+
+      // Build query based on stage
+      let query = supabase.from(tableName).select('*');
+
+      // Apply date filters
+      if (startDate) query = query.gte(dateField, startDate);
+      if (endDate) query = query.lte(dateField, endDate + 'T23:59:59');
+
+      // Apply stage-specific filters
+      if (currentStage === 'showings_completed') {
+        query = query.eq('status', 'Completed');
+      } else if (currentStage === 'tenants') {
+        query = query.or('status.eq.Converted,status.eq.Converting,application_status.eq.Approved');
+      }
+
+      // Apply property filter for tables that have it
+      if (property && property !== 'all') {
+        if (tableName === 'leasing_reports' || tableName === 'showings') {
+          query = query.eq('property', property);
+        }
+      }
+
+      const { data: records, error } = await query;
+      if (error) throw error;
+
+      // Enrich records with names from lookup and add stage info
+      const enrichedRecords = (records || []).map(record => {
+        let resolvedName = record.name || record.guest_card_name || record.applicants;
+        
+        // Try to resolve name from inquiry_id lookup
+        if ((!resolvedName || resolvedName === 'Unknown') && record.inquiry_id) {
+          resolvedName = nameLookup[record.inquiry_id] || resolvedName;
+        }
+        
+        // Try to resolve name from guest_card_id lookup
+        if ((!resolvedName || resolvedName === 'Unknown') && record.guest_card_id) {
+          resolvedName = guestCardLookup[record.guest_card_id] || resolvedName;
+        }
+        
+        return {
+          ...record,
+          _resolvedName: resolvedName || 'Unknown',
+          _stage: currentStage,
+          _dateField: dateField
+        };
+      });
+
+      allRecords = allRecords.concat(enrichedRecords);
     }
 
-    const { data: records, error } = await query;
-    if (error) throw error;
-
-    // Process data for charts based on stage
-    const result = processStageData(records, stage, dateField);
+    // Process data separately for each stage
+    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts);
 
     return NextResponse.json(result);
   } catch (error) {
@@ -87,20 +159,14 @@ function processStageData(records, stage, dateField) {
     };
   }
 
-  // Get date field based on stage
+  // Get date field based on record's stage (for multi-select support)
   const getDateValue = (record) => {
-    switch (stage) {
-      case 'inquiries':
-        return record.inquiry_received;
-      case 'showings_scheduled':
-      case 'showings_completed':
-        return record.showing_time;
-      case 'applications':
-      case 'tenants':
-        return record.received;
-      default:
-        return record.inquiry_received || record.showing_time || record.received;
+    // Use the _dateField if available (from multi-select enrichment)
+    if (record._dateField) {
+      return record[record._dateField];
     }
+    // Fallback to checking all possible date fields
+    return record.inquiry_received || record.showing_time || record.received;
   };
 
   // Daily data - collect counts and names/IDs
@@ -116,11 +182,12 @@ function processStageData(records, stage, dateField) {
       const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
       
-      // Store name and ID for tooltip
+      // Store name and ID for tooltip - use _resolvedName from cross-reference
       if (!dailyDetails[dateStr]) dailyDetails[dateStr] = [];
-      const name = record.name || record.prospect_name || record.applicant_name || 'Unknown';
-      const id = record.id || record.inquiry_id || '';
-      dailyDetails[dateStr].push({ name, id });
+      const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
+      const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
+      const stage = record._stage || '';
+      dailyDetails[dateStr].push({ name, id, stage });
       
       // Track min/max dates
       if (!minDate || date < minDate) minDate = new Date(date);
@@ -158,11 +225,12 @@ function processStageData(records, stage, dateField) {
       const weekStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
       weeklyCounts[weekStr] = (weeklyCounts[weekStr] || 0) + 1;
       
-      // Store name and ID for tooltip
+      // Store name and ID for tooltip - use _resolvedName from cross-reference
       if (!weeklyDetails[weekStr]) weeklyDetails[weekStr] = [];
-      const name = record.name || record.prospect_name || record.applicant_name || 'Unknown';
-      const id = record.id || record.inquiry_id || '';
-      weeklyDetails[weekStr].push({ name, id });
+      const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
+      const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
+      const stage = record._stage || '';
+      weeklyDetails[weekStr].push({ name, id, stage });
       
       // Track min/max weeks
       if (!minWeek || weekStart < minWeek) minWeek = new Date(weekStart);
@@ -245,5 +313,267 @@ function processStageData(records, stage, dateField) {
     statusDistribution,
     sourceDistribution,
     leadTypeDistribution
+  };
+}
+
+function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}) {
+  if (!records || records.length === 0) {
+    return {
+      total: 0,
+      stages: [],
+      dailyDataByStage: {},
+      weeklyDataByStage: {},
+      weeklyConversionByStage: {},
+      allDates: [],
+      allWeeks: [],
+      weeklyInquiryCounts: weeklyInquiryCounts,
+      topProperties: [],
+      statusDistribution: [],
+      sourceDistribution: [],
+      leadTypeDistribution: []
+    };
+  }
+
+  const stageColors = {
+    'inquiries': '#667eea',
+    'showings_scheduled': '#8b5cf6',
+    'showings_completed': '#764ba2',
+    'applications': '#f093fb',
+    'tenants': '#43e97b'
+  };
+
+  const stageNames = {
+    'inquiries': 'Inquiries',
+    'showings_scheduled': 'Showings Scheduled',
+    'showings_completed': 'Showings Completed',
+    'applications': 'Applications',
+    'tenants': 'Tenants'
+  };
+
+  // Get date field based on record's stage
+  const getDateValue = (record) => {
+    if (record._dateField) {
+      return record[record._dateField];
+    }
+    return record.inquiry_received || record.showing_time || record.received;
+  };
+
+  // Find global min/max dates across all records
+  let globalMinDate = null;
+  let globalMaxDate = null;
+  let globalMinWeek = null;
+  let globalMaxWeek = null;
+
+  records.forEach(record => {
+    const dateVal = getDateValue(record);
+    if (dateVal) {
+      const date = new Date(dateVal);
+      if (!globalMinDate || date < globalMinDate) globalMinDate = new Date(date);
+      if (!globalMaxDate || date > globalMaxDate) globalMaxDate = new Date(date);
+      
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - date.getDay());
+      if (!globalMinWeek || weekStart < globalMinWeek) globalMinWeek = new Date(weekStart);
+      if (!globalMaxWeek || weekStart > globalMaxWeek) globalMaxWeek = new Date(weekStart);
+    }
+  });
+
+  // Generate all dates and weeks in range
+  const allDates = [];
+  const allWeeks = [];
+  
+  if (globalMinDate && globalMaxDate) {
+    const currentDate = new Date(globalMinDate);
+    while (currentDate <= globalMaxDate) {
+      const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+      allDates.push(dateStr);
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+  }
+
+  if (globalMinWeek && globalMaxWeek) {
+    const currentWeek = new Date(globalMinWeek);
+    while (currentWeek <= globalMaxWeek) {
+      const weekStr = `${currentWeek.getFullYear()}-${String(currentWeek.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.getDate()).padStart(2, '0')}`;
+      allWeeks.push(weekStr);
+      currentWeek.setDate(currentWeek.getDate() + 7);
+    }
+  }
+
+  // Process data for each stage separately
+  const dailyDataByStage = {};
+  const weeklyDataByStage = {};
+  const stageTotals = {};
+
+  stages.forEach(stage => {
+    const stageRecords = records.filter(r => r._stage === stage);
+    stageTotals[stage] = stageRecords.length;
+
+    // Daily counts for this stage
+    const dailyCounts = {};
+    const dailyDetails = {};
+    
+    stageRecords.forEach(record => {
+      const dateVal = getDateValue(record);
+      if (dateVal) {
+        const date = new Date(dateVal);
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
+        
+        if (!dailyDetails[dateStr]) dailyDetails[dateStr] = [];
+        const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
+        const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
+        dailyDetails[dateStr].push({ name, id });
+      }
+    });
+
+    // Fill in all dates with counts (0 for missing)
+    dailyDataByStage[stage] = {
+      label: stageNames[stage],
+      color: stageColors[stage],
+      data: allDates.map(dateStr => ({
+        date: dateStr,
+        count: dailyCounts[dateStr] || 0,
+        details: dailyDetails[dateStr] || []
+      }))
+    };
+
+    // Weekly counts for this stage
+    const weeklyCounts = {};
+    const weeklyDetails = {};
+    
+    stageRecords.forEach(record => {
+      const dateVal = getDateValue(record);
+      if (dateVal) {
+        const date = new Date(dateVal);
+        const weekStart = new Date(date);
+        weekStart.setDate(date.getDate() - date.getDay());
+        const weekStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+        weeklyCounts[weekStr] = (weeklyCounts[weekStr] || 0) + 1;
+        
+        if (!weeklyDetails[weekStr]) weeklyDetails[weekStr] = [];
+        const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
+        const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
+        weeklyDetails[weekStr].push({ name, id });
+      }
+    });
+
+    // Fill in all weeks with counts (0 for missing)
+    weeklyDataByStage[stage] = {
+      label: stageNames[stage],
+      color: stageColors[stage],
+      data: allWeeks.map(weekStr => ({
+        week: weekStr,
+        count: weeklyCounts[weekStr] || 0,
+        details: weeklyDetails[weekStr] || []
+      }))
+    };
+  });
+
+  // Aggregate distributions across all records
+  const propertyCounts = {};
+  const statusCounts = {};
+  const sourceCounts = {};
+  const leadTypeCounts = {};
+
+  records.forEach(record => {
+    if (record.property) {
+      propertyCounts[record.property] = (propertyCounts[record.property] || 0) + 1;
+    }
+    const status = record.status || record.application_status || 'Unknown';
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
+    const source = record.source || record.lead_source || 'Unknown';
+    sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+    const leadType = record.lead_type || record.type || 'Unknown';
+    leadTypeCounts[leadType] = (leadTypeCounts[leadType] || 0) + 1;
+  });
+
+  const uniqueProperties = new Set(records.map(r => r.property).filter(Boolean));
+
+  // Define the funnel order for calculating conversion from previous stage
+  const funnelOrder = ['inquiries', 'showings_scheduled', 'showings_completed', 'applications', 'tenants'];
+  
+  // Calculate weekly conversion percentages for each stage (as % of previous stage)
+  const weeklyConversionByStage = {};
+  stages.forEach(stage => {
+    const stageIndex = funnelOrder.indexOf(stage);
+    const previousStage = stageIndex > 0 ? funnelOrder[stageIndex - 1] : null;
+    
+    if (stage === 'inquiries') {
+      // Inquiries is the first stage, always 100%
+      weeklyConversionByStage[stage] = {
+        label: stageNames[stage],
+        color: stageColors[stage],
+        data: allWeeks.map(weekStr => ({
+          week: weekStr,
+          percentage: 100,
+          count: weeklyInquiryCounts[weekStr] || 0,
+          baseline: weeklyInquiryCounts[weekStr] || 0,
+          baselineLabel: 'Inquiries'
+        }))
+      };
+    } else {
+      const stageData = weeklyDataByStage[stage];
+      
+      // Get the previous stage's weekly data for baseline
+      let getPreviousStageCount;
+      let baselineLabel;
+      
+      if (previousStage === 'inquiries') {
+        getPreviousStageCount = (weekStr) => weeklyInquiryCounts[weekStr] || 0;
+        baselineLabel = 'Inquiries';
+      } else if (weeklyDataByStage[previousStage]) {
+        getPreviousStageCount = (weekStr, idx) => weeklyDataByStage[previousStage].data[idx]?.count || 0;
+        baselineLabel = stageNames[previousStage];
+      } else {
+        // Fallback to inquiries if previous stage not in selection
+        getPreviousStageCount = (weekStr) => weeklyInquiryCounts[weekStr] || 0;
+        baselineLabel = 'Inquiries';
+      }
+      
+      weeklyConversionByStage[stage] = {
+        label: `${stageNames[stage]} (from ${baselineLabel})`,
+        color: stageColors[stage],
+        data: allWeeks.map((weekStr, idx) => {
+          const stageCount = stageData.data[idx]?.count || 0;
+          const previousCount = getPreviousStageCount(weekStr, idx);
+          const percentage = previousCount > 0 ? Math.round((stageCount / previousCount) * 100) : 0;
+          return {
+            week: weekStr,
+            percentage,
+            count: stageCount,
+            baseline: previousCount,
+            baselineLabel: baselineLabel
+          };
+        })
+      };
+    }
+  });
+
+  return {
+    total: records.length,
+    stageTotals,
+    propertyCount: uniqueProperties.size,
+    stages,
+    allDates,
+    allWeeks,
+    dailyDataByStage,
+    weeklyDataByStage,
+    weeklyConversionByStage,
+    weeklyInquiryCounts,
+    topProperties: Object.entries(propertyCounts)
+      .map(([property, count]) => ({ property, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+    statusDistribution: Object.entries(statusCounts)
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => b.count - a.count),
+    sourceDistribution: Object.entries(sourceCounts)
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8),
+    leadTypeDistribution: Object.entries(leadTypeCounts)
+      .map(([lead_type, count]) => ({ lead_type, count }))
+      .sort((a, b) => b.count - a.count)
   };
 }

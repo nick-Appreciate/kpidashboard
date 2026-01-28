@@ -154,6 +154,36 @@ export async function GET(request) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
     
+    // Get the most recent data insert timestamp across all tables
+    const { data: lastLeasingInsert } = await supabase
+      .from('leasing_reports')
+      .select('created_at')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    const { data: lastShowingInsert } = await supabase
+      .from('showings')
+      .select('created_at')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    const { data: lastApplicationInsert } = await supabase
+      .from('rental_applications')
+      .select('created_at')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    
+    // Find the most recent timestamp across all tables
+    const timestamps = [
+      lastLeasingInsert?.[0]?.created_at,
+      lastShowingInsert?.[0]?.created_at,
+      lastApplicationInsert?.[0]?.created_at
+    ].filter(Boolean).map(t => new Date(t));
+    
+    const lastDataInsert = timestamps.length > 0 
+      ? new Date(Math.max(...timestamps)).toISOString()
+      : null;
+    
     return Response.json({
       total,
       propertyCount,
@@ -164,7 +194,8 @@ export async function GET(request) {
       monthlyData,
       topProperties,
       sourceDistribution,
-      unitTypeDistribution
+      unitTypeDistribution,
+      lastDataInsert
     });
     
   } catch (error) {

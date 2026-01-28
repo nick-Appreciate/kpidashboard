@@ -11,22 +11,70 @@ export default function Dashboard() {
   const [statuses, setStatuses] = useState([]);
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [dateRange, setDateRange] = useState('last_month'); // Preset date range
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [selectedStage, setSelectedStage] = useState(null); // null = no stage selected, charts hidden
+  const [selectedStages, setSelectedStages] = useState([]); // array for multi-select
   const [stageStats, setStageStats] = useState(null);
   
   // Chart refs
   const statusChartRef = useRef(null);
   const weeklyChartRef = useRef(null);
   const dailyChartRef = useRef(null);
+  const conversionChartRef = useRef(null);
   const propertyChartRef = useRef(null);
   const leadTypeChartRef = useRef(null);
   const sourceChartRef = useRef(null);
   const unitTypeChartRef = useRef(null);
+  
+  // Calculate date range based on preset
+  const getDateRangeFromPreset = (preset) => {
+    const today = new Date();
+    const formatDate = (date) => date.toISOString().split('T')[0];
+    
+    switch (preset) {
+      case 'today':
+        return { start: formatDate(today), end: formatDate(today) };
+      case 'last_week': {
+        const lastWeekStart = new Date(today);
+        lastWeekStart.setDate(today.getDate() - 7);
+        return { start: formatDate(lastWeekStart), end: formatDate(today) };
+      }
+      case 'last_month': {
+        const lastMonthStart = new Date(today);
+        lastMonthStart.setMonth(today.getMonth() - 1);
+        return { start: formatDate(lastMonthStart), end: formatDate(today) };
+      }
+      case 'last_quarter': {
+        const lastQuarterStart = new Date(today);
+        lastQuarterStart.setMonth(today.getMonth() - 3);
+        return { start: formatDate(lastQuarterStart), end: formatDate(today) };
+      }
+      case 'last_year': {
+        const lastYearStart = new Date(today);
+        lastYearStart.setFullYear(today.getFullYear() - 1);
+        return { start: formatDate(lastYearStart), end: formatDate(today) };
+      }
+      case 'all_time':
+        return { start: '', end: '' };
+      case 'custom':
+        return null; // Don't change dates for custom
+      default:
+        return { start: '', end: '' };
+    }
+  };
+  
+  // Update dates when preset changes
+  useEffect(() => {
+    const range = getDateRangeFromPreset(dateRange);
+    if (range) {
+      setStartDate(range.start);
+      setEndDate(range.end);
+    }
+  }, [dateRange]);
   
   // Fetch data
   useEffect(() => {
@@ -35,17 +83,17 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [selectedProperty, selectedStatus, startDate, endDate]);
   
-  // Fetch stage-specific data when a stage is selected or filters change
+  // Fetch stage-specific data when stages are selected or filters change
   useEffect(() => {
     const fetchStageData = async () => {
-      if (!selectedStage) {
+      if (selectedStages.length === 0) {
         setStageStats(null);
         return;
       }
       
       try {
         const params = new URLSearchParams();
-        params.append('stage', selectedStage);
+        params.append('stages', selectedStages.join(','));
         if (selectedProperty !== 'all') params.append('property', selectedProperty);
         if (startDate) params.append('startDate', startDate);
         if (endDate) params.append('endDate', endDate);
@@ -59,7 +107,7 @@ export default function Dashboard() {
     };
     
     fetchStageData();
-  }, [selectedStage, selectedProperty, startDate, endDate]);
+  }, [selectedStages, selectedProperty, startDate, endDate]);
   
   const handleStageClick = (stageName) => {
     // Map stage names to API stage values
@@ -73,16 +121,18 @@ export default function Dashboard() {
     
     const stageKey = stageMap[stageName];
     
-    // Toggle selection - if clicking same stage, deselect
-    if (selectedStage === stageKey) {
-      setSelectedStage(null);
-    } else {
-      setSelectedStage(stageKey);
-    }
+    // Multi-select toggle - add or remove from array
+    setSelectedStages(prev => {
+      if (prev.includes(stageKey)) {
+        return prev.filter(s => s !== stageKey);
+      } else {
+        return [...prev, stageKey];
+      }
+    });
   };
   
-  // Get display name for selected stage
-  const getStageDisplayName = () => {
+  // Get display names for selected stages
+  const getStageDisplayNames = () => {
     const nameMap = {
       'inquiries': 'Inquiries',
       'showings_scheduled': 'Showings Scheduled',
@@ -90,7 +140,7 @@ export default function Dashboard() {
       'applications': 'Applications',
       'tenants': 'Tenants'
     };
-    return nameMap[selectedStage] || '';
+    return selectedStages.map(s => nameMap[s]).filter(Boolean).join(', ');
   };
   
   const fetchData = async () => {
@@ -127,7 +177,12 @@ export default function Dashboard() {
       const statusesData = await statusesRes.json();
       setStatuses(statusesData || []);
       
-      setLastUpdated(new Date());
+      // Use the last data insert time from Supabase
+      if (statsData.lastDataInsert) {
+        setLastUpdated(new Date(statsData.lastDataInsert));
+      } else {
+        setLastUpdated(new Date());
+      }
       setError(null);
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -139,135 +194,234 @@ export default function Dashboard() {
   
   // Update charts when stage stats change
   useEffect(() => {
-    if (!selectedStage || !stageStats) return;
+    if (selectedStages.length === 0 || !stageStats) return;
     
-    updateChartsWithData(stageStats, getStageDisplayName());
+    updateChartsWithData(stageStats, getStageDisplayNames());
     
     return () => {
-      [statusChartRef, weeklyChartRef, dailyChartRef, propertyChartRef, leadTypeChartRef, sourceChartRef, unitTypeChartRef].forEach(ref => {
+      [weeklyChartRef, dailyChartRef, propertyChartRef, leadTypeChartRef, sourceChartRef, statusChartRef].forEach(ref => {
         if (ref.current?.chart) {
           ref.current.chart.destroy();
         }
       });
     };
-  }, [stageStats, selectedStage]);
+  }, [stageStats, selectedStages]);
   
   const updateChartsWithData = (data, stageName) => {
-    const stageColor = {
-      'Inquiries': '#667eea',
-      'Showings Scheduled': '#8b5cf6',
-      'Showings Completed': '#764ba2',
-      'Applications': '#f093fb',
-      'Tenants': '#43e97b'
-    }[stageName] || '#667eea';
-
-    if (weeklyChartRef.current && data.weeklyData?.length > 0) {
-      const ctx = weeklyChartRef.current.getContext('2d');
-      if (weeklyChartRef.current.chart) weeklyChartRef.current.chart.destroy();
+    // Check if we have multi-stage data (new format) or single stage data (old format)
+    const isMultiStage = data.dailyDataByStage && Object.keys(data.dailyDataByStage).length > 0;
+    
+    if (isMultiStage) {
+      // Multi-stage: create separate datasets for each stage
+      const stages = data.stages || [];
       
-      // Store details for tooltip
-      const weeklyDetails = data.weeklyData.map(w => w.details || []);
-      
-      weeklyChartRef.current.chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: data.weeklyData.map(w => {
-            const [year, month, day] = w.week.split('-').map(Number);
-            const weekStart = new Date(year, month - 1, day);
-            const weekEnd = new Date(year, month - 1, day + 6);
-            return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
-          }),
-          datasets: [{
-            label: `Weekly ${stageName}`,
-            data: data.weeklyData.map(w => w.count),
-            borderColor: stageColor,
-            backgroundColor: `${stageColor}20`,
-            fill: true,
-            tension: 0.4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { 
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                afterBody: function(context) {
-                  const idx = context[0].dataIndex;
-                  const details = weeklyDetails[idx];
-                  if (!details || details.length === 0) return '';
-                  
-                  const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
-                  if (details.length > 10) {
-                    lines.push(`... and ${details.length - 10} more`);
+      // Weekly chart with multiple lines
+      if (weeklyChartRef.current && data.allWeeks?.length > 0) {
+        const ctx = weeklyChartRef.current.getContext('2d');
+        if (weeklyChartRef.current.chart) weeklyChartRef.current.chart.destroy();
+        
+        // Build datasets for each stage
+        const datasets = stages.map(stage => {
+          const stageData = data.weeklyDataByStage[stage];
+          return {
+            label: stageData.label,
+            data: stageData.data.map(w => w.count),
+            borderColor: stageData.color,
+            backgroundColor: `${stageData.color}40`,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          };
+        });
+        
+        // Store details for tooltips (indexed by stage then by week index)
+        const weeklyDetailsByStage = {};
+        stages.forEach(stage => {
+          weeklyDetailsByStage[stage] = data.weeklyDataByStage[stage].data.map(w => w.details || []);
+        });
+        
+        weeklyChartRef.current.chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.allWeeks.map(w => {
+              const [year, month, day] = w.split('-').map(Number);
+              const weekStart = new Date(year, month - 1, day);
+              const weekEnd = new Date(year, month - 1, day + 6);
+              return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
+            }),
+            datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { 
+              legend: { display: true, position: 'top' },
+              tooltip: {
+                callbacks: {
+                  afterBody: function(context) {
+                    const idx = context[0].dataIndex;
+                    const datasetIndex = context[0].datasetIndex;
+                    const stage = stages[datasetIndex];
+                    const details = weeklyDetailsByStage[stage]?.[idx] || [];
+                    if (details.length === 0) return '';
+                    
+                    const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
+                    if (details.length > 10) {
+                      lines.push(`... and ${details.length - 10} more`);
+                    }
+                    return lines;
                   }
-                  return lines;
                 }
               }
-            }
-          },
-          scales: { 
-            y: { beginAtZero: true, ticks: { stepSize: 1 } },
-            x: { 
-              ticks: { maxRotation: 45, minRotation: 45 },
-              title: { display: true, text: 'Week (Start - End)' }
+            },
+            scales: { 
+              y: { beginAtZero: true, ticks: { stepSize: 1 } },
+              x: { 
+                ticks: { maxRotation: 45, minRotation: 45 },
+                title: { display: true, text: 'Week (Start - End)' }
+              }
             }
           }
-        }
-      });
+        });
+      }
+      
+      // Daily chart with grouped bars
+      if (dailyChartRef.current && data.allDates?.length > 0) {
+        const ctx = dailyChartRef.current.getContext('2d');
+        if (dailyChartRef.current.chart) dailyChartRef.current.chart.destroy();
+        
+        // Build datasets for each stage
+        const datasets = stages.map(stage => {
+          const stageData = data.dailyDataByStage[stage];
+          return {
+            label: stageData.label,
+            data: stageData.data.map(d => d.count),
+            backgroundColor: stageData.color,
+            borderColor: stageData.color,
+            borderWidth: 1
+          };
+        });
+        
+        // Store details for tooltips
+        const dailyDetailsByStage = {};
+        stages.forEach(stage => {
+          dailyDetailsByStage[stage] = data.dailyDataByStage[stage].data.map(d => d.details || []);
+        });
+        
+        dailyChartRef.current.chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: data.allDates.map(d => {
+              const [year, month, day] = d.split('-').map(Number);
+              return `${month}/${day}`;
+            }),
+            datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { 
+              legend: { display: true, position: 'top' },
+              tooltip: {
+                callbacks: {
+                  afterBody: function(context) {
+                    const idx = context[0].dataIndex;
+                    const datasetIndex = context[0].datasetIndex;
+                    const stage = stages[datasetIndex];
+                    const details = dailyDetailsByStage[stage]?.[idx] || [];
+                    if (details.length === 0) return '';
+                    
+                    const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
+                    if (details.length > 10) {
+                      lines.push(`... and ${details.length - 10} more`);
+                    }
+                    return lines;
+                  }
+                }
+              }
+            },
+            scales: { 
+              y: { beginAtZero: true, ticks: { stepSize: 1 } },
+              x: { ticks: { maxRotation: 45, minRotation: 45 } }
+            }
+          }
+        });
+      }
+      
+      // Weekly Conversion percentage chart (line chart showing % over time)
+      if (conversionChartRef.current && data.weeklyConversionByStage && data.allWeeks?.length > 0) {
+        const ctx = conversionChartRef.current.getContext('2d');
+        if (conversionChartRef.current.chart) conversionChartRef.current.chart.destroy();
+        
+        // Build datasets for each stage (excluding inquiries since it's always 100%)
+        const conversionDatasets = stages
+          .filter(stage => stage !== 'inquiries')
+          .map(stage => {
+            const stageData = data.weeklyConversionByStage[stage];
+            return {
+              label: stageData.label,
+              data: stageData.data.map(d => d.percentage),
+              borderColor: stageData.color,
+              backgroundColor: `${stageData.color}20`,
+              fill: false,
+              tension: 0.4,
+              pointRadius: 4,
+              pointHoverRadius: 6
+            };
+          });
+        
+        conversionChartRef.current.chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.allWeeks.map(w => {
+              const [year, month, day] = w.split('-').map(Number);
+              const weekStart = new Date(year, month - 1, day);
+              const weekEnd = new Date(year, month - 1, day + 6);
+              return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
+            }),
+            datasets: conversionDatasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { 
+              legend: { display: true, position: 'top' },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const stage = stages.filter(s => s !== 'inquiries')[context.datasetIndex];
+                    const convData = data.weeklyConversionByStage[stage]?.data[context.dataIndex];
+                    if (convData) {
+                      return `${context.dataset.label}: ${convData.percentage}% (${convData.count}/${convData.baseline} ${convData.baselineLabel || 'previous stage'})`;
+                    }
+                    return `${context.dataset.label}: ${context.parsed.y}%`;
+                  }
+                }
+              }
+            },
+            scales: { 
+              y: { 
+                beginAtZero: true, 
+                max: 100,
+                ticks: { 
+                  callback: function(value) { return value + '%'; }
+                },
+                title: { display: true, text: 'Conversion Rate (%)' }
+              },
+              x: { 
+                ticks: { maxRotation: 45, minRotation: 45 },
+                title: { display: true, text: 'Week' }
+              }
+            }
+          }
+        });
+      }
     }
     
-    if (dailyChartRef.current && data.dailyData?.length > 0) {
-      const ctx = dailyChartRef.current.getContext('2d');
-      if (dailyChartRef.current.chart) dailyChartRef.current.chart.destroy();
-      
-      // Store details for tooltip
-      const dailyDetails = data.dailyData.map(d => d.details || []);
-      
-      dailyChartRef.current.chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: data.dailyData.map(d => {
-            const [year, month, day] = d.inquiry_date.split('-').map(Number);
-            return `${month}/${day}`;
-          }),
-          datasets: [{
-            label: `Daily ${stageName}`,
-            data: data.dailyData.map(d => d.count),
-            backgroundColor: stageColor,
-            borderColor: stageColor,
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { 
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                afterBody: function(context) {
-                  const idx = context[0].dataIndex;
-                  const details = dailyDetails[idx];
-                  if (!details || details.length === 0) return '';
-                  
-                  const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
-                  if (details.length > 10) {
-                    lines.push(`... and ${details.length - 10} more`);
-                  }
-                  return lines;
-                }
-              }
-            }
-          },
-          scales: { 
-            y: { beginAtZero: true, ticks: { stepSize: 1 } },
-            x: { ticks: { maxRotation: 45, minRotation: 45 } }
-          }
-        }
-      });
-    }
+    // Property, lead type, source, and status charts work the same for single or multi-stage
+    // Use a default color for aggregated data
+    const defaultColor = '#667eea';
     
     if (propertyChartRef.current && data.topProperties?.length > 0) {
       const ctx = propertyChartRef.current.getContext('2d');
@@ -281,9 +435,9 @@ export default function Dashboard() {
             return parts[0].trim().substring(0, 30) + '...';
           }),
           datasets: [{
-            label: stageName,
+            label: stageName || 'Count',
             data: data.topProperties.map(p => p.count),
-            backgroundColor: stageColor
+            backgroundColor: defaultColor
           }]
         },
         options: {
@@ -559,13 +713,13 @@ export default function Dashboard() {
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 mb-6">
           <h1 className="text-3xl md:text-4xl font-bold text-indigo-600 mb-2">
-            Guest Card Inquiries Dashboard
+            Leasing Dashboard
           </h1>
           <p className="text-gray-600">
             Real-time property inquiry analytics
             {lastUpdated && (
               <span className="text-gray-400 text-sm ml-2">
-                • Last updated: {lastUpdated.toLocaleTimeString()}
+                • Last data sync: {lastUpdated.toLocaleDateString()} {lastUpdated.toLocaleTimeString()}
               </span>
             )}
           </p>
@@ -614,38 +768,55 @@ export default function Dashboard() {
           <div className="flex flex-col md:flex-row gap-4 mt-4">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Start Date
+                Date Range
               </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+              <select
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value)}
                 disabled={loading}
-                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-              />
+                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
+              >
+                <option value="today">Today</option>
+                <option value="last_week">Last 7 Days</option>
+                <option value="last_month">Last 30 Days</option>
+                <option value="last_quarter">Last 90 Days</option>
+                <option value="last_year">Last Year</option>
+                <option value="all_time">All Time</option>
+                <option value="custom">Custom Range</option>
+              </select>
             </div>
             
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                End Date
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                disabled={loading}
-                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-              />
-            </div>
+            {dateRange === 'custom' && (
+              <>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    disabled={loading}
+                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+                
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    disabled={loading}
+                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+              </>
+            )}
             
             <div className="flex items-end gap-2">
-              <button
-                onClick={() => { setStartDate(''); setEndDate(''); }}
-                disabled={loading || (!startDate && !endDate)}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Clear Dates
-              </button>
               <button
                 onClick={fetchData}
                 disabled={loading}
@@ -666,25 +837,33 @@ export default function Dashboard() {
             <p className="text-gray-500 text-sm mb-4">
               Click on any stage to view detailed analytics for that stage
             </p>
-            {selectedStage && (
-              <div className="mb-4 flex items-center gap-2">
+            {selectedStages.length > 0 && (
+              <div className="mb-4 flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-gray-600">Viewing:</span>
-                <span className="px-3 py-1 rounded-full text-white text-sm font-medium" style={{
-                  backgroundColor: {
-                    'inquiries': '#667eea',
-                    'showings_scheduled': '#8b5cf6',
-                    'showings_completed': '#764ba2',
-                    'applications': '#f093fb',
-                    'tenants': '#43e97b'
-                  }[selectedStage]
-                }}>
-                  {getStageDisplayName()}
-                </span>
+                {selectedStages.map(stageKey => (
+                  <span key={stageKey} className="px-3 py-1 rounded-full text-white text-sm font-medium" style={{
+                    backgroundColor: {
+                      'inquiries': '#667eea',
+                      'showings_scheduled': '#8b5cf6',
+                      'showings_completed': '#764ba2',
+                      'applications': '#f093fb',
+                      'tenants': '#43e97b'
+                    }[stageKey]
+                  }}>
+                    {{
+                      'inquiries': 'Inquiries',
+                      'showings_scheduled': 'Showings Scheduled',
+                      'showings_completed': 'Showings Completed',
+                      'applications': 'Applications',
+                      'tenants': 'Tenants'
+                    }[stageKey]}
+                  </span>
+                ))}
                 <button 
-                  onClick={() => setSelectedStage(null)}
+                  onClick={() => setSelectedStages([])}
                   className="text-xs text-gray-500 hover:text-gray-700 underline"
                 >
-                  Clear selection
+                  Clear all
                 </button>
               </div>
             )}
@@ -693,7 +872,6 @@ export default function Dashboard() {
             <div className="mb-8">
               {funnelData.stages.map((stage, idx) => {
                 const widthPercent = Math.max(35, 100 - (idx * 14));
-                const nextStage = funnelData.stages[idx + 1];
                 const showFallout = stage.fallout && stage.fallout.count > 0;
                 const stageKey = {
                   'Inquiries': 'inquiries',
@@ -702,51 +880,12 @@ export default function Dashboard() {
                   'Applications': 'applications',
                   'Tenants': 'tenants'
                 }[stage.name];
-                const isSelected = selectedStage === stageKey;
+                const isSelected = selectedStages.includes(stageKey);
                 
                 return (
                   <div key={stage.name}>
-                    {/* Main Stage Row */}
-                    <div className="flex items-center">
-                      {/* Funnel Bar - Left Side */}
-                      <div className="flex-1 flex justify-start pl-4 md:pl-8">
-                        <div 
-                          onClick={() => handleStageClick(stage.name)}
-                          className={`py-4 px-5 text-white font-semibold rounded-xl transition-all cursor-pointer shadow-lg ${
-                            isSelected 
-                              ? 'ring-4 ring-offset-2 ring-gray-400 scale-[1.02]' 
-                              : 'hover:scale-[1.02] hover:shadow-xl'
-                          }`}
-                          style={{ 
-                            width: `${widthPercent}%`,
-                            backgroundColor: stage.color,
-                            minWidth: '200px'
-                          }}
-                        >
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm md:text-base font-medium">{stage.name}</span>
-                              {isSelected && (
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                </svg>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <span className="text-2xl md:text-3xl font-bold">{stage.count.toLocaleString()}</span>
-                              {stage.conversionFromPrevious !== null && (
-                                <span className="text-xs ml-2 opacity-75 bg-white/20 px-2 py-0.5 rounded">
-                                  {stage.conversionFromPrevious}%
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Fallout Section - Between Stages */}
-                    {showFallout && idx < funnelData.stages.length - 1 && (
+                    {/* Fallout Section - BEFORE the stage (shows loss from previous stage to this one) */}
+                    {showFallout && idx > 0 && (
                       <div className="flex items-stretch my-1">
                         {/* Connector Line */}
                         <div className="w-16 md:w-24 flex justify-center">
@@ -786,8 +925,8 @@ export default function Dashboard() {
                       </div>
                     )}
                     
-                    {/* Simple connector for stages without fallout or last stage */}
-                    {(!showFallout && idx < funnelData.stages.length - 1) && (
+                    {/* Simple connector for stages without fallout (except first stage) */}
+                    {(!showFallout && idx > 0) && (
                       <div className="flex my-2">
                         <div className="w-16 md:w-24 flex justify-center">
                           <div className="text-gray-400 text-2xl">↓</div>
@@ -795,7 +934,46 @@ export default function Dashboard() {
                       </div>
                     )}
                     
-                    {/* Final stage fallout (Denied) */}
+                    {/* Main Stage Row */}
+                    <div className="flex items-center">
+                      {/* Funnel Bar - Left Side */}
+                      <div className="flex-1 flex justify-start pl-4 md:pl-8">
+                        <div 
+                          onClick={() => handleStageClick(stage.name)}
+                          className={`py-4 px-5 text-white font-semibold rounded-xl transition-all cursor-pointer shadow-lg ${
+                            isSelected 
+                              ? 'ring-4 ring-offset-2 ring-gray-400 scale-[1.02]' 
+                              : 'hover:scale-[1.02] hover:shadow-xl'
+                          }`}
+                          style={{ 
+                            width: `${widthPercent}%`,
+                            backgroundColor: stage.color,
+                            minWidth: '200px'
+                          }}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm md:text-base font-medium">{stage.name}</span>
+                              {isSelected && (
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-2xl md:text-3xl font-bold">{stage.count.toLocaleString()}</span>
+                              {stage.conversionFromPrevious !== null && (
+                                <span className="text-xs ml-2 opacity-75 bg-white/20 px-2 py-0.5 rounded">
+                                  {stage.conversionFromPrevious}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Final stage fallout (Denied) - shown AFTER the Tenants stage */}
                     {showFallout && idx === funnelData.stages.length - 1 && (
                       <div className="flex items-center mt-2 ml-16 md:ml-24">
                         <div className="text-gray-400 text-lg mr-2">↳</div>
@@ -869,20 +1047,20 @@ export default function Dashboard() {
           </div>
         )}
         
-        {/* Charts Section - Only visible when a stage is selected */}
-        {selectedStage && stageStats && (
+        {/* Charts Section - Only visible when stages are selected */}
+        {selectedStages.length > 0 && stageStats && (
           <>
-            {/* Stats Cards for Selected Stage */}
+            {/* Stats Cards for Selected Stages */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
-                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Total {getStageDisplayName()}</p>
-                <p className="text-4xl font-bold" style={{ color: {
+                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Total {getStageDisplayNames()}</p>
+                <p className="text-4xl font-bold" style={{ color: selectedStages.length === 1 ? {
                   'inquiries': '#667eea',
                   'showings_scheduled': '#8b5cf6',
                   'showings_completed': '#764ba2',
                   'applications': '#f093fb',
                   'tenants': '#43e97b'
-                }[selectedStage] }}>{stageStats?.total || 0}</p>
+                }[selectedStages[0]] : '#667eea' }}>{stageStats?.total || 0}</p>
               </div>
               <div className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition">
                 <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Properties</p>
@@ -900,15 +1078,24 @@ export default function Dashboard() {
             
             {/* Daily Chart - Full Width */}
             <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Daily {getStageDisplayName()}</h2>
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Daily {getStageDisplayNames()}</h2>
               <canvas ref={dailyChartRef}></canvas>
             </div>
             
             {/* Weekly Chart - Full Width */}
             <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">{getStageDisplayName()} Over Time (Weekly)</h2>
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">{getStageDisplayNames()} Over Time (Weekly)</h2>
               <canvas ref={weeklyChartRef}></canvas>
             </div>
+            
+            {/* Conversion Rate Chart - Full Width */}
+            {selectedStages.some(s => s !== 'inquiries') && (
+              <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Weekly Conversion Rate (% of Previous Stage)</h2>
+                <p className="text-sm text-gray-500 mb-4">Shows what percentage converted from the previous funnel stage each week</p>
+                <canvas ref={conversionChartRef}></canvas>
+              </div>
+            )}
             
             {/* Charts Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -940,15 +1127,15 @@ export default function Dashboard() {
         )}
         
         {/* Prompt to select a stage when none selected */}
-        {!selectedStage && (
+        {selectedStages.length === 0 && (
           <div className="bg-white rounded-2xl shadow-xl p-8 mb-6 text-center">
             <div className="text-gray-400 mb-4">
               <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">Select a Funnel Stage</h3>
-            <p className="text-gray-500">Click on any stage in the funnel above to view detailed analytics and charts for that stage.</p>
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">Select Funnel Stages</h3>
+            <p className="text-gray-500">Click on any stage in the funnel above to view detailed analytics. You can select multiple stages to compare data.</p>
           </div>
         )}
       </div>
