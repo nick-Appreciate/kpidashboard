@@ -34,6 +34,36 @@ interface LeasingRecord {
   rental_application_id: string | null;
 }
 
+interface ShowingRecord {
+  guest_card_name: string | null;
+  email: string | null;
+  phone: string | null;
+  property: string;
+  showing_unit: string | null;
+  showing_time: string | null;
+  confirmation_time: string | null;
+  assigned_user: string | null;
+  description: string | null;
+  status: string | null;
+  type: string | null;
+  last_activity_date: string | null;
+  last_activity_type: string | null;
+  guest_card_id: string | null;
+  guest_card_uuid: string | null;
+  inquiry_id: string | null;
+  showing_id: string | null;
+  unit_type_id: string | null;
+  created_by_id: string | null;
+  assigned_user_id: string | null;
+  lead_type: string | null;
+  source: string | null;
+  rental_application_id: string | null;
+  rental_application_group_id: string | null;
+  rental_application_received: string | null;
+  rental_application_status: string | null;
+  source_file: string | null;
+}
+
 interface PropertyRecord {
   property: string;
   unit: string;
@@ -198,7 +228,96 @@ function parseLeasingReport(
     }
   }
 
-  console.log(`Parsed ${records.length} unique records from ${filename}`);
+  console.log(`Parsed ${records.length} unique leasing records from ${filename}`);
+  return records;
+}
+
+function parseShowingsReport(
+  workbook: XLSX.WorkBook,
+  filename: string
+): ShowingRecord[] {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+  const records: ShowingRecord[] = [];
+  const seen = new Set<string>();
+  let currentProperty = "";
+  
+  // Find header row
+  let startRow = 1;
+  for (let i = 0; i < Math.min(15, data.length); i++) {
+    const row = data[i];
+    if (row && row[0] && String(row[0]).toLowerCase().includes('guest card name')) {
+      startRow = i + 1;
+      console.log(`Found showings header at row ${i}, starting data at row ${startRow}`);
+      break;
+    }
+  }
+
+  for (let i = startRow; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+    if (row.every((cell) => cell === null || cell === undefined || cell === "")) continue;
+
+    const firstCell = row[0] ? String(row[0]) : "";
+    
+    // Property header row
+    if (firstCell.startsWith("->") || firstCell.startsWith("-> ")) {
+      currentProperty = sanitizeString(firstCell.replace(/^->\s*/, "")) || "";
+      continue;
+    }
+    
+    // Skip if only first cell has value (property header without ->)
+    if (row[0] && row.slice(1).every((cell) => cell === null || cell === undefined || cell === "")) {
+      currentProperty = sanitizeString(row[0]) || "";
+      continue;
+    }
+
+    // Data row - must have showing_id (column 16)
+    const showingId = sanitizeString(row[16]);
+    if (!showingId) continue;
+    
+    // Deduplicate by showing_id
+    if (seen.has(showingId)) {
+      continue;
+    }
+    seen.add(showingId);
+    
+    // Use property from column 3 if available, otherwise use currentProperty
+    const property = sanitizeString(row[3]) || currentProperty;
+    
+    records.push({
+      guest_card_name: sanitizeString(row[0]),
+      email: sanitizeString(row[1]),
+      phone: sanitizeString(row[2]),
+      property: property,
+      showing_unit: sanitizeString(row[4]),
+      showing_time: parseExcelDate(row[5]),
+      confirmation_time: parseExcelDate(row[6]),
+      assigned_user: sanitizeString(row[7]),
+      description: sanitizeString(row[8]),
+      status: sanitizeString(row[9]),
+      type: sanitizeString(row[10]),
+      last_activity_date: parseExcelDateOnly(row[11]),
+      last_activity_type: sanitizeString(row[12]),
+      guest_card_id: sanitizeString(row[13]),
+      guest_card_uuid: sanitizeString(row[14]),
+      inquiry_id: sanitizeString(row[15]),
+      showing_id: showingId,
+      unit_type_id: sanitizeString(row[17]),
+      created_by_id: sanitizeString(row[18]),
+      assigned_user_id: sanitizeString(row[19]),
+      lead_type: sanitizeString(row[20]),
+      source: sanitizeString(row[21]),
+      rental_application_id: sanitizeString(row[22]),
+      rental_application_group_id: sanitizeString(row[23]),
+      rental_application_received: parseExcelDate(row[24]),
+      rental_application_status: sanitizeString(row[25]),
+      source_file: filename,
+    });
+  }
+
+  console.log(`Parsed ${records.length} unique showing records from ${filename}`);
   return records;
 }
 
@@ -320,7 +439,33 @@ Deno.serve(async (req) => {
 
     let result: { table: string; inserted: number; total: number };
 
-    if (filenameLower.includes("guest_card") || filenameLower.includes("leasing")) {
+    if (filenameLower.includes("showing")) {
+      // Showings report
+      const records = parseShowingsReport(workbook, filename);
+
+      if (records.length === 0) {
+        return new Response(JSON.stringify({ error: "No records parsed from showings report" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const { data, error } = await supabase
+        .from("showings")
+        .upsert(records, { onConflict: "showing_id" })
+        .select();
+
+      if (error) {
+        console.error("Upsert error:", error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      result = { table: "showings", inserted: data?.length || 0, total: records.length };
+    } else if (filenameLower.includes("guest_card") || filenameLower.includes("leasing")) {
+      // Leasing report
       const records = parseLeasingReport(workbook, filename);
 
       if (records.length === 0) {
@@ -371,7 +516,7 @@ Deno.serve(async (req) => {
     } else {
       return new Response(
         JSON.stringify({
-          error: "Unknown report type. Filename must contain 'guest_card', 'leasing', 'rent_roll', or 'property'",
+          error: "Unknown report type. Filename must contain 'showing', 'guest_card', 'leasing', 'rent_roll', or 'property'",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
