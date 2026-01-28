@@ -30,6 +30,8 @@ interface LeasingRecord {
   follow_ups: number | null;
   source_file: string | null;
   inquiry_id: string | null;
+  guest_card_id: string | null;
+  rental_application_id: string | null;
 }
 
 interface PropertyRecord {
@@ -55,6 +57,12 @@ interface PropertyRecord {
   lease_from: string | null;
   lease_to: string | null;
   source_file: string | null;
+}
+
+function sanitizeString(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  // Remove any problematic Unicode characters and escape sequences
+  return String(value).replace(/[\x00-\x1F\x7F]/g, "").trim() || null;
 }
 
 function parseExcelDate(value: unknown): string | null {
@@ -164,26 +172,28 @@ function parseLeasingReport(
       records.push({
         property: currentProperty,
         name: name,
-        email: row[1] ? String(row[1]) : null,
-        phone: row[2] ? String(row[2]) : null,
+        email: sanitizeString(row[1]),
+        phone: sanitizeString(row[2]),
         inquiry_received: inquiryReceived,
         first_contact: parseExcelDateOnly(row[4]),
         last_activity_date: parseExcelDateOnly(row[5]),
-        last_activity_type: row[6] ? String(row[6]) : null,
-        status: row[7] ? String(row[7]) : null,
-        move_in_preference: row[8] ? String(row[8]) : null,
-        max_rent: row[9] ? String(row[9]) : null,
-        bed_bath_preference: row[10] ? String(row[10]) : null,
-        pet_preference: row[11] ? String(row[11]) : null,
-        monthly_income: row[12] ? String(row[12]) : null,
-        credit_score: row[13] ? String(row[13]) : null,
-        lead_type: row[14] ? String(row[14]) : null,
-        source: row[15] ? String(row[15]) : null,
-        unit: row[16] ? String(row[16]) : null,
+        last_activity_type: sanitizeString(row[6]),
+        status: sanitizeString(row[7]),
+        move_in_preference: sanitizeString(row[8]),
+        max_rent: sanitizeString(row[9]),
+        bed_bath_preference: sanitizeString(row[10]),
+        pet_preference: sanitizeString(row[11]),
+        monthly_income: sanitizeString(row[12]),
+        credit_score: sanitizeString(row[13]),
+        lead_type: sanitizeString(row[14]),
+        source: sanitizeString(row[15]),
+        unit: sanitizeString(row[16]),
         touch_points: parseInteger(row[17]),
         follow_ups: parseInteger(row[18]),
         source_file: filename,
-        inquiry_id: row.length > 19 && row[19] ? String(row[19]) : null,
+        inquiry_id: sanitizeString(row[19]),
+        guest_card_id: sanitizeString(row[21]),
+        rental_application_id: sanitizeString(row[22]),
       });
     }
   }
