@@ -109,6 +109,31 @@ interface PropertyRecord {
   source_file: string | null;
 }
 
+interface RentRollSnapshotRecord {
+  snapshot_date: string;
+  property: string;
+  unit: string;
+  bed_bath: string | null;
+  status: string | null;
+  sqft: number | null;
+  total_rent: number | null;
+  past_due: number | null;
+  other_charges: number | null;
+  utility_reimbursement: number | null;
+  tenant_rental_income: number | null;
+  cha_income: number | null;
+  iha_income: number | null;
+  kckha_income: number | null;
+  hakc_income: number | null;
+  hud_income: number | null;
+  pet_rent: number | null;
+  storage_fee: number | null;
+  parking_fee: number | null;
+  insurance_services: number | null;
+  lease_from: string | null;
+  lease_to: string | null;
+}
+
 function sanitizeString(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
   // Remove any problematic Unicode characters and escape sequences
@@ -430,6 +455,116 @@ function parseRentalApplicationsReport(
   return records;
 }
 
+function parseRentRollSnapshot(
+  workbook: XLSX.WorkBook,
+  filename: string
+): RentRollSnapshotRecord[] {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+  const records: RentRollSnapshotRecord[] = [];
+  let currentProperty = "";
+  let headerIndex = -1;
+
+  // First, try to extract "As of:" date from file content (usually in first 10 rows)
+  let snapshotDate = "";
+  for (let i = 0; i < Math.min(10, data.length); i++) {
+    const row = data[i];
+    if (!row) continue;
+    for (const cell of row) {
+      if (cell && typeof cell === "string") {
+        // Look for "As of: MM/DD/YYYY" pattern
+        const asOfMatch = cell.match(/As of:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+        if (asOfMatch) {
+          const [, month, day, year] = asOfMatch;
+          snapshotDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          console.log(`Found 'As of' date in file: ${snapshotDate}`);
+          break;
+        }
+      }
+    }
+    if (snapshotDate) break;
+  }
+  
+  // Fallback: try filename pattern (YYYYMMDD)
+  if (!snapshotDate) {
+    const dateMatch = filename.match(/(\d{4})(\d{2})(\d{2})/);
+    snapshotDate = dateMatch 
+      ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+      : new Date().toISOString().split("T")[0];
+    console.log(`Using filename/fallback date: ${snapshotDate}`);
+  }
+
+  console.log(`Parsing rent roll snapshot for date: ${snapshotDate}`);
+
+  // Find header row
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (row && row[0] === "Unit") {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) return records;
+
+  for (let i = headerIndex + 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.every((cell) => cell === null || cell === undefined || cell === "")) continue;
+
+    const firstCell = row[0] ? String(row[0]).trim() : "";
+
+    // Property header row (starts with "->")
+    if (firstCell.startsWith("->")) {
+      const propertyMatch = firstCell.match(/^->\s*(.+?)\s*-\s*.+$/);
+      if (propertyMatch) {
+        currentProperty = propertyMatch[1].trim();
+      } else {
+        currentProperty = firstCell.replace(/^->\s*/, "").trim();
+      }
+      continue;
+    }
+
+    // Skip summary rows (contain "Units" or "Total")
+    if (firstCell.includes("Units") || firstCell.startsWith("Total")) continue;
+
+    // Skip if no property or no unit
+    if (!currentProperty || !firstCell) continue;
+
+    // Skip rows without a status (column 2)
+    const status = row[2] ? String(row[2]).trim() : null;
+    if (!status) continue;
+
+    records.push({
+      snapshot_date: snapshotDate,
+      property: currentProperty,
+      unit: firstCell,
+      bed_bath: row[1] ? String(row[1]) : null,
+      status: status,
+      sqft: parseInteger(row[3]),
+      total_rent: parseNumber(row[4]),
+      past_due: parseNumber(row[5]),
+      other_charges: parseNumber(row[6]),
+      utility_reimbursement: parseNumber(row[7]),
+      tenant_rental_income: parseNumber(row[8]),
+      cha_income: parseNumber(row[9]),
+      iha_income: parseNumber(row[10]),
+      kckha_income: parseNumber(row[11]),
+      hakc_income: parseNumber(row[12]),
+      hud_income: parseNumber(row[13]),
+      pet_rent: parseNumber(row[14]),
+      storage_fee: parseNumber(row[15]),
+      parking_fee: parseNumber(row[16]),
+      insurance_services: parseNumber(row[17]),
+      lease_from: parseExcelDateOnly(row[18]),
+      lease_to: parseExcelDateOnly(row[19]),
+    });
+  }
+
+  console.log(`Parsed ${records.length} rent roll snapshot records for ${snapshotDate}`);
+  return records;
+}
+
 function parsePropertyReport(
   workbook: XLSX.WorkBook,
   filename: string
@@ -499,6 +634,8 @@ function parsePropertyReport(
 Deno.serve(async (req) => {
   try {
     const contentType = req.headers.get("content-type") || "";
+    const url = new URL(req.url);
+    const typeOverride = url.searchParams.get("type")?.toLowerCase();
 
     let filename = "unknown.xlsx";
     let fileBuffer: ArrayBuffer;
@@ -544,9 +681,35 @@ Deno.serve(async (req) => {
     }
 
     const workbook = XLSX.read(new Uint8Array(fileBuffer), { type: "array" });
-    const filenameLower = filename.toLowerCase();
+    // Check filename first for type detection, then fall back to type override
+    const actualFilename = filename.toLowerCase();
+    // Use actual filename for detection - type override only used if filename doesn't match known patterns
+    let filenameLower = actualFilename;
+    
+    // Check content to detect rent roll files (header row starts with "Unit")
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const firstRow: unknown[] = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] as unknown[] || [];
+    const col0 = String(firstRow[0] || "").trim();
+    const col1 = String(firstRow[1] || "").trim();
+    const col2 = String(firstRow[2] || "").trim();
+    const isRentRollByContent = col0 === "Unit" && col1 === "BD/BA" && col2 === "Status";
+    
+    console.log(`First row detection: col0="${col0}", col1="${col1}", col2="${col2}", isRentRoll=${isRentRollByContent}`);
+    
+    if (isRentRollByContent) {
+      filenameLower = "rent_roll";
+      console.log("Detected rent roll file by content (Unit/BD/BA/Status header)");
+    } else {
+      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property"];
+      const matchesKnownPattern = knownPatterns.some(p => actualFilename.includes(p));
+      if (!matchesKnownPattern && typeOverride) {
+        filenameLower = typeOverride;
+      }
+    }
+    
+    console.log(`Processing file: ${filename}, type detection: ${filenameLower}, type override: ${typeOverride}`);
 
-    let result: { table: string; inserted: number; total: number };
+    let result: { table: string; inserted: number; total: number; snapshot_date?: string };
 
     if (filenameLower.includes("rental_application") || filenameLower.includes("application")) {
       // Rental Applications report
@@ -623,7 +786,46 @@ Deno.serve(async (req) => {
       }
 
       result = { table: "leasing_reports", inserted: data?.length || 0, total: records.length };
-    } else if (filenameLower.includes("rent_roll") || filenameLower.includes("property")) {
+    } else if (filenameLower.includes("rent_roll")) {
+      // Rent Roll Snapshot - daily snapshot data
+      const records = parseRentRollSnapshot(workbook, filename);
+
+      if (records.length === 0) {
+        return new Response(JSON.stringify({ error: "No records parsed from rent roll report" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Get the snapshot date from the first record
+      const snapshotDate = records[0].snapshot_date;
+
+      // Delete existing records for this snapshot date before inserting
+      const { error: deleteError } = await supabase
+        .from("rent_roll_snapshots")
+        .delete()
+        .eq("snapshot_date", snapshotDate);
+
+      if (deleteError) {
+        console.error("Delete error:", deleteError);
+      }
+
+      const { data, error } = await supabase
+        .from("rent_roll_snapshots")
+        .insert(records)
+        .select();
+
+      if (error) {
+        console.error("Insert error:", error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      result = { table: "rent_roll_snapshots", inserted: data?.length || 0, total: records.length, snapshot_date: snapshotDate };
+    } else if (filenameLower.includes("property")) {
+      // Legacy property reports
       const records = parsePropertyReport(workbook, filename);
 
       if (records.length === 0) {

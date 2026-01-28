@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
+import Link from 'next/link';
 
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
@@ -712,17 +713,27 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 mb-6">
-          <h1 className="text-3xl md:text-4xl font-bold text-indigo-600 mb-2">
-            Leasing Dashboard
-          </h1>
-          <p className="text-gray-600">
-            Real-time property inquiry analytics
-            {lastUpdated && (
-              <span className="text-gray-400 text-sm ml-2">
-                • Last data sync: {lastUpdated.toLocaleDateString()} {lastUpdated.toLocaleTimeString()}
-              </span>
-            )}
-          </p>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold text-indigo-600 mb-2">
+                Leasing Dashboard
+              </h1>
+              <p className="text-gray-600">
+                Real-time property inquiry analytics
+                {lastUpdated && (
+                  <span className="text-gray-400 text-sm ml-2">
+                    • Last data sync: {lastUpdated.toLocaleDateString()} {lastUpdated.toLocaleTimeString()}
+                  </span>
+                )}
+              </p>
+            </div>
+            <Link 
+              href="/occupancy"
+              className="mt-4 md:mt-0 inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              Occupancy Dashboard →
+            </Link>
+          </div>
         </div>
         
         {/* Controls */}
