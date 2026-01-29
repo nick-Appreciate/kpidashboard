@@ -134,6 +134,22 @@ interface RentRollSnapshotRecord {
   lease_to: string | null;
 }
 
+interface TenantEventRecord {
+  event_date: string;
+  event_type: string;
+  property: string;
+  unit: string;
+  tags: string | null;
+  tenant_name: string | null;
+  tenant_phone: string | null;
+  tenant_email: string | null;
+  rent: number | null;
+  lease_from: string | null;
+  lease_to: string | null;
+  deposit: number | null;
+  snapshot_date: string;
+}
+
 function sanitizeString(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
   // Remove any problematic Unicode characters and escape sequences
@@ -455,6 +471,82 @@ function parseRentalApplicationsReport(
   return records;
 }
 
+function parseTenantTickler(
+  workbook: XLSX.WorkBook,
+  filename: string
+): TenantEventRecord[] {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+  const records: TenantEventRecord[] = [];
+  
+  // Get snapshot date from filename (YYYYMMDD pattern) or use current date
+  const dateMatch = filename.match(/(\d{4})(\d{2})(\d{2})/);
+  const snapshotDate = dateMatch 
+    ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+    : new Date().toISOString().split("T")[0];
+  
+  console.log(`Parsing tenant tickler for snapshot date: ${snapshotDate}`);
+
+  // Find header row - should have Date, Event, Property, Unit, etc.
+  let headerIndex = -1;
+  for (let i = 0; i < Math.min(10, data.length); i++) {
+    const row = data[i];
+    if (!row) continue;
+    const firstCell = String(row[0] || "").trim().toLowerCase();
+    const secondCell = String(row[1] || "").trim().toLowerCase();
+    if (firstCell === "date" && secondCell === "event") {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) {
+    console.log("Could not find header row in tenant tickler");
+    return records;
+  }
+
+  // Parse data rows
+  for (let i = headerIndex + 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length < 4) continue;
+
+    const eventDate = parseExcelDateOnly(row[0]);
+    const eventType = sanitizeString(row[1]);
+    const propertyRaw = sanitizeString(row[2]);
+    const unit = sanitizeString(row[3]);
+
+    // Skip empty rows or rows without required fields
+    if (!eventDate || !eventType || !propertyRaw || !unit) continue;
+
+    // Extract property name (before the " - " address part)
+    let property = propertyRaw;
+    const dashIndex = propertyRaw.indexOf(" - ");
+    if (dashIndex > 0) {
+      property = propertyRaw.substring(0, dashIndex).trim();
+    }
+
+    records.push({
+      event_date: eventDate,
+      event_type: eventType,
+      property: property,
+      unit: unit,
+      tags: sanitizeString(row[4]),
+      tenant_name: sanitizeString(row[5]),
+      tenant_phone: sanitizeString(row[6])?.replace(/^Phone:\s*/i, "") || null,
+      tenant_email: sanitizeString(row[7]),
+      rent: parseNumber(row[8]),
+      lease_from: parseExcelDateOnly(row[9]),
+      lease_to: parseExcelDateOnly(row[10]),
+      deposit: parseNumber(row[11]),
+      snapshot_date: snapshotDate,
+    });
+  }
+
+  console.log(`Parsed ${records.length} tenant event records from ${filename}`);
+  return records;
+}
+
 function parseRentRollSnapshot(
   workbook: XLSX.WorkBook,
   filename: string
@@ -686,21 +778,25 @@ Deno.serve(async (req) => {
     // Use actual filename for detection - type override only used if filename doesn't match known patterns
     let filenameLower = actualFilename;
     
-    // Check content to detect rent roll files (header row starts with "Unit")
+    // Check content to detect file type by header row
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const firstRow: unknown[] = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] as unknown[] || [];
     const col0 = String(firstRow[0] || "").trim();
     const col1 = String(firstRow[1] || "").trim();
     const col2 = String(firstRow[2] || "").trim();
     const isRentRollByContent = col0 === "Unit" && col1 === "BD/BA" && col2 === "Status";
+    const isTenantTicklerByContent = col0.toLowerCase() === "date" && col1.toLowerCase() === "event" && col2.toLowerCase() === "property";
     
-    console.log(`First row detection: col0="${col0}", col1="${col1}", col2="${col2}", isRentRoll=${isRentRollByContent}`);
+    console.log(`First row detection: col0="${col0}", col1="${col1}", col2="${col2}", isRentRoll=${isRentRollByContent}, isTenantTickler=${isTenantTicklerByContent}`);
     
     if (isRentRollByContent) {
       filenameLower = "rent_roll";
       console.log("Detected rent roll file by content (Unit/BD/BA/Status header)");
+    } else if (isTenantTicklerByContent) {
+      filenameLower = "tenant_tickler";
+      console.log("Detected tenant tickler file by content (Date/Event/Property header)");
     } else {
-      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property"];
+      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property", "tenant_tickler", "tickler"];
       const matchesKnownPattern = knownPatterns.some(p => actualFilename.includes(p));
       if (!matchesKnownPattern && typeOverride) {
         filenameLower = typeOverride;
@@ -824,6 +920,44 @@ Deno.serve(async (req) => {
       }
 
       result = { table: "rent_roll_snapshots", inserted: data?.length || 0, total: records.length, snapshot_date: snapshotDate };
+    } else if (filenameLower.includes("tenant_tickler") || filenameLower.includes("tickler")) {
+      // Tenant Tickler - move-in/move-out/notice events for projections
+      const records = parseTenantTickler(workbook, filename);
+
+      if (records.length === 0) {
+        return new Response(JSON.stringify({ error: "No records parsed from tenant tickler report" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Get the snapshot date from the first record
+      const snapshotDate = records[0].snapshot_date;
+
+      // Delete existing records for this snapshot date before inserting
+      const { error: deleteError } = await supabase
+        .from("tenant_events")
+        .delete()
+        .eq("snapshot_date", snapshotDate);
+
+      if (deleteError) {
+        console.error("Delete error:", deleteError);
+      }
+
+      const { data, error } = await supabase
+        .from("tenant_events")
+        .insert(records)
+        .select();
+
+      if (error) {
+        console.error("Insert error:", error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      result = { table: "tenant_events", inserted: data?.length || 0, total: records.length, snapshot_date: snapshotDate };
     } else if (filenameLower.includes("property")) {
       // Legacy property reports
       const records = parsePropertyReport(workbook, filename);
@@ -852,7 +986,7 @@ Deno.serve(async (req) => {
     } else {
       return new Response(
         JSON.stringify({
-          error: "Unknown report type. Filename must contain 'rental_application', 'application', 'showing', 'guest_card', 'leasing', 'rent_roll', or 'property'",
+          error: "Unknown report type. Filename must contain 'rental_application', 'application', 'showing', 'guest_card', 'leasing', 'rent_roll', 'tenant_tickler', or 'property'",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
