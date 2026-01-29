@@ -440,6 +440,21 @@ export async function GET(request) {
       console.log('No renewal summary data found:', error.message);
     }
     
+    // Get tenant events data as fallback for tenant names
+    let tenantEventsData = [];
+    try {
+      const { data: eventRows, error: eventError } = await supabase
+        .from('tenant_events')
+        .select('property, unit, tenant_name, tenant_phone, tenant_email, rent, lease_from, lease_to')
+        .order('event_date', { ascending: false });
+      
+      if (!eventError && eventRows) {
+        tenantEventsData = eventRows;
+      }
+    } catch (error) {
+      console.log('No tenant events data found:', error.message);
+    }
+    
     // Helper function to normalize property names for matching
     const normalizePropertyName = (name) => {
       if (!name) return '';
@@ -460,6 +475,18 @@ export async function GET(request) {
     const renewalByPropertyUnit = {};  // property-unit -> renewal
     const renewalByUnit = {};          // unit -> [renewals] (for fallback matching)
     const renewalByTenantName = {};    // normalized tenant name -> [renewals]
+    
+    // Create tenant events lookup map
+    const eventsByPropertyUnit = {};  // property-unit -> tenant event record
+    tenantEventsData.forEach(event => {
+      const basePropertyName = normalizePropertyName(event.property);
+      const normalizedUnit = normalizeUnitName(event.unit);
+      const key = `${basePropertyName}-${normalizedUnit}`;
+      // Keep the most recent event record (already sorted by event_date desc)
+      if (!eventsByPropertyUnit[key]) {
+        eventsByPropertyUnit[key] = event;
+      }
+    });
     
     // Helper to score renewal priority (higher = better)
     const getRenewalPriority = (renewal) => {
@@ -554,11 +581,22 @@ export async function GET(request) {
       return null;
     };
     
+    // Function to find tenant events data for a unit (fallback for tenant name)
+    const findTenantEventMatch = (unit) => {
+      const normalizedProperty = normalizePropertyName(unit.property);
+      const normalizedUnit = normalizeUnitName(unit.unit);
+      const key = `${normalizedProperty}-${normalizedUnit}`;
+      return eventsByPropertyUnit[key] || null;
+    };
+    
     currentData.forEach(u => {
       if (u.status === 'Vacant-Unrented' || u.status === 'Vacant-Rented') return;
       
       // Get renewal info for this unit using improved matching
       const renewalInfo = findRenewalMatch(u);
+      
+      // Get tenant events info as fallback for tenant name
+      const tenantEventInfo = !renewalInfo?.tenant_name ? findTenantEventMatch(u) : null;
       
       const baseLeaseInfo = {
         property: u.property,
@@ -566,10 +604,12 @@ export async function GET(request) {
         renewalStatus: renewalInfo?.status || 'Not sent',
         renewalSentDate: renewalInfo?.renewal_sent_date || null,
         countersignedDate: renewalInfo?.countersigned_date || null,
-        tenantName: renewalInfo?.tenant_name || null,
+        tenantName: renewalInfo?.tenant_name || tenantEventInfo?.tenant_name || null,
         rent: renewalInfo?.rent || u.total_rent || null,
         previousRent: renewalInfo?.previous_rent || null,
-        hasRenewalData: !!renewalInfo
+        hasRenewalData: !!renewalInfo,
+        tenantPhone: tenantEventInfo?.tenant_phone || null,
+        tenantEmail: tenantEventInfo?.tenant_email || null
       };
       
       if (u.status === 'Evict') {
