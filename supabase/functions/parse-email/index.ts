@@ -183,11 +183,21 @@ function parseExcelDateOnly(value: unknown): string | null {
   }
   
   if (typeof value === "string") {
-    const parsed = new Date(value);
+    const trimmed = value.trim();
+    // Return null for non-date strings (like "walk-in", "N/A", etc.)
+    if (!/\d/.test(trimmed)) return null;
+    
+    const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (match) {
+      const [, month, day, year] = match;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
       return parsed.toISOString().split("T")[0];
     }
-    return value;
+    // Return null instead of invalid string
+    return null;
   }
   
   return null;
