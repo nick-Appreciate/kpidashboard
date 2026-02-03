@@ -778,30 +778,107 @@ Deno.serve(async (req) => {
     // Use actual filename for detection - type override only used if filename doesn't match known patterns
     let filenameLower = actualFilename;
     
-    // Check content to detect file type by header row
+    // Check content to detect file type by header row - scan first 15 rows for headers
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const firstRow: unknown[] = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] as unknown[] || [];
-    const col0 = String(firstRow[0] || "").trim();
-    const col1 = String(firstRow[1] || "").trim();
-    const col2 = String(firstRow[2] || "").trim();
-    const isRentRollByContent = col0 === "Unit" && col1 === "BD/BA" && col2 === "Status";
-    const isTenantTicklerByContent = col0.toLowerCase() === "date" && col1.toLowerCase() === "event" && col2.toLowerCase() === "property";
+    const allRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
     
-    console.log(`First row detection: col0="${col0}", col1="${col1}", col2="${col2}", isRentRoll=${isRentRollByContent}, isTenantTickler=${isTenantTicklerByContent}`);
+    // Content detection flags
+    let isRentRollByContent = false;
+    let isWeeklyPropertyReport = false;
+    let isRenewalSummaryByContent = false;
+    let isTenantEventsByContent = false;
+    let isShowingsByContent = false;
+    let isRentalAppByContent = false;
+    let isLeasingByContent = false;
     
-    if (isRentRollByContent) {
+    // Scan first 15 rows for header patterns
+    for (let i = 0; i < Math.min(15, allRows.length); i++) {
+      const row = allRows[i];
+      if (!row || row.length === 0) continue;
+      
+      const col0 = String(row[0] || "").trim().toLowerCase();
+      const col1 = String(row[1] || "").trim().toLowerCase();
+      const col2 = String(row[2] || "").trim().toLowerCase();
+      const col3 = String(row[3] || "").trim().toLowerCase();
+      
+      // Rent Roll: "Unit", "BD/BA", "Status"
+      if (col0 === "unit" && col1 === "bd/ba" && col2 === "status") {
+        isRentRollByContent = true;
+        break;
+      }
+      
+      // Weekly Property Report: "Property", "Unit", "Bd/Ba"
+      if (col0 === "property" && col1 === "unit" && col2 === "bd/ba") {
+        isWeeklyPropertyReport = true;
+        break;
+      }
+      
+      // Renewal Summary: "Unit Name", "Property Name"
+      if (col0 === "unit name" && col1 === "property name") {
+        isRenewalSummaryByContent = true;
+        break;
+      }
+      
+      // Tenant Events/Tickler: "Date", "Event", "Property"
+      if (col0 === "date" && col1 === "event" && col2 === "property") {
+        isTenantEventsByContent = true;
+        break;
+      }
+      
+      // Showings: "Guest Card Name"
+      if (col0.includes("guest card name")) {
+        isShowingsByContent = true;
+        break;
+      }
+      
+      // Rental Applications: "Unit", "Applicants", "Received"
+      if (col0 === "unit" && col1 === "applicants" && col2 === "received") {
+        isRentalAppByContent = true;
+        break;
+      }
+      
+      // Leasing/Guest Card Report: "Name", "Email Address", "Phone Number", "Inquiry Received"
+      if (col0 === "name" && (col1.includes("email") || col1 === "email address") && (col3.includes("inquiry") || col3 === "inquiry received")) {
+        isLeasingByContent = true;
+        break;
+      }
+    }
+    
+    console.log(`Content detection: rentRoll=${isRentRollByContent}, weeklyProperty=${isWeeklyPropertyReport}, renewal=${isRenewalSummaryByContent}, tenantEvents=${isTenantEventsByContent}, showings=${isShowingsByContent}, rentalApp=${isRentalAppByContent}, leasing=${isLeasingByContent}`);
+    
+    // Set filenameLower based on content detection
+    if (isRentRollByContent || isWeeklyPropertyReport) {
       filenameLower = "rent_roll";
-      console.log("Detected rent roll file by content (Unit/BD/BA/Status header)");
-    } else if (isTenantTicklerByContent) {
+      console.log("Detected rent roll file by content");
+    } else if (isRenewalSummaryByContent) {
+      filenameLower = "renewal_summary";
+      console.log("Detected renewal summary file by content");
+    } else if (isTenantEventsByContent) {
       filenameLower = "tenant_tickler";
-      console.log("Detected tenant tickler file by content (Date/Event/Property header)");
+      console.log("Detected tenant events/tickler file by content");
+    } else if (isShowingsByContent) {
+      filenameLower = "showing";
+      console.log("Detected showings file by content");
+    } else if (isRentalAppByContent) {
+      filenameLower = "rental_application";
+      console.log("Detected rental application file by content");
+    } else if (isLeasingByContent) {
+      filenameLower = "leasing";
+      console.log("Detected leasing/guest card file by content");
     } else {
-      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property", "tenant_tickler", "tickler"];
+      // Fallback to filename detection
+      console.log(`Content detection failed, falling back to filename: ${actualFilename}`);
+      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property", "renewal", "renewal_summary", "tenant_tickler", "tickler", "tenant_event"];
       const matchesKnownPattern = knownPatterns.some(p => actualFilename.includes(p));
       if (!matchesKnownPattern && typeOverride) {
         filenameLower = typeOverride;
+        console.log(`Using type override: ${typeOverride}`);
+      } else {
+        console.log(`Using filename for detection: ${actualFilename}`);
       }
     }
+    
+    console.log(`Final file type determination: ${filenameLower}`);
     
     console.log(`Processing file: ${filename}, type detection: ${filenameLower}, type override: ${typeOverride}`);
 

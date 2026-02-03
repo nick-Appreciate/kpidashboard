@@ -133,13 +133,24 @@ export async function GET(request) {
       
       let weekMoveIns = 0;
       let weekMoveOuts = 0;
+      const weekMoveInDetails = [];
+      const weekMoveOutDetails = [];
       
       allFutureEvents?.forEach(event => {
         if (event.event_date >= weekStartStr && event.event_date < weekEndStr) {
+          const detail = {
+            tenant: event.tenant_name || 'Unknown',
+            unit: event.unit,
+            property: event.property,
+            date: event.event_date,
+            type: event.event_type
+          };
           if (event.event_type === 'Move-in') {
             weekMoveIns++;
+            weekMoveInDetails.push(detail);
           } else {
             weekMoveOuts++;
+            weekMoveOutDetails.push(detail);
           }
         }
       });
@@ -149,7 +160,9 @@ export async function GET(request) {
         weekLabel: `Week ${i + 1}`,
         moveIns: weekMoveIns,
         moveOuts: weekMoveOuts,
-        netChange: weekMoveIns - weekMoveOuts
+        netChange: weekMoveIns - weekMoveOuts,
+        moveInDetails: weekMoveInDetails,
+        moveOutDetails: weekMoveOutDetails
       });
     }
     

@@ -196,6 +196,40 @@ export async function GET(request) {
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
     
+    // Aggregate by date AND property for multi-line charts
+    const dailyStatsByProperty = {};
+    dataToProcess.forEach(record => {
+      const date = record.snapshot_date;
+      const prop = record.property;
+      const key = `${date}|${prop}`;
+      if (!dailyStatsByProperty[key]) {
+        dailyStatsByProperty[key] = { date, property: prop, total: 0, occupied: 0 };
+      }
+      dailyStatsByProperty[key].total++;
+      if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
+        dailyStatsByProperty[key].occupied++;
+      }
+    });
+    
+    // Group by property for chart datasets
+    const propertyTrends = {};
+    Object.values(dailyStatsByProperty).forEach(stat => {
+      if (!propertyTrends[stat.property]) {
+        propertyTrends[stat.property] = [];
+      }
+      propertyTrends[stat.property].push({
+        date: stat.date,
+        occupancyRate: ((stat.occupied / stat.total) * 100).toFixed(1),
+        totalUnits: stat.total,
+        occupiedUnits: stat.occupied
+      });
+    });
+    
+    // Sort each property's data by date
+    Object.keys(propertyTrends).forEach(prop => {
+      propertyTrends[prop].sort((a, b) => a.date.localeCompare(b.date));
+    });
+    
     // Get list of properties for filter
     const { data: propertiesList } = await supabase
       .from('rent_roll_snapshots')
@@ -328,6 +362,60 @@ export async function GET(request) {
         totalUnits: nonVacantUnits,
         goodLeases: goodLeases
       });
+    });
+    
+    // Calculate per-property healthy lease trend
+    const healthyLeaseTrendByProperty = {};
+    Object.keys(snapshotsByDate).sort().forEach(date => {
+      const snapshotData = snapshotsByDate[date];
+      
+      // Group by property
+      const byProperty = {};
+      snapshotData.forEach(u => {
+        if (!byProperty[u.property]) {
+          byProperty[u.property] = [];
+        }
+        byProperty[u.property].push(u);
+      });
+      
+      // Calculate for each property
+      Object.entries(byProperty).forEach(([prop, units]) => {
+        let goodLeases = 0;
+        let nonVacantUnits = 0;
+        
+        units.forEach(u => {
+          if (u.status === 'Vacant-Unrented' || u.status === 'Vacant-Rented') return;
+          nonVacantUnits++;
+          if (u.status === 'Evict') return;
+          if (!u.lease_to) return;
+          
+          const leaseEnd = new Date(u.lease_to);
+          const snapshotDate = new Date(date);
+          const sixtyDaysFromSnapshot = new Date(snapshotDate.getTime() + 60 * 24 * 60 * 60 * 1000);
+          
+          if (leaseEnd < snapshotDate) return;
+          if (leaseEnd <= sixtyDaysFromSnapshot) return;
+          
+          goodLeases++;
+        });
+        
+        const rate = nonVacantUnits > 0 ? (goodLeases / nonVacantUnits * 100) : 0;
+        
+        if (!healthyLeaseTrendByProperty[prop]) {
+          healthyLeaseTrendByProperty[prop] = [];
+        }
+        healthyLeaseTrendByProperty[prop].push({
+          date,
+          healthyLeaseRate: rate.toFixed(1),
+          totalUnits: nonVacantUnits,
+          goodLeases
+        });
+      });
+    });
+    
+    // Sort each property's data by date
+    Object.keys(healthyLeaseTrendByProperty).forEach(prop => {
+      healthyLeaseTrendByProperty[prop].sort((a, b) => a.date.localeCompare(b.date));
     });
     
     // Calculate lease health projections
@@ -506,6 +594,8 @@ export async function GET(request) {
       return score;
     };
     
+    console.log(`Processing ${renewalData.length} renewal records`);
+    
     renewalData.forEach(renewal => {
       const basePropertyName = normalizePropertyName(renewal.property_name);
       const normalizedUnit = normalizeUnitName(renewal.unit_name);
@@ -534,6 +624,10 @@ export async function GET(request) {
         renewalByTenantName[normalizedTenant].push(renewal);
       }
     });
+    
+    // Log the keys we created for debugging
+    console.log(`Created ${Object.keys(renewalByPropertyUnit).length} unique renewal keys`);
+    console.log(`Sample keys: ${Object.keys(renewalByPropertyUnit).slice(0, 5).join(', ')}`);
     
     // Function to find best renewal match for a unit
     const findRenewalMatch = (unit) => {
@@ -609,15 +703,23 @@ export async function GET(request) {
         previousRent: renewalInfo?.previous_rent || null,
         hasRenewalData: !!renewalInfo,
         tenantPhone: tenantEventInfo?.tenant_phone || null,
-        tenantEmail: tenantEventInfo?.tenant_email || null
+        tenantEmail: tenantEventInfo?.tenant_email || null,
+        leaseEndDate: u.lease_to || null
       };
       
+      // Check if lease is renewed - exclude from bad leases (except evictions)
+      const isRenewed = baseLeaseInfo.renewalStatus === 'Renewed';
+      
       if (u.status === 'Evict') {
+        // Evictions always show regardless of renewal status
         badLeasesByReason.evictions.push({
           ...baseLeaseInfo,
           reason: 'Eviction',
           daysUntilExpiration: null
         });
+      } else if (isRenewed) {
+        // Skip renewed leases for all other categories
+        return;
       } else if (!u.lease_to) {
         badLeasesByReason.monthToMonth.push({
           ...baseLeaseInfo,
@@ -681,7 +783,9 @@ export async function GET(request) {
       propertyStats,
       leaseExpirations,
       occupancyTrend,
+      propertyTrends,
       healthyLeaseTrend,
+      healthyLeaseTrendByProperty,
       delinquencyStats,
       leaseHealthDetails,
       properties: uniqueProperties,

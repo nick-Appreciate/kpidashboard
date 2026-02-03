@@ -10,7 +10,7 @@ export default function OccupancyDashboard() {
   const [loading, setLoading] = useState(true);
   const [groupByProperty, setGroupByProperty] = useState(false);
   const [error, setError] = useState(null);
-  const [selectedProperty, setSelectedProperty] = useState('all');
+  const [selectedProperty, setSelectedProperty] = useState('portfolio');
   const [dateRange, setDateRange] = useState('all_time');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -78,7 +78,7 @@ export default function OccupancyDashboard() {
     if (stats) {
       updateCharts();
     }
-  }, [stats]);
+  }, [stats, selectedProperty]);
   
   useEffect(() => {
     if (projections && stats && !loading) {
@@ -94,7 +94,7 @@ export default function OccupancyDashboard() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (selectedProperty !== 'all') {
+      if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
         params.append('property', selectedProperty);
       }
       if (startDate) {
@@ -125,7 +125,7 @@ export default function OccupancyDashboard() {
   const fetchProjections = async () => {
     try {
       const params = new URLSearchParams();
-      if (selectedProperty !== 'all') {
+      if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
         params.append('property', selectedProperty);
       }
       
@@ -186,19 +186,22 @@ export default function OccupancyDashboard() {
       const ctx = netChangeCanvas.getContext('2d');
       if (netChangeCanvas.chart) netChangeCanvas.chart.destroy();
       
+      // Store reference for tooltip callback
+      const weeklyData = projections.netChangeByWeek;
+      
       netChangeCanvas.chart = new Chart(ctx, {
         type: 'bar',
         data: {
-          labels: projections.netChangeByWeek.map(d => d.weekLabel),
+          labels: weeklyData.map(d => d.weekLabel),
           datasets: [
             {
               label: 'Move-ins',
-              data: projections.netChangeByWeek.map(d => d.moveIns),
+              data: weeklyData.map(d => d.moveIns),
               backgroundColor: '#10b981'
             },
             {
               label: 'Move-outs',
-              data: projections.netChangeByWeek.map(d => -d.moveOuts),
+              data: weeklyData.map(d => -d.moveOuts),
               backgroundColor: '#ef4444'
             }
           ]
@@ -207,7 +210,49 @@ export default function OccupancyDashboard() {
           responsive: true,
           maintainAspectRatio: true,
           plugins: { 
-            legend: { display: true, position: 'top' }
+            legend: { display: true, position: 'top' },
+            tooltip: {
+              enabled: true,
+              mode: 'index',
+              intersect: false,
+              bodyFont: { size: 11 },
+              footerFont: { size: 10, weight: 'normal' },
+              footerColor: '#ccc',
+              callbacks: {
+                label: (context) => {
+                  const value = context.raw;
+                  const label = context.dataset.label;
+                  return `${label}: ${Math.abs(value)}`;
+                },
+                footer: function(tooltipItems) {
+                  const dataIndex = tooltipItems[0].dataIndex;
+                  const weekData = weeklyData[dataIndex];
+                  if (!weekData) return '';
+                  
+                  const lines = [];
+                  
+                  if (weekData.moveInDetails && weekData.moveInDetails.length > 0) {
+                    lines.push('Move-ins:');
+                    weekData.moveInDetails.slice(0, 5).forEach(d => {
+                      const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      lines.push(`  ${d.unit} - ${d.tenant} (${dateStr})`);
+                    });
+                  }
+                  
+                  if (weekData.moveOutDetails && weekData.moveOutDetails.length > 0) {
+                    if (lines.length > 0) lines.push('');
+                    lines.push('Move-outs:');
+                    weekData.moveOutDetails.slice(0, 5).forEach(d => {
+                      const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      const typeStr = d.type === 'Eviction' ? ' [Evict]' : d.type === 'Notice' ? ' [Notice]' : '';
+                      lines.push(`  ${d.unit} - ${d.tenant}${typeStr} (${dateStr})`);
+                    });
+                  }
+                  
+                  return lines.length > 0 ? lines : '';
+                }
+              }
+            }
           },
           scales: {
             x: { stacked: true },
@@ -223,15 +268,54 @@ export default function OccupancyDashboard() {
     }
   };
   
+  // Color palette for multi-property charts
+  const propertyColors = [
+    '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', 
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+    '#14b8a6', '#a855f7', '#eab308', '#22c55e', '#0ea5e9'
+  ];
+  
   const updateCharts = () => {
     // Occupancy Trend Chart
     if (occupancyChartRef.current && stats.occupancyTrend?.length > 0) {
       const ctx = occupancyChartRef.current.getContext('2d');
       if (occupancyChartRef.current.chart) occupancyChartRef.current.chart.destroy();
       
-      occupancyChartRef.current.chart = new Chart(ctx, {
-        type: 'line',
-        data: {
+      // Check if we should show multi-property view
+      const showMultiProperty = selectedProperty === 'all' && stats.propertyTrends;
+      
+      let chartData;
+      if (showMultiProperty) {
+        // Get all unique dates across all properties
+        const allDates = [...new Set(
+          Object.values(stats.propertyTrends).flatMap(arr => arr.map(d => d.date))
+        )].sort();
+        
+        // Create a dataset for each property
+        const datasets = Object.entries(stats.propertyTrends).map(([property, data], idx) => {
+          const color = propertyColors[idx % propertyColors.length];
+          const dataMap = Object.fromEntries(data.map(d => [d.date, parseFloat(d.occupancyRate)]));
+          return {
+            label: property,
+            data: allDates.map(date => dataMap[date] ?? null),
+            borderColor: color,
+            backgroundColor: color + '20',
+            fill: false,
+            tension: 0.4,
+            spanGaps: true
+          };
+        });
+        
+        chartData = {
+          labels: allDates.map(d => {
+            const [year, month, day] = d.split('-');
+            return `${month}/${day}`;
+          }),
+          datasets
+        };
+      } else {
+        // Single line (portfolio or single property)
+        chartData = {
           labels: stats.occupancyTrend.map(d => {
             const [year, month, day] = d.date.split('-');
             return `${month}/${day}`;
@@ -244,15 +328,39 @@ export default function OccupancyDashboard() {
             fill: true,
             tension: 0.4
           }]
-        },
+        };
+      }
+      
+      occupancyChartRef.current.chart = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
         options: {
           responsive: true,
           maintainAspectRatio: true,
-          plugins: { legend: { display: false } },
+          interaction: {
+            mode: 'nearest',
+            intersect: true
+          },
+          plugins: { 
+            legend: { 
+              display: showMultiProperty,
+              position: 'bottom',
+              labels: { boxWidth: 12, font: { size: 10 } }
+            },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y;
+                  return `${label}: ${value}%`;
+                }
+              }
+            }
+          },
           scales: {
             y: { 
-              beginAtZero: false, 
-              min: 75,
+              beginAtZero: true, 
+              min: 0,
               max: 100,
               ticks: { callback: v => v + '%' }
             }
@@ -358,20 +466,41 @@ export default function OccupancyDashboard() {
         window.healthyLeaseChart.destroy();
       }
       
-      // Calculate week-over-week changes for tooltips
-      const trendWithChanges = stats.healthyLeaseTrend?.map((d, i) => {
-        if (i === 0) return { ...d, goodChange: 0, badChange: 0 };
-        
-        const prev = stats.healthyLeaseTrend[i - 1];
-        const goodChange = d.goodLeases - prev.goodLeases;
-        const badChange = (d.totalUnits - d.goodLeases) - (prev.totalUnits - prev.goodLeases);
-        
-        return { ...d, goodChange, badChange };
-      }) || [];
+      // Check if we should show multi-property view
+      const showMultiPropertyHealthy = selectedProperty === 'all' && stats.healthyLeaseTrendByProperty;
       
-      window.healthyLeaseChart = new Chart(ctx, {
-        type: 'line',
-        data: {
+      let healthyChartData;
+      if (showMultiPropertyHealthy) {
+        // Get all unique dates across all properties
+        const allDates = [...new Set(
+          Object.values(stats.healthyLeaseTrendByProperty).flatMap(arr => arr.map(d => d.date))
+        )].sort();
+        
+        // Create a dataset for each property
+        const datasets = Object.entries(stats.healthyLeaseTrendByProperty).map(([property, data], idx) => {
+          const color = propertyColors[idx % propertyColors.length];
+          const dataMap = Object.fromEntries(data.map(d => [d.date, parseFloat(d.healthyLeaseRate)]));
+          return {
+            label: property,
+            data: allDates.map(date => dataMap[date] ?? null),
+            borderColor: color,
+            backgroundColor: color + '20',
+            fill: false,
+            tension: 0.4,
+            spanGaps: true
+          };
+        });
+        
+        healthyChartData = {
+          labels: allDates.map(d => {
+            const [year, month, day] = d.split('-');
+            return `${month}/${day}`;
+          }),
+          datasets
+        };
+      } else {
+        // Single line (portfolio or single property)
+        healthyChartData = {
           labels: stats.healthyLeaseTrend?.map(d => {
             const [year, month, day] = d.date.split('-');
             return `${month}/${day}`;
@@ -384,43 +513,39 @@ export default function OccupancyDashboard() {
             fill: true,
             tension: 0.4
           }]
-        },
+        };
+      }
+      
+      window.healthyLeaseChart = new Chart(ctx, {
+        type: 'line',
+        data: healthyChartData,
         options: {
           responsive: true,
           maintainAspectRatio: true,
+          interaction: {
+            mode: 'nearest',
+            intersect: true
+          },
           plugins: { 
-            legend: { display: false },
+            legend: { 
+              display: showMultiPropertyHealthy,
+              position: 'bottom',
+              labels: { boxWidth: 12, font: { size: 10 } }
+            },
             tooltip: {
               callbacks: {
                 label: (context) => {
-                  const data = trendWithChanges[context.dataIndex];
-                  let label = `${context.parsed.y}% healthy lease rate`;
-                  
-                  if (data && (data.goodChange !== 0 || data.badChange !== 0)) {
-                    const changes = [];
-                    if (data.goodChange > 0) {
-                      changes.push(`+${data.goodChange} good leases`);
-                    } else if (data.goodChange < 0) {
-                      changes.push(`${data.goodChange} good leases`);
-                    }
-                    if (data.badChange > 0) {
-                      changes.push(`+${data.badChange} bad leases`);
-                    } else if (data.badChange < 0) {
-                      changes.push(`${data.badChange} bad leases`);
-                    }
-                    if (changes.length > 0) {
-                      label += ` (${changes.join(', ')})`;
-                    }
-                  }
-                  
-                  return label;
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y;
+                  return `${label}: ${value}%`;
                 }
               }
             }
           },
           scales: {
             y: { 
-              beginAtZero: false, 
+              beginAtZero: true, 
+              min: 0,
               max: 100,
               ticks: { callback: v => v + '%' }
             }
@@ -502,6 +627,7 @@ export default function OccupancyDashboard() {
                     onChange={(e) => setSelectedProperty(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                   >
+                    <option value="portfolio">Portfolio</option>
                     <option value="all">All Properties</option>
                     {stats.properties?.map(prop => (
                       <option key={prop} value={prop}>{prop}</option>
@@ -561,33 +687,36 @@ export default function OccupancyDashboard() {
               </div>
             </div>
             
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <div className="text-3xl font-bold text-emerald-600">{summary.occupancyRate}%</div>
-                <div className="text-sm text-gray-600">Occupancy Rate</div>
+            {/* Summary Cards - Portfolio/Single Property View */}
+            {selectedProperty !== 'all' && (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
+                <div className="bg-white rounded-xl shadow-lg p-4">
+                  <div className="text-3xl font-bold text-emerald-600">{summary.occupancyRate}%</div>
+                  <div className="text-sm text-gray-600">Occupancy Rate</div>
+                </div>
+                <div className="bg-white rounded-xl shadow-lg p-4">
+                  <div className="text-3xl font-bold text-gray-800">{summary.totalUnits}</div>
+                  <div className="text-sm text-gray-600">Total Units</div>
+                </div>
+                <div className="bg-white rounded-xl shadow-lg p-4">
+                  <div className="text-3xl font-bold text-green-600">{summary.occupiedUnits}</div>
+                  <div className="text-sm text-gray-600">Occupied</div>
+                </div>
+                <div className="bg-white rounded-xl shadow-lg p-4">
+                  <div className="text-3xl font-bold text-red-600">{summary.vacantUnits}</div>
+                  <div className="text-sm text-gray-600">Vacant</div>
+                </div>
+                <div className="bg-white rounded-xl shadow-lg p-4">
+                  <div className="text-3xl font-bold text-orange-600">{summary.noticeUnits}</div>
+                  <div className="text-sm text-gray-600">On Notice</div>
+                </div>
+                <div className="bg-white rounded-xl shadow-lg p-4">
+                  <div className="text-3xl font-bold text-red-700">{summary.evictUnits}</div>
+                  <div className="text-sm text-gray-600">Eviction</div>
+                </div>
               </div>
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <div className="text-3xl font-bold text-gray-800">{summary.totalUnits}</div>
-                <div className="text-sm text-gray-600">Total Units</div>
-              </div>
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <div className="text-3xl font-bold text-green-600">{summary.occupiedUnits}</div>
-                <div className="text-sm text-gray-600">Occupied</div>
-              </div>
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <div className="text-3xl font-bold text-red-600">{summary.vacantUnits}</div>
-                <div className="text-sm text-gray-600">Vacant</div>
-              </div>
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <div className="text-3xl font-bold text-orange-600">{summary.noticeUnits}</div>
-                <div className="text-sm text-gray-600">On Notice</div>
-              </div>
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <div className="text-3xl font-bold text-red-700">{summary.evictUnits}</div>
-                <div className="text-sm text-gray-600">Eviction</div>
-              </div>
-            </div>
+            )}
+            
             
             {/* Financial Summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -839,6 +968,7 @@ export default function OccupancyDashboard() {
                                 <th className="px-2 py-2 text-left font-medium">Unit</th>
                                 <th className="px-2 py-2 text-left font-medium">Tenant</th>
                                 <th className="px-2 py-2 text-left font-medium">Issue</th>
+                                <th className="px-2 py-2 text-center font-medium">Days Left</th>
                                 <th className="px-2 py-2 text-center font-medium">Renewal</th>
                                 <th className="px-2 py-2 text-right font-medium">Rent</th>
                               </tr>
@@ -864,6 +994,13 @@ export default function OccupancyDashboard() {
                                        lease.type === 'monthToMonth' ? '📅 MTM' : 
                                        '⏰ Expiring'}
                                     </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-center text-xs font-medium">
+                                    {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
+                                      <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-gray-600'}>
+                                        {lease.daysUntilExpiration}
+                                      </span>
+                                    ) : '-'}
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -922,6 +1059,7 @@ export default function OccupancyDashboard() {
                                 <th className="px-2 py-2 text-left font-medium">Property</th>
                                 <th className="px-2 py-2 text-left font-medium">Unit</th>
                                 <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                                <th className="px-2 py-2 text-center font-medium">Days Left</th>
                                 <th className="px-2 py-2 text-center font-medium">Renewal</th>
                                 <th className="px-2 py-2 text-right font-medium">Rent</th>
                               </tr>
@@ -939,6 +1077,13 @@ export default function OccupancyDashboard() {
                                   <td className="px-2 py-2 font-medium">{lease.unit}</td>
                                   <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
                                     {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                                  </td>
+                                  <td className="px-2 py-2 text-center text-xs font-medium">
+                                    {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
+                                      <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-gray-600'}>
+                                        {lease.daysUntilExpiration}
+                                      </span>
+                                    ) : '-'}
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -976,14 +1121,65 @@ export default function OccupancyDashboard() {
               {/* Upcoming Expirations */}
               {stats.leaseHealthDetails?.upcomingExpirations?.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
-                  <h3 className="font-semibold text-blue-800 mb-3">Upcoming Expirations (61-90 days)</h3>
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {stats.leaseHealthDetails.upcomingExpirations.map((lease, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2 bg-blue-50 rounded text-sm">
-                        <span className="font-medium">{lease.property} - {lease.unit}</span>
-                        <span className="text-blue-700">{lease.reason}</span>
-                      </div>
-                    ))}
+                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-blue-600 text-white">
+                    <span className="font-semibold">📆 Upcoming Expirations (61-90 days)</span>
+                    <span className="px-2 py-0.5 rounded text-xs bg-blue-700">{stats.leaseHealthDetails.upcomingExpirations.length} units</span>
+                  </div>
+                  <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-600">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium">Property</th>
+                          <th className="px-2 py-2 text-left font-medium">Unit</th>
+                          <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                          <th className="px-2 py-2 text-center font-medium">Days Left</th>
+                          <th className="px-2 py-2 text-center font-medium">Renewal</th>
+                          <th className="px-2 py-2 text-right font-medium">Rent</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {stats.leaseHealthDetails.upcomingExpirations.map((lease, idx) => (
+                          <tr key={idx} className="bg-blue-50 hover:bg-blue-100 transition-colors">
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={lease.property}>
+                              {lease.property}
+                            </td>
+                            <td className="px-2 py-2 font-medium">{lease.unit}</td>
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                              {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs font-medium">
+                              {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
+                                <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-blue-600'}>
+                                  {lease.daysUntilExpiration}
+                                </span>
+                              ) : '-'}
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
+                                lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
+                                lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
+                                lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
+                                lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
+                                'bg-gray-100 text-gray-500'
+                              }`}>
+                                {lease.renewalStatus === 'Renewed' ? '✓' :
+                                 lease.renewalStatus === 'Pending' ? '⏳' :
+                                 lease.renewalStatus === 'Did Not Renew' ? '✗' :
+                                 lease.renewalStatus === 'Canceled by User' ? '—' :
+                                 lease.renewalStatus === 'Not sent' ? '📭' : '?'}
+                                <span className="ml-1 hidden sm:inline">
+                                  {lease.renewalStatus}
+                                </span>
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-right font-medium text-gray-700">
+                              {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
