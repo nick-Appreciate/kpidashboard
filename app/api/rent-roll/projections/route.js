@@ -40,12 +40,22 @@ export async function GET(request) {
     ).length || 0;
     
     // Get future events from tenant_events (only for projections)
+    // First get the latest snapshot_date for tenant_events
+    const { data: latestEventSnapshot } = await supabase
+      .from('tenant_events')
+      .select('snapshot_date')
+      .order('snapshot_date', { ascending: false })
+      .limit(1);
+    
+    const latestEventDate = latestEventSnapshot?.[0]?.snapshot_date;
+    
     const today = new Date().toISOString().split('T')[0];
     const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     
     let eventsQuery = supabase
       .from('tenant_events')
       .select('event_date, event_type, property, unit, tenant_name, rent')
+      .eq('snapshot_date', latestEventDate)
       .gte('event_date', today)
       .lte('event_date', ninetyDaysOut)
       .order('event_date', { ascending: true });
