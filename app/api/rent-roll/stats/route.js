@@ -698,7 +698,7 @@ export async function GET(request) {
         renewalStatus: renewalInfo?.status || 'Not sent',
         renewalSentDate: renewalInfo?.renewal_sent_date || null,
         countersignedDate: renewalInfo?.countersigned_date || null,
-        tenantName: renewalInfo?.tenant_name || tenantEventInfo?.tenant_name || null,
+        tenantName: u.tenant_name || renewalInfo?.tenant_name || tenantEventInfo?.tenant_name || null,
         rent: renewalInfo?.rent || u.total_rent || null,
         previousRent: renewalInfo?.previous_rent || null,
         hasRenewalData: !!renewalInfo,

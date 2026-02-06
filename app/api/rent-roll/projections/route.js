@@ -22,10 +22,10 @@ export async function GET(request) {
       });
     }
     
-    // Get current unit statuses
+    // Get current unit statuses (include tenant_name for evictions)
     let currentQuery = supabase
       .from('rent_roll_snapshots')
-      .select('property, unit, status')
+      .select('property, unit, status, tenant_name')
       .eq('snapshot_date', latestDate);
     
     if (property && property !== 'all') {
@@ -40,7 +40,10 @@ export async function GET(request) {
     ).length || 0;
     
     // Get future events from tenant_events (only for projections)
-    // First get the latest snapshot_date for tenant_events
+    const today = new Date().toISOString().split('T')[0];
+    const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    // Get the latest snapshot_date from tenant_events to avoid duplicates across daily files
     const { data: latestEventSnapshot } = await supabase
       .from('tenant_events')
       .select('snapshot_date')
@@ -49,28 +52,42 @@ export async function GET(request) {
     
     const latestEventDate = latestEventSnapshot?.[0]?.snapshot_date;
     
-    const today = new Date().toISOString().split('T')[0];
-    const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    
     let eventsQuery = supabase
       .from('tenant_events')
       .select('event_date, event_type, property, unit, tenant_name, rent')
-      .eq('snapshot_date', latestEventDate)
       .gte('event_date', today)
       .lte('event_date', ninetyDaysOut)
       .order('event_date', { ascending: true });
+    
+    // Filter by latest snapshot to avoid duplicates from multiple daily files
+    if (latestEventDate) {
+      eventsQuery = eventsQuery.eq('snapshot_date', latestEventDate);
+    }
     
     if (property && property !== 'all') {
       eventsQuery = eventsQuery.eq('property', property);
     }
     
-    const { data: futureEvents } = await eventsQuery;
+    const { data: rawFutureEvents } = await eventsQuery;
+    
+    // Deduplicate events by property+unit+event_type (keep only one per unit per event type)
+    const seenEvents = new Map();
+    const futureEvents = [];
+    
+    rawFutureEvents?.forEach(event => {
+      const key = `${event.property}-${event.unit}-${event.event_type}`;
+      if (!seenEvents.has(key)) {
+        seenEvents.set(key, event);
+        futureEvents.push(event);
+      }
+    });
     
     // Get current evictions from latest snapshot
     // For units still in Evict status, project move-out 30 days from today
     const currentEvictions = currentUnits?.filter(u => u.status === 'Evict') || [];
     
     // Create projected eviction move-outs (30 days from today for ongoing evictions)
+    // Use tenant_name from rent_roll_snapshots
     const evictionMoveOuts = currentEvictions.map(evict => {
       const projectedMoveOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       return {
@@ -78,7 +95,7 @@ export async function GET(request) {
         event_type: 'Eviction',
         property: evict.property,
         unit: evict.unit,
-        tenant_name: null,
+        tenant_name: evict.tenant_name || null,
         rent: null
       };
     }).filter(e => e.event_date >= today && e.event_date <= ninetyDaysOut);

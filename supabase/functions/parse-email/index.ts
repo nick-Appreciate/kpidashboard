@@ -132,6 +132,7 @@ interface RentRollSnapshotRecord {
   insurance_services: number | null;
   lease_from: string | null;
   lease_to: string | null;
+  tenant_name: string | null;
 }
 
 interface TenantEventRecord {
@@ -183,21 +184,11 @@ function parseExcelDateOnly(value: unknown): string | null {
   }
   
   if (typeof value === "string") {
-    const trimmed = value.trim();
-    // Return null for non-date strings (like "walk-in", "N/A", etc.)
-    if (!/\d/.test(trimmed)) return null;
-    
-    const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (match) {
-      const [, month, day, year] = match;
-      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    }
-    const parsed = new Date(trimmed);
+    const parsed = new Date(value);
     if (!isNaN(parsed.getTime())) {
       return parsed.toISOString().split("T")[0];
     }
-    // Return null instead of invalid string
-    return null;
+    return value;
   }
   
   return null;
@@ -599,20 +590,16 @@ function parseRentRollSnapshot(
 
   console.log(`Parsing rent roll snapshot for date: ${snapshotDate}`);
 
-  // Find header row - look for "Unit" in first column
+  // Find header row
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    if (row && String(row[0]).trim().toLowerCase() === "unit") {
+    if (row && row[0] === "Unit") {
       headerIndex = i;
-      console.log(`Found rent roll header at row ${i}`);
       break;
     }
   }
 
-  if (headerIndex === -1) {
-    console.log("Could not find 'Unit' header row in rent roll");
-    return records;
-  }
+  if (headerIndex === -1) return records;
 
   for (let i = headerIndex + 1; i < data.length; i++) {
     const row = data[i];
@@ -620,7 +607,7 @@ function parseRentRollSnapshot(
 
     const firstCell = row[0] ? String(row[0]).trim() : "";
 
-    // Property header row - starts with "->" OR is a property name (contains " - " address pattern and no other data)
+    // Property header row (starts with "->")
     if (firstCell.startsWith("->")) {
       const propertyMatch = firstCell.match(/^->\s*(.+?)\s*-\s*.+$/);
       if (propertyMatch) {
@@ -628,18 +615,6 @@ function parseRentRollSnapshot(
       } else {
         currentProperty = firstCell.replace(/^->\s*/, "").trim();
       }
-      continue;
-    }
-    
-    // Check if this is a property header row (has address pattern and rest of row is empty)
-    if (firstCell.includes(" - ") && row.slice(1, 4).every((cell) => cell === null || cell === undefined || cell === "")) {
-      const propertyMatch = firstCell.match(/^(.+?)\s*-\s*.+$/);
-      if (propertyMatch) {
-        currentProperty = propertyMatch[1].trim();
-      } else {
-        currentProperty = firstCell;
-      }
-      console.log(`Found property: ${currentProperty}`);
       continue;
     }
 
@@ -676,6 +651,7 @@ function parseRentRollSnapshot(
       insurance_services: parseNumber(row[17]),
       lease_from: parseExcelDateOnly(row[18]),
       lease_to: parseExcelDateOnly(row[19]),
+      tenant_name: sanitizeString(row[20]),
     });
   }
 
@@ -750,51 +726,15 @@ function parsePropertyReport(
 }
 
 Deno.serve(async (req) => {
-  let attachmentId: string | null = null;
-  let fileBase64: string = "";
-  
   try {
     const contentType = req.headers.get("content-type") || "";
     const url = new URL(req.url);
     const typeOverride = url.searchParams.get("type")?.toLowerCase();
-    const retryId = url.searchParams.get("retry"); // For reprocessing stored attachments
 
     let filename = "unknown.xlsx";
     let fileBuffer: ArrayBuffer;
 
-    // If retrying a stored attachment, fetch it from the database
-    if (retryId) {
-      const { data: attachment, error: fetchError } = await supabase
-        .from("email_attachments")
-        .select("*")
-        .eq("id", retryId)
-        .single();
-      
-      if (fetchError || !attachment) {
-        return new Response(JSON.stringify({ error: "Attachment not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      
-      filename = attachment.filename;
-      fileBase64 = attachment.file_content;
-      const binaryString = atob(fileBase64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      fileBuffer = bytes.buffer;
-      attachmentId = retryId;
-      
-      // Update status to processing
-      await supabase
-        .from("email_attachments")
-        .update({ parse_status: "processing" })
-        .eq("id", retryId);
-        
-      console.log(`Retrying attachment ${retryId}: ${filename}`);
-    } else if (contentType.includes("multipart/form-data")) {
+    if (contentType.includes("multipart/form-data")) {
       // Handle multipart form data (from Zapier/email services)
       const formData = await req.formData();
       const file = formData.get("file") as File | null;
@@ -803,17 +743,9 @@ Deno.serve(async (req) => {
       if (file) {
         filename = file.name;
         fileBuffer = await file.arrayBuffer();
-        // Convert to base64 for storage
-        const bytes = new Uint8Array(fileBuffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        fileBase64 = btoa(binary);
       } else if (attachmentData) {
         // Base64 encoded attachment
         filename = (formData.get("filename") as string) || "attachment.xlsx";
-        fileBase64 = attachmentData;
         const binaryString = atob(attachmentData);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -830,7 +762,6 @@ Deno.serve(async (req) => {
       // Handle JSON with base64 encoded file
       const body = await req.json();
       filename = body.filename || "attachment.xlsx";
-      fileBase64 = body.file_base64;
       const binaryString = atob(body.file_base64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
@@ -841,35 +772,6 @@ Deno.serve(async (req) => {
       // Raw binary upload
       filename = req.headers.get("x-filename") || "attachment.xlsx";
       fileBuffer = await req.arrayBuffer();
-      // Convert to base64 for storage
-      const bytes = new Uint8Array(fileBuffer);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      fileBase64 = btoa(binary);
-    }
-
-    // Store raw attachment in database BEFORE parsing (skip if retry)
-    if (!retryId && fileBase64) {
-      const { data: inserted, error: insertError } = await supabase
-        .from("email_attachments")
-        .insert({
-          filename: filename,
-          file_content: fileBase64,
-          file_size: fileBuffer.byteLength,
-          content_type: contentType || "application/octet-stream",
-          parse_status: "processing",
-        })
-        .select("id")
-        .single();
-      
-      if (insertError) {
-        console.error("Failed to store attachment:", insertError);
-      } else {
-        attachmentId = inserted.id;
-        console.log(`Stored attachment ${attachmentId}: ${filename}`);
-      }
     }
 
     const workbook = XLSX.read(new Uint8Array(fileBuffer), { type: "array" });
@@ -878,107 +780,30 @@ Deno.serve(async (req) => {
     // Use actual filename for detection - type override only used if filename doesn't match known patterns
     let filenameLower = actualFilename;
     
-    // Check content to detect file type by header row - scan first 15 rows for headers
+    // Check content to detect file type by header row
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const allRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
+    const firstRow: unknown[] = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] as unknown[] || [];
+    const col0 = String(firstRow[0] || "").trim();
+    const col1 = String(firstRow[1] || "").trim();
+    const col2 = String(firstRow[2] || "").trim();
+    const isRentRollByContent = col0 === "Unit" && col1 === "BD/BA" && col2 === "Status";
+    const isTenantTicklerByContent = col0.toLowerCase() === "date" && col1.toLowerCase() === "event" && col2.toLowerCase() === "property";
     
-    // Content detection flags
-    let isRentRollByContent = false;
-    let isWeeklyPropertyReport = false;
-    let isRenewalSummaryByContent = false;
-    let isTenantEventsByContent = false;
-    let isShowingsByContent = false;
-    let isRentalAppByContent = false;
-    let isLeasingByContent = false;
+    console.log(`First row detection: col0="${col0}", col1="${col1}", col2="${col2}", isRentRoll=${isRentRollByContent}, isTenantTickler=${isTenantTicklerByContent}`);
     
-    // Scan first 15 rows for header patterns
-    for (let i = 0; i < Math.min(15, allRows.length); i++) {
-      const row = allRows[i];
-      if (!row || row.length === 0) continue;
-      
-      const col0 = String(row[0] || "").trim().toLowerCase();
-      const col1 = String(row[1] || "").trim().toLowerCase();
-      const col2 = String(row[2] || "").trim().toLowerCase();
-      const col3 = String(row[3] || "").trim().toLowerCase();
-      
-      // Rent Roll: "Unit", "BD/BA", "Status"
-      if (col0 === "unit" && col1 === "bd/ba" && col2 === "status") {
-        isRentRollByContent = true;
-        break;
-      }
-      
-      // Weekly Property Report: "Property", "Unit", "Bd/Ba"
-      if (col0 === "property" && col1 === "unit" && col2 === "bd/ba") {
-        isWeeklyPropertyReport = true;
-        break;
-      }
-      
-      // Renewal Summary: "Unit Name", "Property Name"
-      if (col0 === "unit name" && col1 === "property name") {
-        isRenewalSummaryByContent = true;
-        break;
-      }
-      
-      // Tenant Events/Tickler: "Date", "Event", "Property"
-      if (col0 === "date" && col1 === "event" && col2 === "property") {
-        isTenantEventsByContent = true;
-        break;
-      }
-      
-      // Showings: "Guest Card Name"
-      if (col0.includes("guest card name")) {
-        isShowingsByContent = true;
-        break;
-      }
-      
-      // Rental Applications: "Unit", "Applicants", "Received"
-      if (col0 === "unit" && col1 === "applicants" && col2 === "received") {
-        isRentalAppByContent = true;
-        break;
-      }
-      
-      // Leasing/Guest Card Report: "Name", "Email Address", "Phone Number", "Inquiry Received"
-      if (col0 === "name" && (col1.includes("email") || col1 === "email address") && (col3.includes("inquiry") || col3 === "inquiry received")) {
-        isLeasingByContent = true;
-        break;
-      }
-    }
-    
-    console.log(`Content detection: rentRoll=${isRentRollByContent}, weeklyProperty=${isWeeklyPropertyReport}, renewal=${isRenewalSummaryByContent}, tenantEvents=${isTenantEventsByContent}, showings=${isShowingsByContent}, rentalApp=${isRentalAppByContent}, leasing=${isLeasingByContent}`);
-    
-    // Set filenameLower based on content detection
-    if (isRentRollByContent || isWeeklyPropertyReport) {
+    if (isRentRollByContent) {
       filenameLower = "rent_roll";
-      console.log("Detected rent roll file by content");
-    } else if (isRenewalSummaryByContent) {
-      filenameLower = "renewal_summary";
-      console.log("Detected renewal summary file by content");
-    } else if (isTenantEventsByContent) {
+      console.log("Detected rent roll file by content (Unit/BD/BA/Status header)");
+    } else if (isTenantTicklerByContent) {
       filenameLower = "tenant_tickler";
-      console.log("Detected tenant events/tickler file by content");
-    } else if (isShowingsByContent) {
-      filenameLower = "showing";
-      console.log("Detected showings file by content");
-    } else if (isRentalAppByContent) {
-      filenameLower = "rental_application";
-      console.log("Detected rental application file by content");
-    } else if (isLeasingByContent) {
-      filenameLower = "leasing";
-      console.log("Detected leasing/guest card file by content");
+      console.log("Detected tenant tickler file by content (Date/Event/Property header)");
     } else {
-      // Fallback to filename detection
-      console.log(`Content detection failed, falling back to filename: ${actualFilename}`);
-      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property", "renewal", "renewal_summary", "tenant_tickler", "tickler", "tenant_event"];
+      const knownPatterns = ["rental_application", "application", "showing", "guest_card", "leasing", "rent_roll", "property", "tenant_tickler", "tickler"];
       const matchesKnownPattern = knownPatterns.some(p => actualFilename.includes(p));
       if (!matchesKnownPattern && typeOverride) {
         filenameLower = typeOverride;
-        console.log(`Using type override: ${typeOverride}`);
-      } else {
-        console.log(`Using filename for detection: ${actualFilename}`);
       }
     }
-    
-    console.log(`Final file type determination: ${filenameLower}`);
     
     console.log(`Processing file: ${filename}, type detection: ${filenameLower}, type override: ${typeOverride}`);
 
@@ -1161,59 +986,20 @@ Deno.serve(async (req) => {
 
       result = { table: "property_reports", inserted: data?.length || 0, total: records.length };
     } else {
-      // Update attachment status to failed
-      if (attachmentId) {
-        await supabase
-          .from("email_attachments")
-          .update({
-            parse_status: "failed",
-            parse_error: "Unknown report type",
-            detected_type: filenameLower,
-            parsed_at: new Date().toISOString(),
-          })
-          .eq("id", attachmentId);
-      }
       return new Response(
         JSON.stringify({
           error: "Unknown report type. Filename must contain 'rental_application', 'application', 'showing', 'guest_card', 'leasing', 'rent_roll', 'tenant_tickler', or 'property'",
-          attachment_id: attachmentId,
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Update attachment status to success
-    if (attachmentId) {
-      await supabase
-        .from("email_attachments")
-        .update({
-          parse_status: "success",
-          detected_type: result.table,
-          parse_result: result,
-          parsed_at: new Date().toISOString(),
-        })
-        .eq("id", attachmentId);
-    }
-
-    return new Response(JSON.stringify({ success: true, attachment_id: attachmentId, ...result }), {
+    return new Response(JSON.stringify({ success: true, ...result }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("Error processing request:", error);
-    
-    // Update attachment status to failed
-    if (attachmentId) {
-      await supabase
-        .from("email_attachments")
-        .update({
-          parse_status: "failed",
-          parse_error: String(error),
-          parsed_at: new Date().toISOString(),
-        })
-        .eq("id", attachmentId);
-    }
-    
-    return new Response(JSON.stringify({ error: String(error), attachment_id: attachmentId }), {
+    return new Response(JSON.stringify({ error: String(error) }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
