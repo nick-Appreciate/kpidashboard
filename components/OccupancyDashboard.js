@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import Link from 'next/link';
+import { LogoLoader } from './Logo';
 
 export default function OccupancyDashboard() {
   const [stats, setStats] = useState(null);
@@ -557,16 +558,16 @@ export default function OccupancyDashboard() {
   
   if (loading && !stats) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-600 p-4 md:p-8 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <LogoLoader size={64} text="Loading occupancy data..." />
       </div>
     );
   }
   
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-600 p-4 md:p-8 flex items-center justify-center">
-        <div className="bg-white rounded-xl p-6 max-w-md">
+      <div className="min-h-screen bg-slate-100 p-6 md:p-8 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-md">
           <p className="text-red-600 mb-4">Error: {error}</p>
           <button 
             onClick={fetchStats}
@@ -582,50 +583,44 @@ export default function OccupancyDashboard() {
   const summary = stats?.summary || {};
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-600 p-4 md:p-8">
+    <div className="min-h-screen bg-slate-100 p-6 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-emerald-600 mb-2">
+              <h1 className="text-2xl md:text-3xl font-semibold text-slate-800 mb-1">
                 Occupancy Dashboard
               </h1>
-              <p className="text-gray-600">
+              <p className="text-slate-500 text-sm">
                 Property occupancy and lease health analytics
                 {stats?.latestSnapshotDate && (
-                  <span className="text-gray-400 text-sm ml-2">
+                  <span className="text-slate-400 ml-2">
                     • Data as of: {new Date(stats.latestSnapshotDate).toLocaleDateString()}
                   </span>
                 )}
               </p>
             </div>
-            <Link 
-              href="/"
-              className="mt-4 md:mt-0 inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              ← Leasing Dashboard
-            </Link>
           </div>
         </div>
         
         {!stats?.hasData ? (
-          <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
             <div className="text-6xl mb-4">📊</div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">No Data Available</h2>
-            <p className="text-gray-600">Rent roll data will be automatically imported via email.</p>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">No Data Available</h2>
+            <p className="text-slate-600">Rent roll data will be automatically synced from AppFolio.</p>
           </div>
         ) : (
           <>
             {/* Filters */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Property</label>
+                  <label className="block text-sm font-medium text-slate-600 mb-2">Filter by Property</label>
                   <select
                     value={selectedProperty}
                     onChange={(e) => setSelectedProperty(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
                   >
                     <option value="portfolio">Portfolio</option>
                     <option value="all">All Properties</option>
@@ -636,14 +631,14 @@ export default function OccupancyDashboard() {
                 </div>
                 
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-600 mb-2">
                     Date Range
                   </label>
                   <select
                     value={dateRange}
                     onChange={(e) => setDateRange(e.target.value)}
                     disabled={loading}
-                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-emerald-500 focus:outline-none disabled:opacity-50 bg-white"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 focus:outline-none disabled:opacity-50 bg-white"
                   >
                     <option value="today">Today</option>
                     <option value="last_week">Last 7 Days</option>
@@ -735,8 +730,8 @@ export default function OccupancyDashboard() {
             </div>
             
             {/* Occupancy Trend - Full Width */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Occupancy Trend (Historical)</h2>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Occupancy Trend (Historical)</h2>
               <canvas ref={occupancyChartRef}></canvas>
             </div>
             
@@ -744,7 +739,7 @@ export default function OccupancyDashboard() {
             {projections && (
               <>
                 {/* Projection Summary Cards */}
-                <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
                   <h2 className="text-xl font-semibold text-purple-700 mb-4 pb-2 border-b-2 border-purple-200">
                     📊 Occupancy Projections
                   </h2>
@@ -802,14 +797,14 @@ export default function OccupancyDashboard() {
                 
                 {/* Projection Charts */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                  <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h2 className="text-xl font-semibold text-purple-700 mb-4 pb-2 border-b-2 border-purple-200">
                       Projected Occupancy (Next 12 Weeks)
                     </h2>
                     <canvas id="projectionChart"></canvas>
                   </div>
                   
-                  <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h2 className="text-xl font-semibold text-purple-700 mb-4 pb-2 border-b-2 border-purple-200">
                       Net Change by Week
                     </h2>
@@ -819,7 +814,7 @@ export default function OccupancyDashboard() {
                 
                 {/* Upcoming Move-ins and Move-outs */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                  <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h2 className="text-xl font-semibold text-green-700 mb-4 pb-2 border-b-2 border-green-200">
                       🏠 Upcoming Move-ins ({projections.upcomingMoveIns?.length || 0})
                     </h2>
@@ -851,7 +846,7 @@ export default function OccupancyDashboard() {
                     </div>
                   </div>
                   
-                  <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h2 className="text-xl font-semibold text-red-700 mb-4 pb-2 border-b-2 border-red-200">
                       📦 Upcoming Move-outs ({projections.upcomingMoveOuts?.length || 0})
                     </h2>
@@ -891,7 +886,7 @@ export default function OccupancyDashboard() {
             )}
             
             {/* Healthy Lease Rate Chart */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
               <h2 className="text-xl font-semibold text-amber-700 mb-4 pb-2 border-b-2 border-amber-200">
                 Healthy Lease Rate Trend
               </h2>
@@ -905,7 +900,7 @@ export default function OccupancyDashboard() {
             </div>
             
             {/* Bad Leases Tape Feed */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
               <div className="flex justify-between items-center mb-4 pb-2 border-b-2 border-amber-200">
                 <h2 className="text-xl font-semibold text-amber-700">
                   Bad Leases Detail
@@ -1187,25 +1182,25 @@ export default function OccupancyDashboard() {
             
             {/* Other Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-              <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Unit Status Distribution</h2>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Unit Status Distribution</h2>
                 <canvas ref={statusChartRef}></canvas>
               </div>
               
-              <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Lease Expirations</h2>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Lease Expirations</h2>
                 <canvas ref={leaseChartRef}></canvas>
               </div>
               
-              <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Delinquency by Property</h2>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Delinquency by Property</h2>
                 <canvas ref={delinquencyChartRef}></canvas>
               </div>
             </div>
             
             {/* Property Stats Table */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2">Property Breakdown</h2>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Property Breakdown</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>

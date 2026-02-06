@@ -1,14 +1,17 @@
 import './globals.css';
+import AppLayout from '../components/AppLayout';
 
 export const metadata = {
-  title: 'Inquiry Dashboard',
-  description: 'Guest Card Inquiries Analytics',
+  title: 'Appreciate Dashboard',
+  description: 'Property Management Analytics',
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppLayout>{children}</AppLayout>
+      </body>
     </html>
   );
 }
