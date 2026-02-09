@@ -62,10 +62,12 @@ export async function GET(request) {
     const showingsCanceled = (showingStatusCounts['Canceled'] || 0) + (showingStatusCounts['Prospect Canceled'] || 0);
     
     const applications = applicationsData?.length || 0;
+    // Count tenants as Converted status OR Approved application_status
+    const applicationsConverted = (applicationStatusCounts['Converted'] || 0);
     const applicationsApproved = (applicationStatusCounts['Approved'] || 0);
     const applicationsDenied = (applicationStatusCounts['Denied'] || 0);
     
-    const tenants = applicationsApproved;
+    const tenants = applicationsConverted + applicationsApproved;
 
     // Calculate fallout at each stage
     const inquiriesNoShowing = inquiries - totalShowings;

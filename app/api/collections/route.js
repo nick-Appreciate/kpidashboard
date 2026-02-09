@@ -9,11 +9,25 @@ export async function GET(request) {
     const property = searchParams.get('property');
     const agingBucket = searchParams.get('aging'); // 0-30, 30-60, 60-90, 90+
     
+    // Get the latest snapshot date first
+    const { data: latestSnapshot } = await supabase
+      .from('af_delinquency')
+      .select('snapshot_date')
+      .order('snapshot_date', { ascending: false })
+      .limit(1);
+    
+    const latestDate = latestSnapshot?.[0]?.snapshot_date;
+    
+    // Query only the latest snapshot for current items
     let query = supabase
       .from('af_delinquency')
       .select('*')
       .gt('amount_receivable', 0)
       .order('amount_receivable', { ascending: false });
+    
+    if (latestDate) {
+      query = query.eq('snapshot_date', latestDate);
+    }
     
     if (property && property !== 'all') {
       query = query.eq('property_name', property);
@@ -60,10 +74,43 @@ export async function GET(request) {
     // Get unique properties for filter
     const properties = [...new Set((data || []).map(item => item.property_name))].filter(Boolean).sort();
     
+    // Get historical trend data (last 60 days)
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    const sixtyDaysAgoStr = sixtyDaysAgo.toISOString().split('T')[0];
+    
+    const { data: trendData, error: trendError } = await supabase
+      .from('af_delinquency')
+      .select('snapshot_date, days_0_to_30, days_30_to_60, days_60_to_90, days_90_plus')
+      .gte('snapshot_date', sixtyDaysAgoStr)
+      .order('snapshot_date', { ascending: true });
+    
+    // Aggregate trend data by snapshot_date
+    const trendByDate = {};
+    (trendData || []).forEach(item => {
+      const date = item.snapshot_date;
+      if (!trendByDate[date]) {
+        trendByDate[date] = {
+          date,
+          days_0_30: 0,
+          days_30_60: 0,
+          days_60_90: 0,
+          days_90_plus: 0
+        };
+      }
+      trendByDate[date].days_0_30 += parseFloat(item.days_0_to_30 || 0);
+      trendByDate[date].days_30_60 += parseFloat(item.days_30_to_60 || 0);
+      trendByDate[date].days_60_90 += parseFloat(item.days_60_to_90 || 0);
+      trendByDate[date].days_90_plus += parseFloat(item.days_90_plus || 0);
+    });
+    
+    const trend = Object.values(trendByDate).sort((a, b) => a.date.localeCompare(b.date));
+    
     return NextResponse.json({
       items: filteredData,
       summary,
-      properties
+      properties,
+      trend
     });
     
   } catch (error) {

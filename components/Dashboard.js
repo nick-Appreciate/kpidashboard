@@ -14,8 +14,16 @@ export default function Dashboard() {
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [dateRange, setDateRange] = useState('last_month'); // Preset date range
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Initialize dates based on default preset (last_month)
+  const [startDate, setStartDate] = useState(() => {
+    const today = new Date();
+    const lastMonth = new Date(today);
+    lastMonth.setMonth(today.getMonth() - 1);
+    return lastMonth.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(() => {
+    return new Date().toISOString().split('T')[0];
+  });
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -246,12 +254,7 @@ export default function Dashboard() {
         weeklyChartRef.current.chart = new Chart(ctx, {
           type: 'line',
           data: {
-            labels: data.allWeeks.map(w => {
-              const [year, month, day] = w.split('-').map(Number);
-              const weekStart = new Date(year, month - 1, day);
-              const weekEnd = new Date(year, month - 1, day + 6);
-              return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
-            }),
+            labels: data.allWeeks, // Already formatted as "M/D-M/D" rolling periods
             datasets
           },
           options: {
@@ -268,7 +271,10 @@ export default function Dashboard() {
                     const details = weeklyDetailsByStage[stage]?.[idx] || [];
                     if (details.length === 0) return '';
                     
-                    const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
+                    const lines = details.slice(0, 10).map(d => {
+                      const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
+                      return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
+                    });
                     if (details.length > 10) {
                       lines.push(`... and ${details.length - 10} more`);
                     }
@@ -334,7 +340,10 @@ export default function Dashboard() {
                     const details = dailyDetailsByStage[stage]?.[idx] || [];
                     if (details.length === 0) return '';
                     
-                    const lines = details.slice(0, 10).map(d => `• ${d.name} (ID: ${d.id})`);
+                    const lines = details.slice(0, 10).map(d => {
+                      const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
+                      return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
+                    });
                     if (details.length > 10) {
                       lines.push(`... and ${details.length - 10} more`);
                     }
@@ -376,12 +385,7 @@ export default function Dashboard() {
         conversionChartRef.current.chart = new Chart(ctx, {
           type: 'line',
           data: {
-            labels: data.allWeeks.map(w => {
-              const [year, month, day] = w.split('-').map(Number);
-              const weekStart = new Date(year, month - 1, day);
-              const weekEnd = new Date(year, month - 1, day + 6);
-              return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
-            }),
+            labels: data.allWeeks, // Already formatted as "M/D-M/D" rolling periods
             datasets: conversionDatasets
           },
           options: {
@@ -524,12 +528,7 @@ export default function Dashboard() {
       weeklyChartRef.current.chart = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: stats.weeklyData.map(w => {
-            const [year, month, day] = w.week.split('-').map(Number);
-            const weekStart = new Date(year, month - 1, day);
-            const weekEnd = new Date(year, month - 1, day + 6);
-            return `${weekStart.getMonth() + 1}/${weekStart.getDate()} - ${weekEnd.getMonth() + 1}/${weekEnd.getDate()}`;
-          }),
+          labels: stats.weeklyData.map(w => w.week), // Already formatted as "M/D-M/D" rolling periods
           datasets: [{
             label: 'Weekly Inquiries',
             data: stats.weeklyData.map(w => w.count),
@@ -1053,32 +1052,6 @@ export default function Dashboard() {
         {/* Charts Section - Only visible when stages are selected */}
         {selectedStages.length > 0 && stageStats && (
           <>
-            {/* Stats Cards for Selected Stages */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition">
-                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Total {getStageDisplayNames()}</p>
-                <p className="text-4xl font-bold" style={{ color: selectedStages.length === 1 ? {
-                  'inquiries': '#667eea',
-                  'showings_scheduled': '#8b5cf6',
-                  'showings_completed': '#764ba2',
-                  'applications': '#f093fb',
-                  'tenants': '#43e97b'
-                }[selectedStages[0]] : '#667eea' }}>{stageStats?.total || 0}</p>
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition">
-                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Properties</p>
-                <p className="text-4xl font-bold text-indigo-600">{stageStats?.propertyCount || 0}</p>
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition">
-                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Status Types</p>
-                <p className="text-4xl font-bold text-indigo-600">{stageStats?.statusDistribution?.length || 0}</p>
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition">
-                <p className="text-gray-500 text-sm uppercase tracking-wide mb-2">Sources</p>
-                <p className="text-4xl font-bold text-indigo-600">{stageStats?.sourceDistribution?.length || 0}</p>
-              </div>
-            </div>
-            
             {/* Daily Chart - Full Width */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
               <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Daily {getStageDisplayNames()}</h2>

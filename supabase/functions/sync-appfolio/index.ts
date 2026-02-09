@@ -146,7 +146,10 @@ async function syncShowings(): Promise<SyncResult> {
     const data = await fetchAppFolioReport('showings');
     
     const records = data.map((row: any) => ({
+      showing_id: row.showing_id || null,
       guest_card_name: row.guest_card_name || null,
+      guest_card_id: row.guest_card_id || null,
+      inquiry_id: row.inquiry_id || null,
       email: row.email || null,
       phone: row.phone_number || null,
       property: row.property_name,
@@ -154,11 +157,20 @@ async function syncShowings(): Promise<SyncResult> {
       showing_time: row.showing_time || null,
       status: row.status || null,
       source: row.source || null,
+      lead_type: row.lead_type || null,
+      assigned_user: row.assigned_user || null,
       updated_at: new Date().toISOString()
     }));
     
-    await supabase.rpc('truncate_showings');
-    const { error } = await supabase.from('showings').insert(records);
+    // Use upsert with composite key (guest_card_name, property, showing_time)
+    // This will insert new records and update existing ones
+    const { error } = await supabase
+      .from('showings')
+      .upsert(records, { 
+        onConflict: 'guest_card_name,property,showing_time',
+        ignoreDuplicates: false 
+      });
+    
     if (error) throw new Error(JSON.stringify(error));
     
     return { report: 'showings', success: true, rowsProcessed: records.length };
@@ -169,7 +181,10 @@ async function syncShowings(): Promise<SyncResult> {
 
 async function syncRentalApplications(): Promise<SyncResult> {
   try {
-    const data = await fetchAppFolioReport('rental_applications', {});
+    // Use from_date filter to get historical applications (required filter per API docs)
+    const data = await fetchAppFolioReport('rental_applications', {
+      from_date: '2025-01-01'
+    });
     
     const records = data.map((row: any) => ({
       applicants: row.applicants || null,
@@ -178,11 +193,18 @@ async function syncRentalApplications(): Promise<SyncResult> {
       lead_source: row.lead_source || null,
       status: row.status || null,
       unit: row.unit_title || null,
+      rental_application_id: row.rental_application_id ? String(row.rental_application_id) : null,
       updated_at: new Date().toISOString()
-    }));
+    })).filter((r: any) => r.applicants && r.received);
     
-    await supabase.rpc('truncate_rental_applications');
-    const { error } = await supabase.from('rental_applications').insert(records);
+    // Use upsert to preserve historical data
+    const { error } = await supabase
+      .from('rental_applications')
+      .upsert(records, { 
+        onConflict: 'applicants,received',
+        ignoreDuplicates: false 
+      });
+    
     if (error) throw new Error(JSON.stringify(error));
     
     return { report: 'rental_applications', success: true, rowsProcessed: records.length };
@@ -217,15 +239,20 @@ async function syncGuestCards(): Promise<SyncResult> {
       source: row.source || null,
       unit: row.unit || null,
       guest_card_id: row.guest_card_id ? String(row.guest_card_id) : null,
+      inquiry_id: row.inquiry_id ? String(row.inquiry_id) : null,
       updated_at: new Date().toISOString()
     }));
     
-    await supabase.rpc('truncate_leasing_reports');
-    
+    // Use upsert to preserve historical data
     const batchSize = 50;
     for (let i = 0; i < records.length; i += batchSize) {
       const batch = records.slice(i, i + batchSize);
-      const { error } = await supabase.from('leasing_reports').insert(batch);
+      const { error } = await supabase
+        .from('leasing_reports')
+        .upsert(batch, { 
+          onConflict: 'name,property,inquiry_received',
+          ignoreDuplicates: false 
+        });
       if (error) throw new Error(JSON.stringify(error));
     }
     
@@ -263,11 +290,18 @@ async function syncDelinquency(): Promise<SyncResult> {
       days_90_plus: row['90_plus'] ? parseFloat(row['90_plus']) : null,
       last_payment: row.last_payment || null,
       payment_amount: row.payment_amount ? parseFloat(row.payment_amount) : null,
-      in_collections: row.in_collections === 'Yes' || row.in_collections === true
+      in_collections: row.in_collections === 'Yes' || row.in_collections === true,
+      synced_at: new Date().toISOString()
     }));
     
-    await supabase.rpc('truncate_af_delinquency');
-    const { error } = await supabase.from('af_delinquency').insert(records);
+    // Use upsert to create daily snapshots - one record per tenant per day
+    const { error } = await supabase
+      .from('af_delinquency')
+      .upsert(records, { 
+        onConflict: 'snapshot_date,occupancy_id',
+        ignoreDuplicates: false 
+      });
+    
     if (error) throw new Error(JSON.stringify(error));
     
     return { report: 'delinquency', success: true, rowsProcessed: records.length };

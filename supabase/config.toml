@@ -1,0 +1,2 @@
+[functions.sync-appfolio]
+verify_jwt = false

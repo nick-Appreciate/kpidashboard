@@ -73,28 +73,42 @@ export async function GET(request) {
       .map(([inquiry_date, count]) => ({ inquiry_date, count }))
       .sort((a, b) => a.inquiry_date.localeCompare(b.inquiry_date));
     
-    // Weekly data (using Central Time)
-    const getWeekStart = (centralDateStr) => {
-      const [year, month, day] = centralDateStr.split('-').map(Number);
-      const date = new Date(year, month - 1, day);
-      const dayOfWeek = date.getDay();
-      date.setDate(date.getDate() - dayOfWeek);
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    };
+    // Weekly data using rolling 7-day periods (from today going back)
+    const now = new Date();
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const rollingWeekRanges = [];
+    const maxWeeks = 12;
+    
+    for (let i = 0; i < maxWeeks; i++) {
+      const endDate = new Date(todayEnd.getTime() - (i * 7 * 24 * 60 * 60 * 1000));
+      const startDate = new Date(endDate.getTime() - (6 * 24 * 60 * 60 * 1000));
+      startDate.setHours(0, 0, 0, 0);
+      
+      const weekLabel = `${startDate.getMonth() + 1}/${startDate.getDate()}-${endDate.getMonth() + 1}/${endDate.getDate()}`;
+      rollingWeekRanges.unshift({ start: new Date(startDate), end: new Date(endDate), label: weekLabel });
+    }
     
     const weeklyCounts = {};
+    rollingWeekRanges.forEach(range => {
+      weeklyCounts[range.label] = 0;
+    });
+    
     inquiries.forEach(inq => {
       if (inq.inquiry_received) {
-        const centralDate = toCentralDate(inq.inquiry_received);
-        if (centralDate) {
-          const week = getWeekStart(centralDate);
-          weeklyCounts[week] = (weeklyCounts[week] || 0) + 1;
+        const date = new Date(inq.inquiry_received);
+        for (const range of rollingWeekRanges) {
+          if (date >= range.start && date <= range.end) {
+            weeklyCounts[range.label] = (weeklyCounts[range.label] || 0) + 1;
+            break;
+          }
         }
       }
     });
-    const weeklyData = Object.entries(weeklyCounts)
-      .map(([week, count]) => ({ week, count }))
-      .sort((a, b) => a.week.localeCompare(b.week));
+    
+    const weeklyData = rollingWeekRanges.map(range => ({
+      week: range.label,
+      count: weeklyCounts[range.label] || 0
+    }));
     
     // Monthly data (using Central Time)
     const monthlyCounts = {};

@@ -41,17 +41,15 @@ export async function GET(request) {
       if (row.guest_card_id && row.name) {
         guestCardLookup[row.guest_card_id] = row.name;
       }
-      // Count inquiries by date and week for conversion baseline
+      // Count inquiries by date for conversion baseline
       if (row.inquiry_received) {
         const date = new Date(row.inquiry_received);
         const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
         dailyInquiryCounts[dateStr] = (dailyInquiryCounts[dateStr] || 0) + 1;
         
-        // Weekly count
-        const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - date.getDay());
-        const weekStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
-        weeklyInquiryCounts[weekStr] = (weeklyInquiryCounts[weekStr] || 0) + 1;
+        // Store raw inquiry data for rolling week calculation later
+        if (!weeklyInquiryCounts._rawDates) weeklyInquiryCounts._rawDates = [];
+        weeklyInquiryCounts._rawDates.push(date);
       }
     });
 
@@ -98,7 +96,7 @@ export async function GET(request) {
       if (currentStage === 'showings_completed') {
         query = query.eq('status', 'Completed');
       } else if (currentStage === 'tenants') {
-        query = query.or('status.eq.Converted,status.eq.Converting,application_status.eq.Approved');
+        query = query.or('status.eq.Converted,application_status.eq.Approved');
       }
 
       // Apply property filter for tables that have it
@@ -137,7 +135,7 @@ export async function GET(request) {
     }
 
     // Process data separately for each stage
-    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts);
+    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, endDate);
 
     return NextResponse.json(result);
   } catch (error) {
@@ -316,7 +314,7 @@ function processStageData(records, stage, dateField) {
   };
 }
 
-function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}) {
+function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}, startDate = null, endDate = null) {
   if (!records || records.length === 0) {
     return {
       total: 0,
@@ -358,46 +356,79 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     return record.inquiry_received || record.showing_time || record.received;
   };
 
-  // Find global min/max dates across all records
-  let globalMinDate = null;
-  let globalMaxDate = null;
-  let globalMinWeek = null;
-  let globalMaxWeek = null;
-
-  records.forEach(record => {
-    const dateVal = getDateValue(record);
-    if (dateVal) {
-      const date = new Date(dateVal);
-      if (!globalMinDate || date < globalMinDate) globalMinDate = new Date(date);
-      if (!globalMaxDate || date > globalMaxDate) globalMaxDate = new Date(date);
-      
-      const weekStart = new Date(date);
-      weekStart.setDate(date.getDate() - date.getDay());
-      if (!globalMinWeek || weekStart < globalMinWeek) globalMinWeek = new Date(weekStart);
-      if (!globalMaxWeek || weekStart > globalMaxWeek) globalMaxWeek = new Date(weekStart);
-    }
-  });
-
-  // Generate all dates and weeks in range
-  const allDates = [];
-  const allWeeks = [];
+  // Use filter dates for the chart range, not data min/max
+  // This ensures charts always show the full selected date range
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   
-  if (globalMinDate && globalMaxDate) {
-    const currentDate = new Date(globalMinDate);
-    while (currentDate <= globalMaxDate) {
+  // Parse filter dates or use defaults
+  // Use local date parsing to avoid timezone issues (YYYY-MM-DD -> local midnight)
+  let chartStartDate = null;
+  let chartEndDate = today;
+  
+  if (startDate) {
+    const [year, month, day] = startDate.split('-').map(Number);
+    chartStartDate = new Date(year, month - 1, day);
+  }
+  if (endDate) {
+    const [year, month, day] = endDate.split('-').map(Number);
+    chartEndDate = new Date(year, month - 1, day);
+  }
+  
+  // Ensure endDate doesn't exceed today
+  if (chartEndDate > today) {
+    chartEndDate = today;
+  }
+  
+  // If no startDate provided, calculate from data
+  if (!chartStartDate) {
+    records.forEach(record => {
+      const dateVal = getDateValue(record);
+      if (dateVal) {
+        const date = new Date(dateVal);
+        const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        if (!chartStartDate || dateOnly < chartStartDate) chartStartDate = new Date(dateOnly);
+      }
+    });
+  }
+  
+  // Default to 30 days ago if still no start date
+  if (!chartStartDate) {
+    chartStartDate = new Date(today);
+    chartStartDate.setDate(chartStartDate.getDate() - 30);
+  }
+
+  // Generate all dates in range from startDate to endDate (today)
+  const allDates = [];
+  
+  if (chartStartDate && chartEndDate) {
+    const currentDate = new Date(chartStartDate);
+    chartEndDate.setHours(23, 59, 59, 999);
+    while (currentDate <= chartEndDate) {
       const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
       allDates.push(dateStr);
       currentDate.setDate(currentDate.getDate() + 1);
     }
   }
 
-  if (globalMinWeek && globalMaxWeek) {
-    const currentWeek = new Date(globalMinWeek);
-    while (currentWeek <= globalMaxWeek) {
-      const weekStr = `${currentWeek.getFullYear()}-${String(currentWeek.getMonth() + 1).padStart(2, '0')}-${String(currentWeek.getDate()).padStart(2, '0')}`;
-      allWeeks.push(weekStr);
-      currentWeek.setDate(currentWeek.getDate() + 7);
-    }
+  // Generate rolling 7-day periods (from today going back)
+  // Each period is labeled by its end date (most recent day in the period)
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const allWeeks = [];
+  const rollingWeekRanges = []; // Store {start, end} for each rolling week
+  
+  // Calculate how many weeks back we need to go based on filter date range
+  const weeksBack = chartStartDate ? Math.ceil((todayEnd - chartStartDate) / (7 * 24 * 60 * 60 * 1000)) + 1 : 8;
+  const maxWeeks = Math.min(weeksBack, 12); // Cap at 12 weeks
+  
+  for (let i = 0; i < maxWeeks; i++) {
+    const endDate = new Date(todayEnd.getTime() - (i * 7 * 24 * 60 * 60 * 1000));
+    const startDate = new Date(endDate.getTime() - (6 * 24 * 60 * 60 * 1000));
+    startDate.setHours(0, 0, 0, 0);
+    
+    const weekLabel = `${startDate.getMonth() + 1}/${startDate.getDate()}-${endDate.getMonth() + 1}/${endDate.getDate()}`;
+    allWeeks.unshift(weekLabel); // Add to beginning so oldest is first
+    rollingWeekRanges.unshift({ start: new Date(startDate), end: new Date(endDate), label: weekLabel });
   }
 
   // Process data for each stage separately
@@ -423,7 +454,15 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
         if (!dailyDetails[dateStr]) dailyDetails[dateStr] = [];
         const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
         const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
-        dailyDetails[dateStr].push({ name, id });
+        // For rental_applications, unit field contains "Property - Unit - Address"
+        let property = record.property || '';
+        let unit = record.showing_unit || '';
+        if (!property && record.unit && record.unit.includes(' - ')) {
+          const parts = record.unit.split(' - ');
+          property = parts[0];
+          unit = parts[1] || '';
+        }
+        dailyDetails[dateStr].push({ name, id, property, unit });
       }
     });
 
@@ -438,23 +477,41 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
       }))
     };
 
-    // Weekly counts for this stage
+    // Weekly counts for this stage using rolling 7-day periods
     const weeklyCounts = {};
     const weeklyDetails = {};
+    
+    // Initialize counts for each rolling week
+    rollingWeekRanges.forEach(range => {
+      weeklyCounts[range.label] = 0;
+      weeklyDetails[range.label] = [];
+    });
     
     stageRecords.forEach(record => {
       const dateVal = getDateValue(record);
       if (dateVal) {
         const date = new Date(dateVal);
-        const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - date.getDay());
-        const weekStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
-        weeklyCounts[weekStr] = (weeklyCounts[weekStr] || 0) + 1;
         
-        if (!weeklyDetails[weekStr]) weeklyDetails[weekStr] = [];
-        const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
-        const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
-        weeklyDetails[weekStr].push({ name, id });
+        // Find which rolling week this date falls into
+        for (const range of rollingWeekRanges) {
+          if (date >= range.start && date <= range.end) {
+            weeklyCounts[range.label] = (weeklyCounts[range.label] || 0) + 1;
+            
+            if (!weeklyDetails[range.label]) weeklyDetails[range.label] = [];
+            const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
+            const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
+            // For rental_applications, unit field contains "Property - Unit - Address"
+            let property = record.property || '';
+            let unit = record.showing_unit || '';
+            if (!property && record.unit && record.unit.includes(' - ')) {
+              const parts = record.unit.split(' - ');
+              property = parts[0];
+              unit = parts[1] || '';
+            }
+            weeklyDetails[range.label].push({ name, id, property, unit });
+            break; // Each record only belongs to one week
+          }
+        }
       }
     });
 
@@ -462,10 +519,10 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     weeklyDataByStage[stage] = {
       label: stageNames[stage],
       color: stageColors[stage],
-      data: allWeeks.map(weekStr => ({
-        week: weekStr,
-        count: weeklyCounts[weekStr] || 0,
-        details: weeklyDetails[weekStr] || []
+      data: allWeeks.map(weekLabel => ({
+        week: weekLabel,
+        count: weeklyCounts[weekLabel] || 0,
+        details: weeklyDetails[weekLabel] || []
       }))
     };
   });
@@ -493,6 +550,15 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
   // Define the funnel order for calculating conversion from previous stage
   const funnelOrder = ['inquiries', 'showings_scheduled', 'showings_completed', 'applications', 'tenants'];
   
+  // Calculate rolling weekly inquiry counts for conversion baseline
+  const rollingWeeklyInquiryCounts = {};
+  const rawInquiryDates = weeklyInquiryCounts._rawDates || [];
+  rollingWeekRanges.forEach(range => {
+    rollingWeeklyInquiryCounts[range.label] = rawInquiryDates.filter(
+      date => date >= range.start && date <= range.end
+    ).length;
+  });
+  
   // Calculate weekly conversion percentages for each stage (as % of previous stage)
   const weeklyConversionByStage = {};
   stages.forEach(stage => {
@@ -504,11 +570,11 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
       weeklyConversionByStage[stage] = {
         label: stageNames[stage],
         color: stageColors[stage],
-        data: allWeeks.map(weekStr => ({
-          week: weekStr,
+        data: allWeeks.map(weekLabel => ({
+          week: weekLabel,
           percentage: 100,
-          count: weeklyInquiryCounts[weekStr] || 0,
-          baseline: weeklyInquiryCounts[weekStr] || 0,
+          count: rollingWeeklyInquiryCounts[weekLabel] || 0,
+          baseline: rollingWeeklyInquiryCounts[weekLabel] || 0,
           baselineLabel: 'Inquiries'
         }))
       };
@@ -520,26 +586,26 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
       let baselineLabel;
       
       if (previousStage === 'inquiries') {
-        getPreviousStageCount = (weekStr) => weeklyInquiryCounts[weekStr] || 0;
+        getPreviousStageCount = (weekLabel) => rollingWeeklyInquiryCounts[weekLabel] || 0;
         baselineLabel = 'Inquiries';
       } else if (weeklyDataByStage[previousStage]) {
-        getPreviousStageCount = (weekStr, idx) => weeklyDataByStage[previousStage].data[idx]?.count || 0;
+        getPreviousStageCount = (weekLabel, idx) => weeklyDataByStage[previousStage].data[idx]?.count || 0;
         baselineLabel = stageNames[previousStage];
       } else {
         // Fallback to inquiries if previous stage not in selection
-        getPreviousStageCount = (weekStr) => weeklyInquiryCounts[weekStr] || 0;
+        getPreviousStageCount = (weekLabel) => rollingWeeklyInquiryCounts[weekLabel] || 0;
         baselineLabel = 'Inquiries';
       }
       
       weeklyConversionByStage[stage] = {
         label: `${stageNames[stage]} (from ${baselineLabel})`,
         color: stageColors[stage],
-        data: allWeeks.map((weekStr, idx) => {
+        data: allWeeks.map((weekLabel, idx) => {
           const stageCount = stageData.data[idx]?.count || 0;
-          const previousCount = getPreviousStageCount(weekStr, idx);
+          const previousCount = getPreviousStageCount(weekLabel, idx);
           const percentage = previousCount > 0 ? Math.round((stageCount / previousCount) * 100) : 0;
           return {
-            week: weekStr,
+            week: weekLabel,
             percentage,
             count: stageCount,
             baseline: previousCount,

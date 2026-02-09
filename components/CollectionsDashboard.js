@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { LogoLoader } from './Logo';
+import Chart from 'chart.js/auto';
 
 export default function CollectionsDashboard() {
   const [data, setData] = useState(null);
@@ -9,10 +10,103 @@ export default function CollectionsDashboard() {
   const [error, setError] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [selectedAgingBuckets, setSelectedAgingBuckets] = useState([]);
+  const trendChartRef = useRef(null);
+  const trendChartInstance = useRef(null);
   
   useEffect(() => {
     fetchData();
   }, [selectedProperty]);
+  
+  // Render trend chart when data changes
+  useEffect(() => {
+    if (!data?.trend || !trendChartRef.current) return;
+    
+    // Destroy existing chart
+    if (trendChartInstance.current) {
+      trendChartInstance.current.destroy();
+    }
+    
+    const trend = data.trend;
+    const labels = trend.map(d => {
+      const date = new Date(d.date + 'T00:00:00');
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    
+    const ctx = trendChartRef.current.getContext('2d');
+    trendChartInstance.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '0-30 Days',
+            data: trend.map(d => d.days_0_30),
+            borderColor: 'rgb(59, 130, 246)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            tension: 0.3,
+            fill: false
+          },
+          {
+            label: '30-60 Days',
+            data: trend.map(d => d.days_30_60),
+            borderColor: 'rgb(234, 179, 8)',
+            backgroundColor: 'rgba(234, 179, 8, 0.1)',
+            tension: 0.3,
+            fill: false
+          },
+          {
+            label: '60-90 Days',
+            data: trend.map(d => d.days_60_90),
+            borderColor: 'rgb(249, 115, 22)',
+            backgroundColor: 'rgba(249, 115, 22, 0.1)',
+            tension: 0.3,
+            fill: false
+          },
+          {
+            label: '90+ Days',
+            data: trend.map(d => d.days_90_plus),
+            borderColor: 'rgb(239, 68, 68)',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            tension: 0.3,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y;
+                return `${context.dataset.label}: $${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    return () => {
+      if (trendChartInstance.current) {
+        trendChartInstance.current.destroy();
+      }
+    };
+  }, [data?.trend]);
   
   const toggleAgingBucket = (bucket) => {
     setSelectedAgingBuckets(prev => 
@@ -63,7 +157,68 @@ export default function CollectionsDashboard() {
     });
   };
   
+  // Format phone number for JustCall (ensure it has country code)
+  const formatPhoneForJustCall = (phone) => {
+    if (!phone) return null;
+    // Clean the phone number - remove non-digits except +
+    let cleaned = phone.replace(/[^\d+]/g, '');
+    // If it doesn't start with +, assume US and add +1
+    if (!cleaned.startsWith('+')) {
+      // Remove leading 1 if present to avoid +11
+      if (cleaned.startsWith('1') && cleaned.length === 11) {
+        cleaned = '+' + cleaned;
+      } else {
+        cleaned = '+1' + cleaned;
+      }
+    }
+    return cleaned;
+  };
+  
+  // Open JustCall dialer with contact info
+  const openJustCallDialer = (item) => {
+    const phone = formatPhoneForJustCall(item.phone_numbers);
+    if (!phone) {
+      alert('No phone number available for this contact');
+      return;
+    }
+    
+    // Build metadata for JustCall
+    const metadata = {
+      name: item.name || 'Unknown',
+      property: item.property_name || '',
+      unit: item.unit || '',
+      amount_due: item.amount_receivable || 0
+    };
+    
+    // Construct JustCall URL with metadata
+    const baseUrl = 'https://app.justcall.io/dialer';
+    const params = new URLSearchParams({
+      numbers: phone,
+      medium: 'custom',
+      metadata: JSON.stringify(metadata),
+      metadata_type: 'json'
+    });
+    
+    const dialerUrl = `${baseUrl}?${params.toString()}`;
+    
+    // Open in popup window (recommended size by JustCall)
+    window.open(dialerUrl, 'JustCallDialer', 'width=385,height=665,location=no');
+  };
+  
+  // Check if tenant has moved out
+  const isMovedOut = (item) => {
+    if (item.move_out) {
+      const moveOutDate = new Date(item.move_out);
+      if (moveOutDate <= new Date()) return true;
+    }
+    if (item.tenant_status && item.tenant_status !== 'Current') return true;
+    return false;
+  };
+  
   const getAgingColor = (item) => {
+    // Moved out tenants get a distinct gray/purple color
+    if (isMovedOut(item)) return 'bg-purple-50 border-purple-300 text-purple-800';
+    
     if (parseFloat(item.days_90_plus || 0) > 0) return 'bg-red-100 border-red-300 text-red-800';
     if (parseFloat(item.days_60_to_90 || 0) > 0) return 'bg-orange-100 border-orange-300 text-orange-800';
     if (parseFloat(item.days_30_to_60 || 0) > 0) return 'bg-yellow-100 border-yellow-300 text-yellow-800';
@@ -142,9 +297,16 @@ export default function CollectionsDashboard() {
     return acc;
   }, {});
   
-  // Sort items within each property by aging (oldest first)
+  // Sort items within each property by aging (oldest first), with moved-out tenants at bottom
   Object.keys(groupedByProperty).forEach(property => {
     groupedByProperty[property].sort((a, b) => {
+      // Moved-out tenants go to the bottom
+      const aMovedOut = isMovedOut(a);
+      const bMovedOut = isMovedOut(b);
+      if (aMovedOut && !bMovedOut) return 1;
+      if (!aMovedOut && bMovedOut) return -1;
+      
+      // Then sort by aging score (oldest first)
       const scoreA = getAgingScore(a);
       const scoreB = getAgingScore(b);
       if (scoreB !== scoreA) return scoreB - scoreA;
@@ -309,6 +471,11 @@ export default function CollectionsDashboard() {
                                 <span className={`text-xs px-2 py-0.5 rounded-full text-white ${agingBadge.color}`}>
                                   {agingBadge.label}
                                 </span>
+                                {isMovedOut(item) && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-500 text-white">
+                                    Moved Out
+                                  </span>
+                                )}
                                 {item.in_collections && (
                                   <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500 text-white">
                                     In Collections
@@ -318,9 +485,27 @@ export default function CollectionsDashboard() {
                               <div className="text-sm text-slate-600">
                                 {item.unit && <span>Unit {item.unit}</span>}
                               </div>
-                              <div className="text-xs text-slate-500 mt-1">
-                                {item.phone_numbers && <span>📞 {item.phone_numbers}</span>}
-                                {item.primary_tenant_email && <span className="ml-3">✉️ {item.primary_tenant_email}</span>}
+                              <div className="text-xs text-slate-500 mt-1 flex items-center gap-3">
+                                {item.phone_numbers && (
+                                  <button
+                                    onClick={() => openJustCallDialer(item)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-md transition-colors cursor-pointer"
+                                    title="Click to call with JustCall"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                    </svg>
+                                    <span>{item.phone_numbers}</span>
+                                  </button>
+                                )}
+                                {item.primary_tenant_email && (
+                                  <a 
+                                    href={`mailto:${item.primary_tenant_email}`}
+                                    className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors"
+                                  >
+                                    ✉️ {item.primary_tenant_email}
+                                  </a>
+                                )}
                               </div>
                             </div>
                             
@@ -347,6 +532,23 @@ export default function CollectionsDashboard() {
                 </div>
               );
             })
+          )}
+        </div>
+        
+        {/* Collections Trend Chart */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mt-6">
+          <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">
+            Collections Trend (Last 60 Days)
+          </h2>
+          {data?.trend && data.trend.length > 0 ? (
+            <div style={{ height: '300px' }}>
+              <canvas ref={trendChartRef}></canvas>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-slate-500">
+              <p className="text-lg mb-2">No historical data yet</p>
+              <p className="text-sm">This chart will populate as daily snapshots are collected over time.</p>
+            </div>
           )}
         </div>
       </div>
