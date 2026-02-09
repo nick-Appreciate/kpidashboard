@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { LogoLoader } from './Logo';
 import Chart from 'chart.js/auto';
+import JustCallDialer, { useJustCall } from './JustCallDialer';
 
 export default function CollectionsDashboard() {
   const [data, setData] = useState(null);
@@ -12,6 +13,7 @@ export default function CollectionsDashboard() {
   const [selectedAgingBuckets, setSelectedAgingBuckets] = useState([]);
   const trendChartRef = useRef(null);
   const trendChartInstance = useRef(null);
+  const { makeCall, openDialer } = useJustCall();
   
   useEffect(() => {
     fetchData();
@@ -174,7 +176,7 @@ export default function CollectionsDashboard() {
     return cleaned;
   };
   
-  // Open JustCall dialer with contact info
+  // Open JustCall dialer with contact info (uses embedded SDK)
   const openJustCallDialer = (item) => {
     const phone = formatPhoneForJustCall(item.phone_numbers);
     if (!phone) {
@@ -182,27 +184,8 @@ export default function CollectionsDashboard() {
       return;
     }
     
-    // Build metadata for JustCall
-    const metadata = {
-      name: item.name || 'Unknown',
-      property: item.property_name || '',
-      unit: item.unit || '',
-      amount_due: item.amount_receivable || 0
-    };
-    
-    // Construct JustCall URL with metadata
-    const baseUrl = 'https://app.justcall.io/dialer';
-    const params = new URLSearchParams({
-      numbers: phone,
-      medium: 'custom',
-      metadata: JSON.stringify(metadata),
-      metadata_type: 'json'
-    });
-    
-    const dialerUrl = `${baseUrl}?${params.toString()}`;
-    
-    // Open in popup window (recommended size by JustCall)
-    window.open(dialerUrl, 'JustCallDialer', 'width=385,height=665,location=no');
+    // Use embedded dialer SDK
+    makeCall(phone, item.name || 'Unknown');
   };
   
   // Check if tenant has moved out
@@ -467,7 +450,19 @@ export default function CollectionsDashboard() {
                           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="font-semibold text-slate-900">{item.name || 'Unknown'}</span>
+                                {item.occupancy_id ? (
+                                  <a 
+                                    href={`https://appreciateinc.appfolio.com/occupancies/${item.occupancy_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                                    title="Open in AppFolio"
+                                  >
+                                    {item.name || 'Unknown'}
+                                  </a>
+                                ) : (
+                                  <span className="font-semibold text-slate-900">{item.name || 'Unknown'}</span>
+                                )}
                                 <span className={`text-xs px-2 py-0.5 rounded-full text-white ${agingBadge.color}`}>
                                   {agingBadge.label}
                                 </span>
@@ -552,6 +547,9 @@ export default function CollectionsDashboard() {
           )}
         </div>
       </div>
+      
+      {/* JustCall Embedded Dialer */}
+      <JustCallDialer />
     </div>
   );
 }
