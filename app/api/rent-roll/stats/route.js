@@ -757,9 +757,90 @@ export async function GET(request) {
     badLeasesByReason.expiringWithin60Days.sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration);
     upcomingExpirations.sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration);
     
+    // Recent Renewals - renewals with lease_start in last 60 days or future (use lease_start as renewal date)
+    const sixtyDaysAgo = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000);
+    
+    // Build tenant name lookup from rent_roll_snapshots using property+unit as key
+    const tenantNameLookup = {};
+    currentData.forEach(u => {
+      if (u.tenant_name && u.property && u.unit) {
+        // Use normalized property+unit key for matching
+        const normalizedProp = normalizePropertyName(u.property);
+        const normalizedUnit = normalizeUnitName(u.unit);
+        const key = `${normalizedProp}|${normalizedUnit}`;
+        tenantNameLookup[key] = u.tenant_name;
+      }
+    });
+    
+    const recentRenewals = renewalData
+      .filter(r => {
+        if (r.status !== 'Renewed') return false;
+        if (!r.lease_start) return false;
+        const leaseStart = new Date(r.lease_start);
+        // Include if lease_start is within last 60 days OR in the future
+        return leaseStart >= sixtyDaysAgo;
+      })
+      .map(r => {
+        const leaseStart = new Date(r.lease_start);
+        const daysFromToday = Math.round((leaseStart - today) / (1000 * 60 * 60 * 24));
+        
+        // Look up tenant name from rent_roll_snapshots using property+unit
+        let tenantName = r.tenant_name;
+        if (!tenantName && r.property_name && r.unit_name) {
+          const normalizedProp = normalizePropertyName(r.property_name);
+          const normalizedUnit = normalizeUnitName(r.unit_name);
+          const key = `${normalizedProp}|${normalizedUnit}`;
+          tenantName = tenantNameLookup[key] || null;
+        }
+        
+        return {
+          property: r.property_name,
+          unit: r.unit_name,
+          tenantName: tenantName,
+          leaseStart: r.lease_start,
+          rent: r.rent,
+          previousRent: r.previous_rent,
+          percentDifference: r.percent_difference,
+          dollarDifference: r.dollar_difference,
+          term: r.term,
+          daysFromToday // negative = past, positive = future
+        };
+      })
+      .sort((a, b) => new Date(b.leaseStart) - new Date(a.leaseStart)); // Most recent first
+    
+    // Renewals by month (last 12 months)
+    const renewalsByMonth = [];
+    const twelveMonthsAgo = new Date(today);
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    
+    // Create all 12 months with 0 counts
+    for (let i = 11; i >= 0; i--) {
+      const monthDate = new Date(today);
+      monthDate.setMonth(monthDate.getMonth() - i);
+      const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      renewalsByMonth.push({ month: monthKey, label: monthLabel, count: 0 });
+    }
+    
+    // Count renewals by month from renewalData
+    renewalData
+      .filter(r => r.status === 'Renewed' && r.lease_start)
+      .forEach(r => {
+        const leaseStart = new Date(r.lease_start);
+        if (leaseStart >= twelveMonthsAgo) {
+          const monthKey = `${leaseStart.getFullYear()}-${String(leaseStart.getMonth() + 1).padStart(2, '0')}`;
+          const monthEntry = renewalsByMonth.find(m => m.month === monthKey);
+          if (monthEntry) {
+            monthEntry.count++;
+          }
+        }
+      });
+    
     const leaseHealthDetails = {
       badLeasesByReason,
       upcomingExpirations,
+      recentRenewals,
+      renewalsByMonth,
       rescuedLeases,
       newBadLeases
     };

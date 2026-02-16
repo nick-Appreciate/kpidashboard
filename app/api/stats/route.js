@@ -168,30 +168,30 @@ export async function GET(request) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
     
-    // Get the most recent data insert timestamp across all tables
+    // Get the most recent data sync timestamp across all tables (use updated_at for sync time)
     const { data: lastLeasingInsert } = await supabase
       .from('leasing_reports')
-      .select('created_at')
-      .order('created_at', { ascending: false })
+      .select('updated_at')
+      .order('updated_at', { ascending: false })
       .limit(1);
     
     const { data: lastShowingInsert } = await supabase
       .from('showings')
-      .select('created_at')
-      .order('created_at', { ascending: false })
+      .select('updated_at')
+      .order('updated_at', { ascending: false })
       .limit(1);
     
     const { data: lastApplicationInsert } = await supabase
       .from('rental_applications')
-      .select('created_at')
-      .order('created_at', { ascending: false })
+      .select('updated_at')
+      .order('updated_at', { ascending: false })
       .limit(1);
     
     // Find the most recent timestamp across all tables
     const timestamps = [
-      lastLeasingInsert?.[0]?.created_at,
-      lastShowingInsert?.[0]?.created_at,
-      lastApplicationInsert?.[0]?.created_at
+      lastLeasingInsert?.[0]?.updated_at,
+      lastShowingInsert?.[0]?.updated_at,
+      lastApplicationInsert?.[0]?.updated_at
     ].filter(Boolean).map(t => new Date(t));
     
     const lastDataInsert = timestamps.length > 0 

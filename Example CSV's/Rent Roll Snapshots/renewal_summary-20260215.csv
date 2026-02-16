@@ -1,0 +1,200 @@
+Unit Name,Property,Tenant Name,Lease Start,Lease End,Previous Lease Start,Previous Lease End,Previous Rent,Rent,Percent Difference,Dollar Difference,Status,Term,Renewal Sent Date,Countersigned Date,Tenant ID
+
+-> Apr 2025,"","","","","","","","","","","","","","",""
+1,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Macon, Cernyn",04/29/2025,04/28/2026,,,,850.00,,,Pending,12 month,11/10/2025,,314
+-> Nov 2025,"","","","","","","","","","","","","","",""
+10,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Smith, Taiwaina",11/01/2025,10/31/2026,,,,850.00,,,Canceled by User,12 month,10/20/2025,,332
+11,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Maldonado, Fabian N.",11/30/2025,11/29/2026,11/30/2024,11/29/2025,"1,025.00","1,025.00",0.00%,0.00,Renewed,12 month,11/07/2025,,333
+2 Offers,,,,,,,,,,,,,,,
+-> Dec 2025,"","","","","","","","","","","","","","",""
+9,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Herbert, Will R.",12/01/2025,11/30/2026,,,,"1,025.00",,,Canceled by User,12 month,11/24/2025,,330
+3,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Armella, Wilmer J.",12/01/2025,11/30/2026,12/01/2024,11/30/2025,"1,025.00","1,025.00",0.00%,0.00,Renewed,12 month,11/25/2025,,318
+2631F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Reaves, William ""Bill""",12/01/2025,11/30/2026,05/01/2024,,950.00,950.00,0.00%,0.00,Renewed,12 month,11/03/2025,11/03/2025,418
+2631F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Reaves, William ""Bill""",12/01/2025,02/28/2027,05/01/2024,,950.00,950.00,0.00%,0.00,Did Not Renew,15 month,11/03/2025,,418
+2631F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Reaves, William ""Bill""",12/01/2025,05/31/2027,05/01/2024,,950.00,950.00,0.00%,0.00,Did Not Renew,18 month,11/03/2025,,418
+2623D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Moore, Mary",12/01/2025,11/30/2026,11/01/2024,10/31/2025,"1,000.00","1,000.00",0.00%,0.00,Renewed,12 month,11/03/2025,11/05/2025,406
+2623D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Moore, Mary",12/01/2025,02/28/2027,11/01/2024,10/31/2025,"1,000.00","1,000.00",0.00%,0.00,Did Not Renew,15 month,11/03/2025,,406
+2623D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Moore, Mary",12/01/2025,05/31/2027,11/01/2024,10/31/2025,"1,000.00","1,000.00",0.00%,0.00,Did Not Renew,18 month,11/03/2025,,406
+2629D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Lyles, Johnny",12/01/2025,11/30/2026,,,,"1,100.00",,,Canceled by User,12 month,11/05/2025,,414
+2629D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Lyles, Johnny",12/01/2025,02/28/2027,,,,"1,100.00",,,Canceled by User,15 month,11/05/2025,,414
+2629D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Lyles, Johnny",12/01/2025,05/31/2027,,,,"1,100.00",,,Canceled by User,18 month,11/05/2025,,414
+2635D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Ramirez-Gonzalez, Kanda",12/01/2025,11/30/2026,08/01/2024,,"1,250.00","1,250.00",0.00%,0.00,Renewed,12 month,11/05/2025,11/13/2025,425
+2635D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Ramirez-Gonzalez, Kanda",12/01/2025,02/28/2027,08/01/2024,,"1,250.00","1,250.00",0.00%,0.00,Did Not Renew,15 month,11/05/2025,,425
+2635D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Ramirez-Gonzalez, Kanda",12/01/2025,05/31/2027,08/01/2024,,"1,250.00","1,250.00",0.00%,0.00,Did Not Renew,18 month,11/05/2025,,425
+2629F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Tippin, Glendale",12/01/2025,11/30/2026,,,,89.00,,,Canceled by User,12 month,11/06/2025,,415
+2604D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Elkins, Ramon",12/01/2025,11/30/2026,08/31/2023,,61.00,61.00,0.00%,0.00,Renewed,12 month,11/10/2025,11/13/2025,376
+2629F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Tippin, Glendale",12/01/2025,11/30/2026,,,,89.00,,,Canceled by User,12 month,11/10/2025,,415
+2611F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Shaffer, Aniessia",12/01/2025,11/30/2026,10/13/2023,,280.00,280.00,0.00%,0.00,Renewed,12 month,11/10/2025,11/12/2025,388
+2631D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Jennings, Melvina S.",12/13/2025,12/12/2026,,,,559.00,,,Canceled by User,12 month,11/10/2025,,417
+2631D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Jennings, Melvina S.",12/13/2025,12/12/2026,,,,334.00,,,Canceled by User,12 month,12/04/2025,,417
+2633D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Graves, Brenitta",12/15/2025,12/14/2026,,,,"1,095.00",,,Canceled by User,12 month,12/08/2025,,423
+2633D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Graves, Brenitta",12/15/2025,03/14/2027,,,,"1,070.00",,,Canceled by User,15 month,12/08/2025,,423
+2633D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Graves, Brenitta",12/15/2025,06/14/2027,,,,"1,045.00",,,Canceled by User,18 month,12/08/2025,,423
+2610D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Miller, Crystal A.",12/17/2025,12/16/2026,,,,0.00,,,Canceled by User,12 month,11/10/2025,,386
+1411C,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Buffett, Heather",12/01/2025,05/31/2026,02/16/2024,,"1,150.00","1,150.00",0.00%,0.00,Renewed,6 month,11/11/2025,11/11/2025,441
+1413F,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Hunt, William",12/01/2025,11/30/2026,10/01/2023,,900.00,925.00,2.78%,25.00,Renewed,12 month,11/25/2025,11/25/2025,450
+1413J,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Hamilton, Chance D.",12/01/2025,11/30/2026,,,,"1,000.00",,,Canceled by User,12 month,,,453
+4,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Barnett, Cecil",12/01/2025,11/30/2026,10/01/2023,,900.00,950.00,5.56%,50.00,Renewed,12 month,11/04/2025,11/05/2025,499
+33,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Raul, Jose",12/01/2025,11/30/2026,05/01/2023,,975.00,975.00,0.00%,0.00,Renewed,12 month,11/10/2025,11/11/2025,532
+15,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Davis, Sherri",12/01/2025,11/30/2026,05/28/2024,,650.00,700.00,7.69%,50.00,Renewed,12 month,11/10/2025,,313
+21,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Puckett, Gary",12/01/2025,11/30/2026,,,,675.00,,,Canceled by User,12 month,11/10/2025,,325
+28,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Murphy, Kevin",12/01/2025,11/30/2026,07/01/2025,06/30/2026,750.00,750.00,0.00%,0.00,Renewed,12 month,11/11/2025,01/06/2026,342
+32 Offers,,,,,,,,,,,,,,,
+-> Jan 2026,"","","","","","","","","","","","","","",""
+31,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Johnson, Rachael",01/01/2026,12/31/2026,04/01/2025,,750.00,800.00,6.67%,50.00,Renewed,12 month,11/11/2025,11/11/2025,362
+29,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Canaday, Donita",01/01/2026,12/31/2026,,,,825.00,,,Canceled by User,12 month,11/21/2025,,360
+5,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Briggs, Laron",01/01/2026,06/30/2027,,,,775.00,,,Canceled by User,18 month,11/24/2025,,323
+15,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","McReynolds, Rhonda",01/01/2026,12/31/2026,10/17/2024,10/16/2025,800.00,850.00,6.25%,50.00,Renewed,12 month,11/24/2025,12/01/2025,339
+7,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Wilson, Jeffina L.",01/01/2026,06/30/2027,12/19/2024,12/18/2025,"1,025.00","1,025.00",0.00%,0.00,Renewed,18 month,11/24/2025,11/24/2025,326
+14,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Lee, Kelvin J.",01/01/2026,12/31/2026,,,,875.00,,,Canceled by User,12 month,11/24/2025,,337
+19,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Taylor, James",01/01/2026,12/31/2026,01/01/2025,12/31/2025,750.00,800.00,6.67%,50.00,Renewed,12 month,11/24/2025,12/17/2025,348
+29,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Canaday, Donita",01/01/2026,12/31/2026,,,,900.00,,,Pending,12 month,12/26/2025,,360
+29,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Canaday, Donita",01/01/2026,03/31/2027,,,,875.00,,,Pending,15 month,12/26/2025,,360
+29,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Canaday, Donita",01/01/2026,06/30/2027,,,,850.00,,,Pending,18 month,12/26/2025,,360
+4,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Butler, Tanisha I.",01/14/2026,01/13/2027,01/14/2025,01/13/2026,850.00,850.00,0.00%,0.00,Renewed,12 month,12/26/2025,12/26/2025,320
+4,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Butler, Tanisha I.",01/14/2026,04/13/2027,01/14/2025,01/13/2026,850.00,850.00,0.00%,0.00,Did Not Renew,15 month,12/26/2025,,320
+4,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Butler, Tanisha I.",01/14/2026,07/13/2027,01/14/2025,01/13/2026,850.00,850.00,0.00%,0.00,Did Not Renew,18 month,12/26/2025,,320
+2637F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Vanderpool, Jessica",01/01/2026,12/31/2026,,,,"1,100.00",,,Did Not Renew,12 month,11/25/2025,,429
+2637F,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Vanderpool, Jessica",01/01/2026,06/30/2027,,,,"1,075.00",,,Did Not Renew,18 month,11/25/2025,,429
+1415I,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Holloway, Jalyn",01/01/2026,12/31/2026,01/01/2025,12/31/2025,"1,000.00","1,000.00",0.00%,0.00,Renewed,12 month,11/18/2025,11/18/2025,466
+1411H,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Sas, Tracy McCormick",01/01/2026,06/30/2027,01/01/2025,12/31/2025,"1,100.00","1,100.00",0.00%,0.00,Renewed,18 month,11/20/2025,11/20/2025,445
+1415K,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Kahlon, Crystal",01/01/2026,12/31/2026,05/23/2023,,900.00,925.00,2.78%,25.00,Renewed,12 month,11/25/2025,12/15/2025,468
+1413G,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Candillo, Christina",01/01/2026,07/31/2026,,,,"1,000.00",,,Canceled by User,7 month,12/12/2025,,451
+1413G,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Candillo, Christina",01/01/2026,12/31/2026,11/01/2024,,255.00,255.00,0.00%,0.00,Renewed,12 month,12/12/2025,12/16/2025,451
+1411E,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Engram, Breanna N.",01/01/2026,12/31/2026,06/12/2024,,0.00,0.00,,0.00,Renewed,12 month,12/12/2025,12/15/2025,443
+1411A,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Dugger, Brandon",01/01/2026,06/30/2026,,,,50.00,,,Canceled by User,6 month,12/12/2025,,439
+1415C,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Carr, Marjorie",01/01/2026,12/31/2026,10/06/2023,,925.00,925.00,0.00%,0.00,Renewed,12 month,12/16/2025,12/16/2025,458
+1900-2,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Nava, Danny",01/01/2026,12/31/2026,,,,825.00,,,Pending,12 month,12/10/2025,,473
+1900-2,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Nava, Danny",01/01/2026,06/30/2027,,,,775.00,,,Pending,18 month,12/10/2025,,473
+1900-5,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Junior, Derrick Green",01/01/2026,12/31/2026,,,,775.00,,,Pending,12 month,12/16/2025,,477
+1900-5,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Junior, Derrick Green",01/01/2026,06/30/2027,,,,725.00,,,Pending,18 month,12/16/2025,,477
+1900-5,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Junior, Derrick Green",01/01/2026,03/31/2027,,,,750.00,,,Pending,15 month,12/16/2025,,477
+1904-10,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Cummings, Bart",01/01/2026,12/31/2026,,,,800.00,,,Pending,12 month,12/16/2025,,482
+1904-10,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Cummings, Bart",01/01/2026,03/31/2027,,,,775.00,,,Pending,15 month,12/16/2025,,482
+1904-10,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Cummings, Bart",01/01/2026,06/30/2027,,,,750.00,,,Pending,18 month,12/16/2025,,482
+1906-7,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Haltiwanger, Patrick",01/01/2026,12/31/2026,,,,850.00,,,Pending,12 month,12/16/2025,,487
+1906-7,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Haltiwanger, Patrick",01/01/2026,03/31/2027,,,,825.00,,,Pending,15 month,12/16/2025,,487
+1906-7,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Haltiwanger, Patrick",01/01/2026,06/30/2027,,,,800.00,,,Pending,18 month,12/16/2025,,487
+1908-5,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Harris, Trenton",01/01/2026,12/31/2026,04/01/2025,,750.00,850.00,13.33%,100.00,Did Not Renew,12 month,12/16/2025,,493
+1908-5,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Harris, Trenton",01/01/2026,03/31/2027,04/01/2025,,750.00,825.00,10.00%,75.00,Did Not Renew,15 month,12/16/2025,,493
+1908-5,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Harris, Trenton",01/01/2026,06/30/2027,04/01/2025,,750.00,800.00,6.67%,50.00,Renewed,18 month,12/16/2025,12/25/2025,493
+36,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","NYIRABAGENI, CHINGENEYE N.",01/01/2026,12/31/2026,,,,"1,025.00",,,Pending,12 month,12/01/2025,,535
+48,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Fraizer, Wanda",01/01/2026,12/31/2026,,,,700.50,,,Pending,12 month,12/08/2025,,549
+51,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Eteeyan, Geraldine",01/01/2026,12/31/2026,08/01/2023,,800.00,800.00,0.00%,0.00,Renewed,12 month,12/08/2025,12/11/2025,552
+42,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Acosta, Naun",01/01/2026,12/31/2026,,,,"1,025.00",,,Pending,12 month,12/26/2025,,542
+42,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Acosta, Naun",01/01/2026,03/31/2027,,,,"1,025.00",,,Pending,15 month,12/26/2025,,542
+42,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Acosta, Naun",01/01/2026,06/30/2027,,,,"1,025.00",,,Pending,18 month,12/26/2025,,542
+21,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Hathaway, William",01/01/2026,12/31/2026,12/16/2025,12/15/2025,"1,025.00","1,075.00",4.88%,50.00,Did Not Renew,12 month,12/29/2025,,519
+21,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Hathaway, William",01/01/2026,03/31/2027,12/16/2025,12/15/2025,"1,025.00","1,050.00",2.44%,25.00,Did Not Renew,15 month,12/29/2025,,519
+21,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Hathaway, William",01/01/2026,06/30/2027,12/16/2025,12/15/2025,"1,025.00","1,025.00",0.00%,0.00,Renewed,18 month,12/29/2025,12/31/2025,519
+21,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Puckett, Gary",01/01/2026,06/30/2026,03/01/2023,,575.00,675.00,17.39%,100.00,Renewed,6 month,11/14/2025,11/17/2025,325
+23,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Lewis, Briana",01/08/2026,01/07/2027,01/08/2025,01/07/2026,56.00,750.00,1.00%,694.00,Renewed,12 month,11/11/2025,01/12/2026,329
+19,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Santos Nieves, Lougenne E.",01/17/2026,01/16/2027,01/17/2025,01/16/2026,750.00,750.00,0.00%,0.00,Renewed,12 month,11/10/2025,12/04/2025,321
+49 Offers,,,,,,,,,,,,,,,
+-> Feb 2026,"","","","","","","","","","","","","","",""
+201,"3909 North Oakland Gravel Road - 3909 North Oakland Gravel Road Columbia, MO 65202","Wisniewski, Jana L.",02/26/2026,02/25/2027,02/26/2024,02/25/2026,900.00,925.00,2.78%,25.00,Renewed,12 month,11/17/2025,11/18/2025,291
+202,"407 Pecan Street - 407 Pecan Street Columbia, MO 65201","flores, michaela b.",02/14/2026,02/13/2027,,,,750.00,,,Canceled by User,12 month,11/17/2025,,304
+202,"407 Pecan Street - 407 Pecan Street Columbia, MO 65201","flores, michaela b.",02/14/2026,02/13/2027,02/13/2025,02/13/2026,0.00,750.00,,750.00,Renewed,12 month,11/24/2025,11/24/2025,304
+9,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Herbert, Will R.",02/01/2026,01/31/2027,10/25/2024,10/24/2025,"1,025.00",850.00,-17.07%,-175.00,Renewed,12 month,01/08/2026,01/13/2026,330
+14,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Lee, Kelvin J.",02/09/2026,02/08/2027,,,,850.00,,,Pending,12 month,02/03/2026,,337
+28,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","McCullough, Deondre L.",02/25/2026,02/24/2027,02/25/2025,02/24/2026,950.00,950.00,0.00%,0.00,Renewed,12 month,12/22/2025,12/23/2025,359
+2610D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Miller, Crystal A.",02/03/2026,02/02/2027,12/17/2024,12/16/2025,0.00,0.00,,0.00,Renewed,12 month,02/03/2026,02/03/2026,386
+2633D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Graves, Brenitta",02/09/2026,02/08/2027,10/01/2024,10/31/2025,995.00,"1,095.00",10.05%,100.00,Renewed,12 month,02/03/2026,02/11/2026,423
+2631D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Jennings, Melvina S.",02/09/2026,02/08/2027,12/13/2024,12/12/2025,0.00,334.00,,334.00,Renewed,12 month,02/03/2026,02/11/2026,417
+2602D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nfiitumukiza, Beatrice",02/21/2026,02/20/2027,,,,"1,150.00",,,Did Not Renew,12 month,11/03/2025,,372
+2602D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nfiitumukiza, Beatrice",02/21/2026,05/20/2027,,,,"1,150.00",,,Did Not Renew,15 month,11/03/2025,,372
+2602D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nfiitumukiza, Beatrice",02/21/2026,08/20/2027,,,,"1,150.00",,,Did Not Renew,18 month,11/03/2025,,372
+2602D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nfiitumukiza, Beatrice",02/21/2026,02/20/2028,,,,"1,150.00",,,Did Not Renew,24 month,11/03/2025,,372
+2602D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nfiitumukiza, Beatrice",02/21/2026,05/31/2026,02/14/2025,02/20/2026,0.00,"1,150.00",,"1,150.00",Renewed,3 mo 11 day,12/18/2025,12/22/2025,372
+1413J,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Hamilton, Chance D.",02/01/2026,01/31/2027,09/27/2024,,0.00,"1,000.00",,"1,000.00",Renewed,12 month,11/26/2025,11/26/2025,453
+20,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Edwards, Tiona",02/01/2026,01/31/2027,10/01/2022,09/30/2025,0.00,800.00,,800.00,Renewed,12 month,11/17/2025,11/17/2025,322
+13,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Givens, Lamia S.",02/20/2026,02/19/2027,02/20/2025,02/19/2026,725.00,750.00,3.45%,25.00,Renewed,12 month,11/11/2025,11/14/2025,308
+17 Offers,,,,,,,,,,,,,,,
+-> Mar 2026,"","","","","","","","","","","","","","",""
+102,"3909 North Oakland Gravel Road - 3909 North Oakland Gravel Road Columbia, MO 65202","Maynard, Sara",03/26/2026,03/25/2027,,,,900.00,,,Canceled by User,12 month,01/20/2026,,289
+24,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Ndahayo, Mariko N.",03/01/2026,02/28/2027,03/01/2025,02/28/2026,950.00,950.00,0.00%,0.00,Renewed,12 month,12/22/2025,02/12/2026,354
+17,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Green, Haley M.",03/01/2026,02/28/2027,03/01/2025,02/28/2026,"1,025.00","1,025.00",0.00%,0.00,Renewed,12 month,12/22/2025,01/12/2026,343
+36,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Robinson, Delresha",03/14/2026,03/13/2027,03/14/2025,03/13/2026,950.00,"1,000.00",5.26%,50.00,Did Not Renew,12 month,12/22/2025,,367
+36,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Robinson, Delresha",03/14/2026,06/13/2027,03/14/2025,03/13/2026,950.00,975.00,2.63%,25.00,Did Not Renew,15 month,12/22/2025,,367
+36,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Robinson, Delresha",03/14/2026,09/13/2027,03/14/2025,03/13/2026,950.00,950.00,0.00%,0.00,Renewed,18 month,12/22/2025,01/09/2026,367
+1413D,"Maple Manor Apartments - 1409 W Maple Ave Independence, MO 64050","Wilson, Laurie",03/01/2026,02/28/2027,,,,950.00,,,Canceled by User,12 month,12/16/2025,,448
+1906-9,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Grazier, Kimilie K.",03/01/2026,02/28/2027,,,,"1,025.00",,,Pending,12 month,11/21/2025,,489
+1900-4,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Walker, Ophelia",03/01/2026,02/28/2027,,,,750.00,,,Pending,12 month,02/12/2026,,476
+1900-4,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Walker, Ophelia",03/01/2026,05/31/2027,,,,700.00,,,Pending,15 month,02/12/2026,,476
+1900-4,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Walker, Ophelia",03/01/2026,08/31/2027,,,,675.00,,,Pending,18 month,02/12/2026,,476
+1906-11,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Norman, Zachary E.",03/28/2026,03/27/2027,,,,"1,025.00",,,Pending,12 month,12/22/2025,,491
+1906-11,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Norman, Zachary E.",03/28/2026,06/27/2027,,,,"1,025.00",,,Pending,15 month,12/22/2025,,491
+1906-11,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Norman, Zachary E.",03/28/2026,09/27/2027,,,,"1,025.00",,,Pending,18 month,12/22/2025,,491
+27,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Willis, Leslie",03/01/2026,02/28/2027,,,,659.00,,,Canceled by User,12 month,12/08/2025,,525
+27,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Willis, Leslie",03/01/2026,08/31/2026,03/01/2025,02/28/2026,408.00,408.00,0.00%,0.00,Renewed,6 month,12/09/2025,01/07/2026,525
+19,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Villeda, Haskell S.",03/01/2026,02/28/2027,,,,975.00,,,Pending,12 month,12/22/2025,,517
+19,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Villeda, Haskell S.",03/01/2026,05/31/2027,,,,950.00,,,Pending,15 month,12/22/2025,,517
+19,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Villeda, Haskell S.",03/01/2026,08/31/2027,,,,925.00,,,Pending,18 month,12/22/2025,,517
+34,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Garcia, Selvin",03/11/2026,03/10/2027,,,,"1,025.00",,,Canceled by User,12 month,,,533
+25,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Alonso, Selma",03/14/2026,03/13/2027,,,,"1,025.00",,,Pending,12 month,12/22/2025,,523
+25,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Alonso, Selma",03/14/2026,06/13/2027,,,,"1,000.00",,,Pending,15 month,12/22/2025,,523
+25,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Alonso, Selma",03/14/2026,09/13/2027,,,,975.00,,,Pending,18 month,12/22/2025,,523
+2,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Scott, Makayla",03/01/2026,02/28/2027,01/14/2025,02/28/2026,675.00,700.00,3.70%,25.00,Did Not Renew,12 month,11/20/2025,,281
+2,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Scott, Makayla",03/01/2026,08/31/2027,01/14/2025,02/28/2026,675.00,675.00,0.00%,0.00,Renewed,18 month,11/20/2025,01/19/2026,281
+5,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Niyibizi, Kamili",03/02/2026,09/01/2027,,,,750.00,,,Pending,18 month,11/21/2025,,290
+16,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Gregory, Jovoney",03/02/2026,03/01/2027,,,,725.00,,,Canceled by User,12 month,11/21/2025,,315
+16,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Gregory, Jovoney",03/02/2026,09/01/2027,,,,675.00,,,Canceled by User,18 month,12/05/2025,,315
+16,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Gregory, Jovoney",03/02/2026,03/01/2027,03/01/2025,03/01/2026,675.00,700.00,3.70%,25.00,Renewed,12 month,12/08/2025,12/09/2025,315
+29 Offers,,,,,,,,,,,,,,,
+-> Apr 2026,"","","","","","","","","","","","","","",""
+12,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Bush, Tama",04/01/2026,03/31/2027,,,,925.00,,,Pending,12 month,12/22/2025,,335
+12,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Bush, Tama",04/01/2026,06/30/2027,,,,900.00,,,Pending,15 month,12/22/2025,,335
+12,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Bush, Tama",04/01/2026,09/30/2027,,,,875.00,,,Pending,18 month,12/22/2025,,335
+2,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Pinto, Heiner",04/28/2026,04/27/2027,,,,825.00,,,Pending,12 month,01/20/2026,,316
+2,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Pinto, Heiner",04/28/2026,07/27/2027,,,,820.00,,,Pending,15 month,01/20/2026,,316
+2,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Pinto, Heiner",04/28/2026,10/27/2027,,,,815.00,,,Pending,18 month,01/20/2026,,316
+2615D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Hatcher, Erica",04/06/2026,04/05/2027,,,,"1,400.00",,,Pending,12 month,12/26/2025,,394
+2615D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Hatcher, Erica",04/06/2026,07/05/2027,,,,"1,375.00",,,Pending,15 month,12/26/2025,,394
+2615D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Hatcher, Erica",04/06/2026,10/05/2027,,,,"1,350.00",,,Pending,18 month,12/26/2025,,394
+1906-8,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Reid, Brian",04/01/2026,03/31/2027,04/01/2025,03/31/2026,700.00,825.00,17.86%,125.00,Did Not Renew,12 month,12/22/2025,,488
+1906-8,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Reid, Brian",04/01/2026,06/30/2027,04/01/2025,03/31/2026,700.00,785.00,12.14%,85.00,Renewed,15 month,12/22/2025,01/19/2026,488
+1906-8,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Reid, Brian",04/01/2026,09/30/2027,04/01/2025,03/31/2026,700.00,750.00,7.14%,50.00,Did Not Renew,18 month,12/22/2025,,488
+1904-11,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Williams, Tyree",04/01/2026,03/31/2027,,,,925.00,,,Pending,12 month,12/22/2025,,485
+1904-11,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Williams, Tyree",04/01/2026,06/30/2027,,,,920.00,,,Pending,15 month,12/22/2025,,485
+1904-11,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Williams, Tyree",04/01/2026,09/30/2027,,,,915.00,,,Pending,18 month,12/22/2025,,485
+1900-3,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Swank, Elisha",04/01/2026,03/31/2027,,,,925.00,,,Pending,12 month,12/22/2025,,475
+1900-3,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Swank, Elisha",04/01/2026,06/30/2027,,,,920.00,,,Pending,15 month,12/22/2025,,475
+1900-3,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Swank, Elisha",04/01/2026,09/30/2027,,,,915.00,,,Pending,18 month,12/22/2025,,475
+14,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Army, Salvation",04/01/2026,03/31/2027,,,,895.00,,,Pending,12 month,01/20/2026,,510
+37,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Locke, Jacquela G.",04/10/2026,04/09/2027,,,,"1,025.00",,,Pending,12 month,12/30/2025,,537
+37,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Locke, Jacquela G.",04/10/2026,07/09/2027,,,,"1,020.00",,,Pending,15 month,12/30/2025,,537
+37,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Locke, Jacquela G.",04/10/2026,10/09/2027,,,,"1,015.00",,,Pending,18 month,12/30/2025,,537
+8,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Voss, Nichole J.",04/01/2026,03/31/2027,03/14/2025,03/31/2026,750.00,775.00,3.33%,25.00,Renewed,12 month,11/24/2025,11/24/2025,296
+4,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Griffin, Jacob D.",04/01/2026,03/31/2027,04/01/2025,03/31/2026,775.00,800.00,3.23%,25.00,Renewed,12 month,11/24/2025,12/29/2025,285
+1,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","McKee, Rhoda",04/01/2026,09/30/2026,,,,700.00,,,Canceled by User,6 month,01/20/2026,,278
+10,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Mosazi, Asmatullah",04/02/2026,04/01/2027,,,,775.00,,,Pending,12 month,12/22/2025,,300
+26 Offers,,,,,,,,,,,,,,,
+-> May 2026,"","","","","","","","","","","","","","",""
+16,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Sowell, Donna",05/01/2026,04/30/2027,05/01/2025,04/30/2026,850.00,850.00,0.00%,0.00,Renewed,12 month,01/20/2026,02/12/2026,341
+22,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Douglas, Kieasha K.",05/01/2026,04/30/2027,,,,925.00,,,Pending,12 month,01/20/2026,,352
+23,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Myers, Rosemary N.",05/01/2026,04/30/2027,,,,"1,025.00",,,Pending,12 month,01/20/2026,,353
+23,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Myers, Rosemary N.",05/01/2026,07/31/2027,,,,"1,020.00",,,Pending,15 month,01/20/2026,,353
+23,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Myers, Rosemary N.",05/01/2026,10/31/2027,,,,"1,015.00",,,Pending,18 month,01/20/2026,,353
+2605D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nolan, Sandra R.",05/24/2026,05/23/2027,,,,"1,350.00",,,Pending,12 month,02/12/2026,,377
+2605D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nolan, Sandra R.",05/24/2026,08/23/2027,,,,"1,325.00",,,Pending,15 month,02/12/2026,,377
+2605D,"Hilltop Townhomes - 2420 Delavan Avenue Kansas City, KS 66104","Nolan, Sandra R.",05/24/2026,11/23/2027,,,,"1,310.00",,,Pending,18 month,02/12/2026,,377
+1904-9,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Levins, Delilah",05/01/2026,04/30/2027,,,,900.00,,,Pending,12 month,01/20/2026,,481
+1904-9,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Levins, Delilah",05/01/2026,07/31/2027,,,,875.00,,,Pending,15 month,01/20/2026,,481
+1904-9,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Levins, Delilah",05/01/2026,10/31/2027,,,,850.00,,,Pending,18 month,01/20/2026,,481
+1906-6,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Anderson, Walter",05/01/2026,04/30/2027,05/01/2025,04/30/2026,750.00,825.00,10.00%,75.00,Did Not Renew,12 month,01/20/2026,,486
+1906-6,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Anderson, Walter",05/01/2026,07/31/2027,05/01/2025,04/30/2026,750.00,800.00,6.67%,50.00,Did Not Renew,15 month,01/20/2026,,486
+1906-6,"Normandy Apartments - 1900 N 77th Street Kansas City, KS 66112","Anderson, Walter",05/01/2026,10/31/2027,05/01/2025,04/30/2026,750.00,775.00,3.33%,25.00,Renewed,18 month,01/20/2026,01/23/2026,486
+28,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Masoner, Brianna J.",05/01/2026,04/30/2027,,,,925.00,,,Pending,12 month,01/20/2026,,526
+28,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Masoner, Brianna J.",05/01/2026,07/31/2027,,,,920.00,,,Pending,15 month,01/20/2026,,526
+28,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Masoner, Brianna J.",05/01/2026,10/31/2027,,,,915.00,,,Pending,18 month,01/20/2026,,526
+32,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Diaz, Juan L.",05/02/2026,05/01/2027,,,,995.00,,,Pending,12 month,12/26/2025,,531
+1,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Roby, Gertrude N.",05/10/2026,05/09/2027,,,,"1,025.00",,,Pending,12 month,02/11/2026,,494
+49,"Oakwood Gardens - 3309 Wood Avenue Kansas City, KS 66102","Pinto Yepes, Angelo M.",05/24/2026,05/23/2027,,,,"1,025.00",,,Pending,12 month,02/12/2026,,550
+18,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Earl, Sandra",05/01/2026,04/30/2027,05/01/2025,04/30/2026,750.00,775.00,3.33%,25.00,Renewed,12 month,01/20/2026,01/20/2026,319
+17,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","Hicks, Barbara",05/01/2026,04/30/2027,,,,675.00,,,Pending,12 month,01/20/2026,,317
+1,"Pioneer Apartments - 2404-2406-2408 Whitegate Drive Columbia, MO 65202","McKee, Rhoda",05/01/2026,04/30/2027,08/01/2023,,115.00,725.00,530.43%,610.00,Renewed,12 month,02/05/2026,02/05/2026,278
+23 Offers,,,,,,,,,,,,,,,
+-> Jul 2027,"","","","","","","","","","","","","","",""
+5,"Glen Oaks - 3050 N 58th St Kansas City, KS 66104","Briggs, Laron",07/01/2027,06/30/2028,,,,800.00,,,Pending,12 month,02/11/2026,,323
+
+Total 180 Offers,,,,,,,,,,,,,,,

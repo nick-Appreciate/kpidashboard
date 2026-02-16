@@ -60,6 +60,7 @@ export default function OccupancyDashboard() {
   const leaseChartRef = useRef(null);
   const delinquencyChartRef = useRef(null);
   const healthyLeaseChartRef = useRef(null);
+  const renewalsChartRef = useRef(null);
   
   // Update dates when preset changes
   useEffect(() => {
@@ -549,6 +550,46 @@ export default function OccupancyDashboard() {
               min: 0,
               max: 100,
               ticks: { callback: v => v + '%' }
+            }
+          }
+        }
+      });
+    }
+    
+    // Renewals by Month Chart
+    if (renewalsChartRef.current && stats.leaseHealthDetails?.renewalsByMonth?.length > 0) {
+      const ctx = renewalsChartRef.current.getContext('2d');
+      if (renewalsChartRef.current.chart) renewalsChartRef.current.chart.destroy();
+      
+      const renewalData = stats.leaseHealthDetails.renewalsByMonth;
+      
+      renewalsChartRef.current.chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: renewalData.map(d => d.label),
+          datasets: [{
+            label: 'Renewals',
+            data: renewalData.map(d => d.count),
+            backgroundColor: '#22c55e',
+            borderColor: '#16a34a',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { 
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.parsed.y} renewals`
+              }
+            }
+          },
+          scales: {
+            y: { 
+              beginAtZero: true,
+              ticks: { stepSize: 1 }
             }
           }
         }
@@ -1178,6 +1219,65 @@ export default function OccupancyDashboard() {
                   </div>
                 </div>
               )}
+              
+              {/* Recent Renewals */}
+              {stats.leaseHealthDetails?.recentRenewals?.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-green-600 text-white">
+                    <span className="font-semibold">🔄 Recent Renewals (Last 60 Days + Future)</span>
+                    <span className="px-2 py-0.5 rounded text-xs bg-green-700">{stats.leaseHealthDetails.recentRenewals.length} renewals</span>
+                  </div>
+                  <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-600">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium">Property</th>
+                          <th className="px-2 py-2 text-left font-medium">Unit</th>
+                          <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                          <th className="px-2 py-2 text-center font-medium">Lease Start</th>
+                          <th className="px-2 py-2 text-right font-medium">Rent</th>
+                          <th className="px-2 py-2 text-right font-medium">Change</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {stats.leaseHealthDetails.recentRenewals.map((renewal, idx) => (
+                          <tr key={idx} className="bg-green-50 hover:bg-green-100 transition-colors">
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={renewal.property}>
+                              {renewal.property}
+                            </td>
+                            <td className="px-2 py-2 font-medium">{renewal.unit}</td>
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={renewal.tenantName || ''}>
+                              {renewal.tenantName || <span className="text-gray-400 italic text-xs">-</span>}
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs">
+                              <span className={renewal.daysFromToday > 0 ? 'text-blue-600 font-medium' : 'text-gray-600'}>
+                                {new Date(renewal.leaseStart).toLocaleDateString()}
+                                {renewal.daysFromToday > 0 && <span className="ml-1 text-blue-500">(+{renewal.daysFromToday}d)</span>}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-right font-medium text-gray-700">
+                              {renewal.rent ? `$${Number(renewal.rent).toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-2 py-2 text-right text-xs">
+                              {renewal.percentDifference !== null && renewal.percentDifference !== undefined ? (
+                                <span className={Number(renewal.percentDifference) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                  {Number(renewal.percentDifference) >= 0 ? '+' : ''}{Number(renewal.percentDifference).toFixed(1)}%
+                                </span>
+                              ) : renewal.dollarDifference !== null && renewal.dollarDifference !== undefined ? (
+                                <span className={Number(renewal.dollarDifference) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                  {Number(renewal.dollarDifference) >= 0 ? '+' : ''}${Number(renewal.dollarDifference).toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Other Charts */}
@@ -1196,6 +1296,12 @@ export default function OccupancyDashboard() {
                 <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Delinquency by Property</h2>
                 <canvas ref={delinquencyChartRef}></canvas>
               </div>
+            </div>
+            
+            {/* Renewals by Month Chart */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">🔄 Renewals by Month (Last 12 Months)</h2>
+              <canvas ref={renewalsChartRef}></canvas>
             </div>
             
             {/* Property Stats Table */}

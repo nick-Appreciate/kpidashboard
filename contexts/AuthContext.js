@@ -63,13 +63,14 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  useEffect(() => {
-    // Redirect to login if not authenticated (except on auth pages)
-    const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-    if (!loading && !user && !authPages.includes(pathname)) {
-      router.push('/login');
-    }
-  }, [user, loading, pathname, router]);
+  // TEMPORARILY DISABLED: Auth redirect
+  // useEffect(() => {
+  //   // Redirect to login if not authenticated (except on auth pages)
+  //   const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
+  //   if (!loading && !user && !authPages.includes(pathname)) {
+  //     router.push('/login');
+  //   }
+  // }, [user, loading, pathname, router]);
 
   const signIn = async (email, password) => {
     const { data, error } = await supabaseBrowser.auth.signInWithPassword({

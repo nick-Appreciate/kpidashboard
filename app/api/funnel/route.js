@@ -41,8 +41,8 @@ export async function GET(request) {
       showingStatusCounts[status] = (showingStatusCounts[status] || 0) + 1;
     });
 
-    // Get applications with status breakdown
-    let applicationsQuery = supabase.from('rental_applications').select('status, application_status');
+    // Get applications with status breakdown - include unit for deduplication
+    let applicationsQuery = supabase.from('rental_applications').select('status, application_status, unit, received');
     applicationsQuery = addDateFilters(applicationsQuery, 'received');
     const { data: applicationsData, error: applicationsError } = await applicationsQuery;
     if (applicationsError) throw applicationsError;
@@ -51,6 +51,22 @@ export async function GET(request) {
     applicationsData?.forEach(row => {
       const status = row.application_status || row.status || 'Unknown';
       applicationStatusCounts[status] = (applicationStatusCounts[status] || 0) + 1;
+    });
+
+    // Deduplicate tenants by unit - count max 1 tenant per unit
+    // For each unit, take the most recent Converted/Approved application
+    const tenantsByUnit = new Map();
+    applicationsData?.forEach(row => {
+      const status = row.application_status || row.status || 'Unknown';
+      if (status === 'Converted' || status === 'Approved') {
+        const unit = row.unit || 'Unknown';
+        const received = new Date(row.received);
+        const existing = tenantsByUnit.get(unit);
+        // Keep only the most recent application per unit
+        if (!existing || received > existing.received) {
+          tenantsByUnit.set(unit, { received, status });
+        }
+      }
     });
 
     // Calculate counts
@@ -62,12 +78,14 @@ export async function GET(request) {
     const showingsCanceled = (showingStatusCounts['Canceled'] || 0) + (showingStatusCounts['Prospect Canceled'] || 0);
     
     const applications = applicationsData?.length || 0;
-    // Count tenants as Converted status OR Approved application_status
+    // Count tenants as Converted status OR Approved application_status (raw counts for breakdown)
     const applicationsConverted = (applicationStatusCounts['Converted'] || 0);
     const applicationsApproved = (applicationStatusCounts['Approved'] || 0);
     const applicationsDenied = (applicationStatusCounts['Denied'] || 0);
     
-    const tenants = applicationsConverted + applicationsApproved;
+    // Deduplicated lease count - one per unit
+    const leases = tenantsByUnit.size;
+    const rawLeaseCount = applicationsConverted + applicationsApproved;
 
     // Calculate fallout at each stage
     const inquiriesNoShowing = inquiries - totalShowings;
@@ -134,10 +152,12 @@ export async function GET(request) {
           }
         },
         {
-          name: 'Tenants',
-          count: tenants,
-          percentage: inquiries > 0 ? Math.round((tenants / inquiries) * 100) : 0,
-          conversionFromPrevious: applications > 0 ? Math.round((tenants / applications) * 100) : 0,
+          name: 'Leases',
+          count: leases,
+          rawCount: rawLeaseCount,
+          subtitle: rawLeaseCount !== leases ? `${rawLeaseCount} applicants → ${leases} units` : null,
+          percentage: inquiries > 0 ? Math.round((leases / inquiries) * 100) : 0,
+          conversionFromPrevious: applications > 0 ? Math.round((leases / applications) * 100) : 0,
           color: '#43e97b',
           fallout: {
             count: applicationsDenied,
@@ -150,10 +170,11 @@ export async function GET(request) {
       ],
       summary: {
         totalInquiries: inquiries,
-        totalTenants: tenants,
-        overallConversion: inquiries > 0 ? ((tenants / inquiries) * 100).toFixed(1) : '0.0',
+        totalLeases: leases,
+        rawLeaseCount: rawLeaseCount,
+        overallConversion: inquiries > 0 ? ((leases / inquiries) * 100).toFixed(1) : '0.0',
         showingCompletionRate: totalShowings > 0 ? ((showingsCompleted / totalShowings) * 100).toFixed(1) : '0.0',
-        applicationApprovalRate: applications > 0 ? ((tenants / applications) * 100).toFixed(1) : '0.0'
+        applicationApprovalRate: applications > 0 ? ((leases / applications) * 100).toFixed(1) : '0.0'
       },
       statusBreakdown: {
         inquiries: inquiryStatusCounts,

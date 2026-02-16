@@ -14,25 +14,12 @@ function LayoutContent({ children }) {
     return <>{children}</>;
   }
   
-  // Show loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <div className="text-slate-500">Loading...</div>
-      </div>
-    );
-  }
-  
-  // Redirect handled by AuthContext, but don't render content if not logged in
-  if (!user) {
-    return null;
-  }
-  
-  // Combine auth user and app user data for sidebar
+  // TEMPORARILY DISABLED: Auth loading/check - allow access without login
+  // Combine auth user and app user data for sidebar (use defaults if no user)
   const sidebarUser = {
-    email: user.email,
-    name: appUser?.name || user.user_metadata?.name || user.email?.split('@')[0],
-    role: appUser?.role || 'user'
+    email: user?.email || 'guest@appreciate.io',
+    name: appUser?.name || user?.user_metadata?.name || 'Guest',
+    role: appUser?.role || 'admin'
   };
   
   return (

@@ -126,7 +126,7 @@ export default function Dashboard() {
       'Showings Scheduled': 'showings_scheduled',
       'Showings Completed': 'showings_completed',
       'Applications': 'applications',
-      'Tenants': 'tenants'
+      'Leases': 'leases'
     };
     
     const stageKey = stageMap[stageName];
@@ -148,7 +148,7 @@ export default function Dashboard() {
       'showings_scheduled': 'Showings Scheduled',
       'showings_completed': 'Showings Completed',
       'applications': 'Applications',
-      'tenants': 'Tenants'
+      'leases': 'Leases'
     };
     return selectedStages.map(s => nameMap[s]).filter(Boolean).join(', ');
   };
@@ -830,11 +830,11 @@ export default function Dashboard() {
           </div>
         </div>
         
-        {/* Tenant Lifecycle Funnel */}
+        {/* Leasing Lifecycle Funnel */}
         {funnelData && funnelData.stages && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
             <h2 className="text-lg font-semibold text-slate-800 mb-2 pb-2 border-b border-slate-200">
-              Tenant Lifecycle Funnel
+              Leasing Lifecycle Funnel
             </h2>
             <p className="text-slate-500 text-sm mb-4">
               Click on any stage to view detailed analytics for that stage
@@ -849,7 +849,7 @@ export default function Dashboard() {
                       'showings_scheduled': '#8b5cf6',
                       'showings_completed': '#764ba2',
                       'applications': '#f093fb',
-                      'tenants': '#43e97b'
+                      'leases': '#43e97b'
                     }[stageKey]
                   }}>
                     {{
@@ -857,7 +857,7 @@ export default function Dashboard() {
                       'showings_scheduled': 'Showings Scheduled',
                       'showings_completed': 'Showings Completed',
                       'applications': 'Applications',
-                      'tenants': 'Tenants'
+                      'leases': 'Leases'
                     }[stageKey]}
                   </span>
                 ))}
@@ -880,7 +880,7 @@ export default function Dashboard() {
                   'Showings Scheduled': 'showings_scheduled',
                   'Showings Completed': 'showings_completed',
                   'Applications': 'applications',
-                  'Tenants': 'tenants'
+                  'Leases': 'leases'
                 }[stage.name];
                 const isSelected = selectedStages.includes(stageKey);
                 
@@ -969,13 +969,16 @@ export default function Dashboard() {
                                   {stage.conversionFromPrevious}%
                                 </span>
                               )}
+                              {stage.subtitle && (
+                                <div className="text-xs opacity-75 mt-0.5">{stage.subtitle}</div>
+                              )}
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
                     
-                    {/* Final stage fallout (Denied) - shown AFTER the Tenants stage */}
+                    {/* Final stage fallout (Denied) - shown AFTER the Leases stage */}
                     {showFallout && idx === funnelData.stages.length - 1 && (
                       <div className="flex items-center mt-2 ml-16 md:ml-24">
                         <div className="text-gray-400 text-lg mr-2">↳</div>
@@ -1015,7 +1018,7 @@ export default function Dashboard() {
               <div className="text-center p-4 bg-indigo-50 rounded-xl">
                 <p className="text-2xl md:text-3xl font-bold text-indigo-600">{funnelData.summary.overallConversion}%</p>
                 <p className="text-xs md:text-sm text-gray-600 mt-1">Overall Conversion</p>
-                <p className="text-xs text-gray-400">Inquiry → Tenant</p>
+                <p className="text-xs text-gray-400">Inquiry → Lease</p>
               </div>
               <div className="text-center p-4 bg-violet-50 rounded-xl">
                 <p className="text-2xl md:text-3xl font-bold text-violet-600">

@@ -18,6 +18,21 @@ export async function GET(request) {
     if (selectedStages.length === 0) {
       return NextResponse.json({ error: 'No stage selected' }, { status: 400 });
     }
+    
+    // Define funnel order for determining previous stages
+    const funnelOrder = ['inquiries', 'showings_scheduled', 'showings_completed', 'applications', 'leases'];
+    
+    // Determine which previous stages we need to fetch for conversion calculation
+    const stagesToFetch = new Set(selectedStages);
+    selectedStages.forEach(stg => {
+      const idx = funnelOrder.indexOf(stg);
+      if (idx > 0) {
+        const prevStage = funnelOrder[idx - 1];
+        if (prevStage !== 'inquiries') { // Inquiries already fetched separately
+          stagesToFetch.add(prevStage);
+        }
+      }
+    });
 
     // Fetch name lookup from leasing_reports (inquiry_id -> name)
     // Also fetch all inquiries for baseline conversion calculation
@@ -55,7 +70,7 @@ export async function GET(request) {
 
     let allRecords = [];
 
-    for (const currentStage of selectedStages) {
+    for (const currentStage of stagesToFetch) {
       let tableName = '';
       let dateField = '';
 
@@ -77,7 +92,7 @@ export async function GET(request) {
           tableName = 'rental_applications';
           dateField = 'received';
           break;
-        case 'tenants':
+        case 'leases':
           tableName = 'rental_applications';
           dateField = 'received';
           break;
@@ -95,7 +110,7 @@ export async function GET(request) {
       // Apply stage-specific filters
       if (currentStage === 'showings_completed') {
         query = query.eq('status', 'Completed');
-      } else if (currentStage === 'tenants') {
+      } else if (currentStage === 'leases') {
         query = query.or('status.eq.Converted,application_status.eq.Approved');
       }
 
@@ -135,7 +150,8 @@ export async function GET(request) {
     }
 
     // Process data separately for each stage
-    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, endDate);
+    // Pass both selectedStages (for display) and all fetched stages (for conversion calculation)
+    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, endDate, [...stagesToFetch]);
 
     return NextResponse.json(result);
   } catch (error) {
@@ -314,7 +330,7 @@ function processStageData(records, stage, dateField) {
   };
 }
 
-function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}, startDate = null, endDate = null) {
+function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}, startDate = null, endDate = null, allFetchedStages = []) {
   if (!records || records.length === 0) {
     return {
       total: 0,
@@ -337,7 +353,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     'showings_scheduled': '#8b5cf6',
     'showings_completed': '#764ba2',
     'applications': '#f093fb',
-    'tenants': '#43e97b'
+    'leases': '#43e97b'
   };
 
   const stageNames = {
@@ -345,7 +361,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     'showings_scheduled': 'Showings Scheduled',
     'showings_completed': 'Showings Completed',
     'applications': 'Applications',
-    'tenants': 'Tenants'
+    'leases': 'Leases'
   };
 
   // Get date field based on record's stage
@@ -432,23 +448,53 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
   }
 
   // Process data for each stage separately
+  // Process ALL fetched stages (including previous stages needed for conversion)
   const dailyDataByStage = {};
   const weeklyDataByStage = {};
   const stageTotals = {};
+  
+  // Use allFetchedStages if provided, otherwise fall back to stages
+  const stagesToProcess = allFetchedStages.length > 0 ? allFetchedStages : stages;
 
-  stages.forEach(stage => {
-    const stageRecords = records.filter(r => r._stage === stage);
+  stagesToProcess.forEach(stage => {
+    let stageRecords = records.filter(r => r._stage === stage);
+    
+    // For leases stage, deduplicate by unit - keep only most recent per unit
+    if (stage === 'leases') {
+      const unitMap = new Map();
+      stageRecords.forEach(record => {
+        const unit = record.unit || 'Unknown';
+        const dateVal = getDateValue(record);
+        const existing = unitMap.get(unit);
+        if (!existing || (dateVal && new Date(dateVal) > new Date(existing.date))) {
+          unitMap.set(unit, { record, date: dateVal });
+        }
+      });
+      stageRecords = Array.from(unitMap.values()).map(v => v.record);
+    }
+    
     stageTotals[stage] = stageRecords.length;
 
     // Daily counts for this stage
     const dailyCounts = {};
     const dailyDetails = {};
+    // For leases, track unique units per day
+    const dailyUnits = {};
     
     stageRecords.forEach(record => {
       const dateVal = getDateValue(record);
       if (dateVal) {
         const date = new Date(dateVal);
         const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        
+        // For leases, deduplicate by unit per day
+        if (stage === 'leases') {
+          const unit = record.unit || 'Unknown';
+          if (!dailyUnits[dateStr]) dailyUnits[dateStr] = new Set();
+          if (dailyUnits[dateStr].has(unit)) return; // Skip duplicate unit on same day
+          dailyUnits[dateStr].add(unit);
+        }
+        
         dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
         
         if (!dailyDetails[dateStr]) dailyDetails[dateStr] = [];
@@ -480,11 +526,14 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     // Weekly counts for this stage using rolling 7-day periods
     const weeklyCounts = {};
     const weeklyDetails = {};
+    // For leases, track unique units per week
+    const weeklyUnits = {};
     
     // Initialize counts for each rolling week
     rollingWeekRanges.forEach(range => {
       weeklyCounts[range.label] = 0;
       weeklyDetails[range.label] = [];
+      if (stage === 'leases') weeklyUnits[range.label] = new Set();
     });
     
     stageRecords.forEach(record => {
@@ -495,6 +544,13 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
         // Find which rolling week this date falls into
         for (const range of rollingWeekRanges) {
           if (date >= range.start && date <= range.end) {
+            // For leases, deduplicate by unit per week
+            if (stage === 'leases') {
+              const unit = record.unit || 'Unknown';
+              if (weeklyUnits[range.label].has(unit)) break; // Skip duplicate unit in same week
+              weeklyUnits[range.label].add(unit);
+            }
+            
             weeklyCounts[range.label] = (weeklyCounts[range.label] || 0) + 1;
             
             if (!weeklyDetails[range.label]) weeklyDetails[range.label] = [];
@@ -548,7 +604,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
   const uniqueProperties = new Set(records.map(r => r.property).filter(Boolean));
 
   // Define the funnel order for calculating conversion from previous stage
-  const funnelOrder = ['inquiries', 'showings_scheduled', 'showings_completed', 'applications', 'tenants'];
+  const funnelOrder = ['inquiries', 'showings_scheduled', 'showings_completed', 'applications', 'leases'];
   
   // Calculate rolling weekly inquiry counts for conversion baseline
   const rollingWeeklyInquiryCounts = {};
@@ -560,6 +616,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
   });
   
   // Calculate weekly conversion percentages for each stage (as % of previous stage)
+  // Only calculate for selected stages, but use weeklyDataByStage which has all fetched stages
   const weeklyConversionByStage = {};
   stages.forEach(stage => {
     const stageIndex = funnelOrder.indexOf(stage);
@@ -582,6 +639,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
       const stageData = weeklyDataByStage[stage];
       
       // Get the previous stage's weekly data for baseline
+      // weeklyDataByStage now contains all fetched stages (including previous stages)
       let getPreviousStageCount;
       let baselineLabel;
       
@@ -589,10 +647,11 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
         getPreviousStageCount = (weekLabel) => rollingWeeklyInquiryCounts[weekLabel] || 0;
         baselineLabel = 'Inquiries';
       } else if (weeklyDataByStage[previousStage]) {
+        // Previous stage data is available (either selected or fetched for conversion)
         getPreviousStageCount = (weekLabel, idx) => weeklyDataByStage[previousStage].data[idx]?.count || 0;
         baselineLabel = stageNames[previousStage];
       } else {
-        // Fallback to inquiries if previous stage not in selection
+        // Fallback to inquiries only if we truly can't get the previous stage
         getPreviousStageCount = (weekLabel) => rollingWeeklyInquiryCounts[weekLabel] || 0;
         baselineLabel = 'Inquiries';
       }
