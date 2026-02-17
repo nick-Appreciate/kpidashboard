@@ -15,6 +15,7 @@ export default function OccupancyDashboard() {
   const [dateRange, setDateRange] = useState('all_time');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [occupiedOverride, setOccupiedOverride] = useState(null); // Temporary override for occupied count
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -623,6 +624,13 @@ export default function OccupancyDashboard() {
   
   const summary = stats?.summary || {};
   
+  // Calculate effective values based on override
+  const effectiveOccupied = occupiedOverride !== null ? occupiedOverride : summary.occupiedUnits;
+  const effectiveVacant = summary.totalUnits - effectiveOccupied;
+  const effectiveOccupancyRate = summary.totalUnits > 0 
+    ? ((effectiveOccupied / summary.totalUnits) * 100).toFixed(1) 
+    : 0;
+
   return (
     <div className="min-h-screen bg-slate-100 p-6 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -726,21 +734,46 @@ export default function OccupancyDashboard() {
             {/* Summary Cards - Portfolio/Single Property View */}
             {selectedProperty !== 'all' && (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-                <div className="bg-white rounded-xl shadow-lg p-4">
-                  <div className="text-3xl font-bold text-emerald-600">{summary.occupancyRate}%</div>
+                <div className={`bg-white rounded-xl shadow-lg p-4 ${occupiedOverride !== null ? 'ring-2 ring-blue-400' : ''}`}>
+                  <div className="text-3xl font-bold text-emerald-600">{effectiveOccupancyRate}%</div>
                   <div className="text-sm text-gray-600">Occupancy Rate</div>
+                  {occupiedOverride !== null && <div className="text-xs text-blue-500 mt-1">Modified</div>}
                 </div>
                 <div className="bg-white rounded-xl shadow-lg p-4">
                   <div className="text-3xl font-bold text-gray-800">{summary.totalUnits}</div>
                   <div className="text-sm text-gray-600">Total Units</div>
                 </div>
-                <div className="bg-white rounded-xl shadow-lg p-4">
-                  <div className="text-3xl font-bold text-green-600">{summary.occupiedUnits}</div>
-                  <div className="text-sm text-gray-600">Occupied</div>
+                <div className={`bg-white rounded-xl shadow-lg p-4 ${occupiedOverride !== null ? 'ring-2 ring-blue-400' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={effectiveOccupied}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 0 && val <= summary.totalUnits) {
+                          setOccupiedOverride(val);
+                        }
+                      }}
+                      className="text-3xl font-bold text-green-600 w-20 bg-transparent border-b-2 border-dashed border-green-300 focus:border-green-500 focus:outline-none text-center"
+                      min="0"
+                      max={summary.totalUnits}
+                    />
+                    {occupiedOverride !== null && (
+                      <button
+                        onClick={() => setOccupiedOverride(null)}
+                        className="text-xs text-gray-400 hover:text-red-500"
+                        title="Reset to actual value"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-600">Occupied <span className="text-xs text-blue-500">(editable)</span></div>
                 </div>
-                <div className="bg-white rounded-xl shadow-lg p-4">
-                  <div className="text-3xl font-bold text-red-600">{summary.vacantUnits}</div>
+                <div className={`bg-white rounded-xl shadow-lg p-4 ${occupiedOverride !== null ? 'ring-2 ring-blue-400' : ''}`}>
+                  <div className="text-3xl font-bold text-red-600">{effectiveVacant}</div>
                   <div className="text-sm text-gray-600">Vacant</div>
+                  {occupiedOverride !== null && <div className="text-xs text-blue-500 mt-1">Modified</div>}
                 </div>
                 <div className="bg-white rounded-xl shadow-lg p-4">
                   <div className="text-3xl font-bold text-orange-600">{summary.noticeUnits}</div>
