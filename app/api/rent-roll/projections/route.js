@@ -1,10 +1,17 @@
 import { supabase } from '../../../../lib/supabase';
 import { NextResponse } from 'next/server';
 
+// Region definitions - exact property name matches (case-insensitive)
+const REGION_PROPERTIES = {
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+  region_columbia: null // Columbia is everything NOT in Kansas City
+};
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
     
     // Get current occupancy from rent_roll_snapshots (source of truth)
     const { data: latestSnapshot } = await supabase
@@ -32,7 +39,21 @@ export async function GET(request) {
       currentQuery = currentQuery.eq('property', property);
     }
     
-    const { data: currentUnits } = await currentQuery;
+    let { data: currentUnits } = await currentQuery;
+    
+    // Apply region filter if specified
+    if (region) {
+      const kcProperties = REGION_PROPERTIES.region_kansas_city;
+      if (region === 'region_kansas_city') {
+        currentUnits = currentUnits?.filter(u => 
+          kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
+        ) || [];
+      } else if (region === 'region_columbia') {
+        currentUnits = currentUnits?.filter(u => 
+          !kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
+        ) || [];
+      }
+    }
     
     const totalUnits = currentUnits?.length || 0;
     const currentOccupied = currentUnits?.filter(u => 
@@ -68,7 +89,21 @@ export async function GET(request) {
       eventsQuery = eventsQuery.eq('property', property);
     }
     
-    const { data: rawFutureEvents } = await eventsQuery;
+    let { data: rawFutureEvents } = await eventsQuery;
+    
+    // Apply region filter to events if specified
+    if (region) {
+      const kcProperties = REGION_PROPERTIES.region_kansas_city;
+      if (region === 'region_kansas_city') {
+        rawFutureEvents = rawFutureEvents?.filter(e => 
+          kcProperties.some(kc => e.property?.toLowerCase().includes(kc))
+        ) || [];
+      } else if (region === 'region_columbia') {
+        rawFutureEvents = rawFutureEvents?.filter(e => 
+          !kcProperties.some(kc => e.property?.toLowerCase().includes(kc))
+        ) || [];
+      }
+    }
     
     // Deduplicate events by property+unit+event_type (keep only one per unit per event type)
     const seenEvents = new Map();

@@ -1,10 +1,17 @@
 import { supabase } from '../../../../lib/supabase';
 import { NextResponse } from 'next/server';
 
+// Region definitions - exact property name matches (case-insensitive)
+const REGION_PROPERTIES = {
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+  region_columbia: null // Columbia is everything NOT in Kansas City
+};
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     
@@ -34,10 +41,27 @@ export async function GET(request) {
       currentQuery = currentQuery.eq('property', property);
     }
     
-    const { data: currentData, error } = await currentQuery;
+    // Fetch data first, then filter by region if needed
+    let { data: currentData, error } = await currentQuery;
     
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    
+    // Apply region filter if specified
+    if (region) {
+      const kcProperties = REGION_PROPERTIES.region_kansas_city;
+      if (region === 'region_kansas_city') {
+        // Kansas City = properties that match KC list
+        currentData = currentData.filter(u => 
+          kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
+        );
+      } else if (region === 'region_columbia') {
+        // Columbia = everything NOT in Kansas City
+        currentData = currentData.filter(u => 
+          !kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
+        );
+      }
     }
     
     // Calculate current stats
@@ -154,6 +178,9 @@ export async function GET(request) {
       
       const { data: pageData, error: pageError } = await historyQuery;
       
+      // Note: Region filtering is now done during aggregation, not here
+      // This allows us to build regional trends from the full dataset
+      
       if (pageError || !pageData || pageData.length === 0) {
         hasMore = false;
       } else {
@@ -168,25 +195,64 @@ export async function GET(request) {
     
     const historyData = allHistoryData;
     
-    // Aggregate by date
+    // Helper to check if property is in Kansas City region
+    const isKCProperty = (prop) => {
+      const kcProperties = REGION_PROPERTIES.region_kansas_city;
+      return kcProperties.some(kc => prop?.toLowerCase().includes(kc));
+    };
+    
+    // Aggregate by date - also track regional stats
     const dailyStats = {};
+    const dailyStatsKC = {};
+    const dailyStatsColumbia = {};
     const dataToProcess = historyData || [];
+    
     dataToProcess.forEach(record => {
       const date = record.snapshot_date;
+      const isKC = isKCProperty(record.property);
+      
+      // Portfolio stats
       if (!dailyStats[date]) {
         dailyStats[date] = { total: 0, occupied: 0, vacant: 0, pastDue: 0 };
       }
       dailyStats[date].total++;
-      // Occupied = Current, Evict, or Notice-Unrented (someone physically living there)
       if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
         dailyStats[date].occupied++;
       }
       if (record.status?.startsWith('Vacant')) {
         dailyStats[date].vacant++;
       }
+      
+      // Kansas City regional stats
+      if (isKC) {
+        if (!dailyStatsKC[date]) {
+          dailyStatsKC[date] = { total: 0, occupied: 0, vacant: 0 };
+        }
+        dailyStatsKC[date].total++;
+        if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
+          dailyStatsKC[date].occupied++;
+        }
+        if (record.status?.startsWith('Vacant')) {
+          dailyStatsKC[date].vacant++;
+        }
+      } else {
+        // Columbia regional stats (everything not KC)
+        if (!dailyStatsColumbia[date]) {
+          dailyStatsColumbia[date] = { total: 0, occupied: 0, vacant: 0 };
+        }
+        dailyStatsColumbia[date].total++;
+        if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
+          dailyStatsColumbia[date].occupied++;
+        }
+        if (record.status?.startsWith('Vacant')) {
+          dailyStatsColumbia[date].vacant++;
+        }
+      }
     });
     
-    const occupancyTrend = Object.entries(dailyStats)
+    // Build occupancy trends based on selection
+    const buildTrend = (statsObj) => Object.entries(statsObj)
+      .filter(([_, stats]) => stats.total > 0)
       .map(([date, stats]) => ({
         date,
         occupancyRate: ((stats.occupied / stats.total) * 100).toFixed(1),
@@ -195,6 +261,16 @@ export async function GET(request) {
         vacantUnits: stats.vacant
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
+    
+    // Select the appropriate trend based on region
+    let occupancyTrend;
+    if (region === 'region_kansas_city') {
+      occupancyTrend = buildTrend(dailyStatsKC);
+    } else if (region === 'region_columbia') {
+      occupancyTrend = buildTrend(dailyStatsColumbia);
+    } else {
+      occupancyTrend = buildTrend(dailyStats);
+    }
     
     // Aggregate by date AND property for multi-line charts
     const dailyStatsByProperty = {};
@@ -301,9 +377,19 @@ export async function GET(request) {
     // Apply the same logic as current calculation to each historical snapshot
     const healthyLeaseTrend = [];
     
+    // Filter data by region if specified (for healthy lease trend)
+    let filteredDataToProcess = dataToProcess;
+    if (region) {
+      if (region === 'region_kansas_city') {
+        filteredDataToProcess = dataToProcess.filter(record => isKCProperty(record.property));
+      } else if (region === 'region_columbia') {
+        filteredDataToProcess = dataToProcess.filter(record => !isKCProperty(record.property));
+      }
+    }
+    
     // Group historical data by snapshot date
     const snapshotsByDate = {};
-    dataToProcess.forEach(record => {
+    filteredDataToProcess.forEach(record => {
       const date = record.snapshot_date;
       if (!snapshotsByDate[date]) {
         snapshotsByDate[date] = [];
@@ -772,7 +858,28 @@ export async function GET(request) {
       }
     });
     
-    const recentRenewals = renewalData
+    // Filter renewal data by region if specified
+    let filteredRenewalData = renewalData;
+    if (region) {
+      const kcProperties = REGION_PROPERTIES.region_kansas_city;
+      if (region === 'region_kansas_city') {
+        filteredRenewalData = renewalData.filter(r => 
+          kcProperties.some(kc => r.property_name?.toLowerCase().includes(kc))
+        );
+      } else if (region === 'region_columbia') {
+        filteredRenewalData = renewalData.filter(r => 
+          !kcProperties.some(kc => r.property_name?.toLowerCase().includes(kc))
+        );
+      }
+    }
+    // Also filter by specific property if selected
+    if (property && property !== 'all') {
+      filteredRenewalData = filteredRenewalData.filter(r => 
+        normalizePropertyName(r.property_name) === normalizePropertyName(property)
+      );
+    }
+    
+    const recentRenewals = filteredRenewalData
       .filter(r => {
         if (r.status !== 'Renewed') return false;
         if (!r.lease_start) return false;
@@ -822,8 +929,8 @@ export async function GET(request) {
       renewalsByMonth.push({ month: monthKey, label: monthLabel, count: 0 });
     }
     
-    // Count renewals by month from renewalData
-    renewalData
+    // Count renewals by month from filtered renewal data
+    filteredRenewalData
       .filter(r => r.status === 'Renewed' && r.lease_start)
       .forEach(r => {
         const leaseStart = new Date(r.lease_start);

@@ -81,7 +81,7 @@ export default function OccupancyDashboard() {
     if (stats) {
       updateCharts();
     }
-  }, [stats, selectedProperty]);
+  }, [stats, selectedProperty, occupiedOverride]);
   
   useEffect(() => {
     if (projections && stats && !loading) {
@@ -91,14 +91,34 @@ export default function OccupancyDashboard() {
       }, 200);
       return () => clearTimeout(timer);
     }
-  }, [projections, stats, loading]);
+  }, [projections, stats, loading, occupiedOverride, selectedProperty]);
+  
+  // Define region mappings - KC properties, Columbia is everything else
+  const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+  
+  const getPropertiesForSelection = (selection) => {
+    if (selection === 'region_kansas_city') {
+      return stats?.properties?.filter(prop => 
+        KC_PROPERTIES.some(kc => prop.toLowerCase().includes(kc))
+      ) || [];
+    } else if (selection === 'region_columbia') {
+      return stats?.properties?.filter(prop => 
+        !KC_PROPERTIES.some(kc => prop.toLowerCase().includes(kc))
+      ) || [];
+    }
+    return selection;
+  };
   
   const fetchStats = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-        params.append('property', selectedProperty);
+        if (selectedProperty.startsWith('region_')) {
+          params.append('region', selectedProperty);
+        } else {
+          params.append('property', selectedProperty);
+        }
       }
       if (startDate) {
         params.append('startDate', startDate);
@@ -129,7 +149,11 @@ export default function OccupancyDashboard() {
     try {
       const params = new URLSearchParams();
       if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-        params.append('property', selectedProperty);
+        if (selectedProperty.startsWith('region_')) {
+          params.append('region', selectedProperty);
+        } else {
+          params.append('property', selectedProperty);
+        }
       }
       
       const res = await fetch(`/api/rent-roll/projections?${params}`);
@@ -150,16 +174,32 @@ export default function OccupancyDashboard() {
       const ctx = projectionCanvas.getContext('2d');
       if (projectionCanvas.chart) projectionCanvas.chart.destroy();
       
+      // If user has overridden occupied count, adjust projections starting from that value
+      let adjustedProjections = projections.projections;
+      if (occupiedOverride !== null && stats?.summary?.totalUnits > 0) {
+        const totalUnits = stats.summary.totalUnits;
+        const originalOccupied = stats.summary.occupiedUnits;
+        const occupiedDiff = occupiedOverride - originalOccupied;
+        
+        // Adjust all projection points by the difference
+        adjustedProjections = projections.projections.map(d => {
+          const originalRate = parseFloat(d.occupancyRate);
+          const adjustedOccupied = Math.round((originalRate / 100) * totalUnits) + occupiedDiff;
+          const adjustedRate = Math.max(0, Math.min(100, (adjustedOccupied / totalUnits) * 100));
+          return { ...d, occupancyRate: adjustedRate.toFixed(1) };
+        });
+      }
+      
       projectionCanvas.chart = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: projections.projections.map(d => {
+          labels: adjustedProjections.map(d => {
             const [year, month, day] = d.date.split('-');
             return `${month}/${day}`;
           }),
           datasets: [{
             label: 'Projected Occupancy (%)',
-            data: projections.projections.map(d => parseFloat(d.occupancyRate)),
+            data: adjustedProjections.map(d => parseFloat(d.occupancyRate)),
             borderColor: '#8b5cf6',
             backgroundColor: '#8b5cf620',
             fill: true,
@@ -318,14 +358,30 @@ export default function OccupancyDashboard() {
         };
       } else {
         // Single line (portfolio or single property)
+        // Sample data to show ~30 points max for cleaner X-axis
+        let sampledTrend = stats.occupancyTrend;
+        if (stats.occupancyTrend.length > 30) {
+          const step = Math.ceil(stats.occupancyTrend.length / 30);
+          sampledTrend = stats.occupancyTrend.filter((_, i) => 
+            i % step === 0 || i === stats.occupancyTrend.length - 1
+          );
+        }
+        
+        // Adjust the latest data point if user has overridden occupied count
+        let trendData = sampledTrend.map(d => parseFloat(d.occupancyRate));
+        if (occupiedOverride !== null && stats?.summary?.totalUnits > 0 && trendData.length > 0) {
+          const adjustedRate = (occupiedOverride / stats.summary.totalUnits) * 100;
+          trendData[trendData.length - 1] = parseFloat(adjustedRate.toFixed(1));
+        }
+        
         chartData = {
-          labels: stats.occupancyTrend.map(d => {
+          labels: sampledTrend.map(d => {
             const [year, month, day] = d.date.split('-');
             return `${month}/${day}`;
           }),
           datasets: [{
             label: 'Occupancy Rate (%)',
-            data: stats.occupancyTrend.map(d => parseFloat(d.occupancyRate)),
+            data: trendData,
             borderColor: '#10b981',
             backgroundColor: '#10b98120',
             fill: true,
@@ -362,10 +418,16 @@ export default function OccupancyDashboard() {
           },
           scales: {
             y: { 
-              beginAtZero: true, 
-              min: 0,
+              beginAtZero: false, 
+              min: 50,
               max: 100,
               ticks: { callback: v => v + '%' }
+            },
+            x: {
+              ticks: {
+                maxTicksLimit: 10,
+                autoSkip: true
+              }
             }
           }
         }
@@ -673,9 +735,15 @@ export default function OccupancyDashboard() {
                   >
                     <option value="portfolio">Portfolio</option>
                     <option value="all">All Properties</option>
-                    {stats.properties?.map(prop => (
-                      <option key={prop} value={prop}>{prop}</option>
-                    ))}
+                    <optgroup label="Regions">
+                      <option value="region_kansas_city">Kansas City</option>
+                      <option value="region_columbia">Columbia</option>
+                    </optgroup>
+                    <optgroup label="Properties">
+                      {stats.properties?.map(prop => (
+                        <option key={prop} value={prop}>{prop}</option>
+                      ))}
+                    </optgroup>
                   </select>
                 </div>
                 
