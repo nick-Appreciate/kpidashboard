@@ -14,6 +14,7 @@ export default function RehabsDashboard() {
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [properties, setProperties] = useState([]);
   const [editingRehab, setEditingRehab] = useState(null);
+  const [totalUnits, setTotalUnits] = useState(0);
   
   // Toggle Ready for Move-In status (persisted to database)
   const toggleReadyForMoveIn = async (unitId) => {
@@ -82,6 +83,7 @@ export default function RehabsDashboard() {
       
       setRehabs(data.rehabs || []);
       setNewVacancies(data.newVacancies || []);
+      setTotalUnits(data.totalUnits || 0);
       
       // Extract unique properties
       const allProps = new Set([
@@ -151,6 +153,9 @@ export default function RehabsDashboard() {
   };
 
   const updateRehabField = async (rehabId, field, value) => {
+    // Save scroll position before update
+    const scrollY = window.scrollY;
+    
     try {
       const response = await fetch('/api/rehabs', {
         method: 'PATCH',
@@ -168,6 +173,11 @@ export default function RehabsDashboard() {
       
       const updatedRehab = await response.json();
       setRehabs(prev => prev.map(r => r.id === rehabId ? updatedRehab : r));
+      
+      // Restore scroll position after React re-render
+      requestAnimationFrame(() => {
+        window.scrollTo(0, scrollY);
+      });
       
     } catch (err) {
       console.error('Error updating rehab:', err);
@@ -378,7 +388,11 @@ export default function RehabsDashboard() {
               });
             })()}
             <div className="px-2 py-1 rounded text-xs font-medium bg-slate-200 text-slate-700">
-              Total: {filteredRehabs.filter(r => r.status === 'in_progress').length}
+              {(() => {
+                const inRehabCount = filteredRehabs.filter(r => r.status === 'in_progress').length;
+                const percent = totalUnits > 0 ? ((inRehabCount / totalUnits) * 100).toFixed(1) : 0;
+                return `In Rehab: ${inRehabCount}/${totalUnits} (${percent}%)`;
+              })()}
             </div>
           </div>
         </div>
@@ -546,7 +560,7 @@ export default function RehabsDashboard() {
       </div>
 
       {/* Rehabs Chart */}
-      <RehabsChart rehabs={filteredRehabs} />
+      <RehabsChart rehabs={filteredRehabs} selectedProperty={selectedProperty} />
 
       {/* Edit Modal */}
       {editingRehab && (

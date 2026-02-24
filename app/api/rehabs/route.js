@@ -170,11 +170,36 @@ export async function GET(request) {
     // Combine existing rehabs with newly created ones
     const allRehabs = [...rehabs, ...createdRehabs];
 
+    // Get total units count from latest rent roll snapshot
+    let totalUnits = 0;
+    if (latestSnapshotDate) {
+      const { count, error: countError } = await supabase
+        .from('rent_roll_snapshots')
+        .select('*', { count: 'exact', head: true })
+        .eq('snapshot_date', latestSnapshotDate);
+      
+      if (countError) {
+        console.error('Error counting total units:', countError);
+      }
+      totalUnits = count || 0;
+      
+      // If filtering by specific property, get that property's count instead
+      if (property && property !== 'all' && property !== 'portfolio') {
+        const { count: propCount } = await supabase
+          .from('rent_roll_snapshots')
+          .select('*', { count: 'exact', head: true })
+          .eq('snapshot_date', latestSnapshotDate)
+          .eq('property', property);
+        totalUnits = propCount || 0;
+      }
+    }
+
     return NextResponse.json({
       rehabs: allRehabs,
       newVacancies: [], // No longer needed - all vacancies are now rehabs
       totalActive: allRehabs.filter(r => r.status === 'in_progress').length,
-      totalPendingSetup: allRehabs.filter(r => r.rehab_status === 'Not Started').length
+      totalPendingSetup: allRehabs.filter(r => r.rehab_status === 'Not Started').length,
+      totalUnits
     });
 
   } catch (error) {
