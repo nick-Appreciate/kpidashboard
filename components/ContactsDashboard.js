@@ -26,6 +26,19 @@ export default function ContactsDashboard() {
   // JustCall embedded dialer
   const { makeCall } = useJustCall();
 
+  // Escape key handler to close modals
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        if (selectedContact) {
+          setSelectedContact(null);
+        }
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [selectedContact]);
+
   const formatPhoneForJustCall = (phone) => {
     if (!phone) return null;
     let cleaned = phone.replace(/[^\d+]/g, '');

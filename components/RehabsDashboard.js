@@ -62,6 +62,22 @@ export default function RehabsDashboard() {
   });
   const [saving, setSaving] = useState(false);
 
+  // Escape key handler to close modals
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        if (showOnboarding) {
+          setShowOnboarding(false);
+          setOnboardingUnit(null);
+        } else if (editingRehab) {
+          setEditingRehab(null);
+        }
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showOnboarding, editingRehab]);
+
   useEffect(() => {
     fetchRehabs();
   }, [selectedProperty]);
