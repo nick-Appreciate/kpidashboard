@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -136,11 +137,12 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     // Redirect to login if not authenticated (except on auth pages)
+    // Skip redirect if we're in the process of signing out
     const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-    if (!loading && !user && !authPages.includes(pathname)) {
+    if (!loading && !user && !authPages.includes(pathname) && !isSigningOut) {
       router.push('/login');
     }
-  }, [user, loading, pathname, router]);
+  }, [user, loading, pathname, router, isSigningOut]);
 
   const signIn = async (email, password) => {
     const { data, error } = await supabaseBrowser.auth.signInWithPassword({
@@ -153,14 +155,16 @@ export function AuthProvider({ children }) {
 
   const signOut = async () => {
     console.log('Signing out...');
-    setUser(null);
-    setAppUser(null);
+    setIsSigningOut(true);
     
     try {
       await supabaseBrowser.auth.signOut();
     } catch (error) {
       console.error('Sign out error:', error);
     }
+    
+    setUser(null);
+    setAppUser(null);
     
     // Force redirect using window.location for reliability
     window.location.href = '/login';
