@@ -152,19 +152,18 @@ export function AuthProvider({ children }) {
   };
 
   const signOut = async () => {
+    console.log('Signing out...');
+    setUser(null);
+    setAppUser(null);
+    
     try {
-      console.log('Signing out...');
       await supabaseBrowser.auth.signOut();
-      setUser(null);
-      setAppUser(null);
-      router.push('/login');
     } catch (error) {
       console.error('Sign out error:', error);
-      // Force redirect even if signOut fails
-      setUser(null);
-      setAppUser(null);
-      router.push('/login');
     }
+    
+    // Force redirect using window.location for reliability
+    window.location.href = '/login';
   };
 
   const resetPassword = async (email) => {
