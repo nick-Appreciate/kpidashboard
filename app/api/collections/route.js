@@ -82,14 +82,20 @@ export async function GET(request) {
     
     const { data: evictionData } = await supabase
       .from('rent_roll_snapshots')
-      .select('property, unit, status')
+      .select('property, unit, status, tenant, rent, balance')
       .eq('snapshot_date', rentRollDate)
       .eq('status', 'Evict');
     
     // Create eviction lookup by property+unit
     const evictionMap = {};
     (evictionData || []).forEach(e => {
-      evictionMap[`${e.property}|${e.unit}`] = true;
+      evictionMap[`${e.property}|${e.unit}`] = e;
+    });
+    
+    // Create a set of property+unit keys from delinquency data
+    const delinquencyKeys = new Set();
+    (data || []).forEach(item => {
+      delinquencyKeys.add(`${item.property_name}|${item.unit}`);
     });
     
     // Merge delinquency data with stages
@@ -102,7 +108,7 @@ export async function GET(request) {
       
       // Check if unit is in eviction status in rent roll
       const evictionKey = `${item.property_name}|${item.unit}`;
-      const afEviction = evictionMap[evictionKey] === true;
+      const afEviction = !!evictionMap[evictionKey];
       
       const balance = parseFloat(item.amount_receivable || 0);
       const monthlyRent = parseFloat(item.rent || 0);
@@ -131,6 +137,32 @@ export async function GET(request) {
         af_eviction: afEviction,
         balance_over_rent: monthlyRent > 0 ? (balance / monthlyRent).toFixed(1) : 0
       };
+    });
+    
+    // Add eviction units that aren't in delinquency data
+    // These are units with status='Evict' in rent_roll but not in af_delinquency
+    (evictionData || []).forEach(evict => {
+      const key = `${evict.property}|${evict.unit}`;
+      if (!delinquencyKeys.has(key)) {
+        // This eviction unit is not in delinquency - add it
+        items.push({
+          property_name: evict.property,
+          unit: evict.unit,
+          name: evict.tenant,
+          amount_receivable: parseFloat(evict.balance || 0),
+          rent: parseFloat(evict.rent || 0),
+          stage: 'eviction',
+          stage_data: null,
+          tenant_id: null,
+          af_eviction: true,
+          balance_over_rent: 0,
+          occupancy_id: null, // No occupancy_id for these
+          days_0_to_30: 0,
+          days_30_to_60: 0,
+          days_60_to_90: 0,
+          days_90_plus: 0
+        });
+      }
     });
     
     // Calculate summary stats
