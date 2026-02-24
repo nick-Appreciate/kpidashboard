@@ -73,20 +73,30 @@ export function AuthProvider({ children }) {
 
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        // Use getUser() instead of getSession() to verify the session is valid
+        // getSession() can return stale data from localStorage
+        const { data: { user: authUser }, error: userError } = await supabaseBrowser.auth.getUser();
         
-        if (session?.user) {
-          setUser(session.user);
-          setLoading(false); // Set loading false immediately once we have a user
-          
-          // Fetch app_user in background - don't block
+        if (userError || !authUser) {
+          // No valid session - clear any stale data and redirect to login
+          setUser(null);
+          setAppUser(null);
+          setLoading(false);
+          return;
+        }
+        
+        // Valid session - set user and fetch app_user in background
+        setUser(authUser);
+        setLoading(false);
+        
+        // Fetch app_user in background - don't block
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (session) {
           getOrCreateAppUser(session).then(appUserData => {
             setAppUser(appUserData);
           }).catch(err => {
             console.error('Error fetching app_user:', err);
           });
-        } else {
-          setLoading(false);
         }
       } catch (error) {
         console.error('Auth init error:', error);
