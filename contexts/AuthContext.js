@@ -1,129 +1,87 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabaseBrowser } from '../lib/supabase-browser';
 
 const AuthContext = createContext(null);
 
+// Helper to fetch/create app_user
+async function getOrCreateAppUser(session) {
+  if (!session?.user) return null;
+  
+  const email = session.user.email;
+  
+  // Fetch existing app_user
+  let { data: appUserData } = await supabaseBrowser
+    .from('app_users')
+    .select('*')
+    .eq('email', email)
+    .maybeSingle();
+  
+  // Auto-create for @appreciate.io emails
+  if (!appUserData && email?.endsWith('@appreciate.io')) {
+    const userName = session.user.user_metadata?.full_name || 
+                    session.user.user_metadata?.name || 
+                    email.split('@')[0];
+    
+    const { data: newUser } = await supabaseBrowser
+      .from('app_users')
+      .insert({
+        email: email,
+        name: userName,
+        role: 'user',
+        is_active: true,
+        auth_user_id: session.user.id
+      })
+      .select()
+      .single();
+    
+    if (newUser) {
+      appUserData = newUser;
+    }
+  }
+  
+  return appUserData;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isSigningOut, setIsSigningOut] = useState(false);
+  const initialCheckDone = useRef(false);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    // Check current session
-    const checkSession = async () => {
+    // Only run initial check once
+    if (initialCheckDone.current) return;
+    initialCheckDone.current = true;
+
+    const initAuth = async () => {
       try {
         const { data: { session } } = await supabaseBrowser.auth.getSession();
         
         if (session?.user) {
           setUser(session.user);
-          // Fetch app user data - use maybeSingle() to avoid error when no row found
-          let { data: appUserData, error: fetchError } = await supabaseBrowser
-            .from('app_users')
-            .select('*')
-            .eq('email', session.user.email)
-            .maybeSingle();
-          
-          if (fetchError) {
-            console.error('Error fetching app_user:', fetchError);
-          }
-          
-          // Auto-create app_user for new Google OAuth users with @appreciate.io email
-          if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
-            console.log('Auto-creating app_user for:', session.user.email);
-            const userName = session.user.user_metadata?.full_name || 
-                            session.user.user_metadata?.name || 
-                            session.user.email.split('@')[0];
-            
-            try {
-              const { data: newUser, error: createError } = await supabaseBrowser
-                .from('app_users')
-                .insert({
-                  email: session.user.email,
-                  name: userName,
-                  role: 'user',
-                  is_active: true,
-                  auth_user_id: session.user.id
-                })
-                .select()
-                .single();
-              
-              if (!createError && newUser) {
-                appUserData = newUser;
-                console.log('Created new app_user for:', session.user.email);
-              } else if (createError) {
-                console.error('Error creating app_user:', createError.message, createError.code, createError.details);
-              }
-            } catch (insertErr) {
-              console.error('Exception creating app_user:', insertErr);
-            }
-          }
-          
+          const appUserData = await getOrCreateAppUser(session);
           setAppUser(appUserData);
         }
       } catch (error) {
-        console.error('Session check error:', error);
+        console.error('Auth init error:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    checkSession();
-
-    // Timeout fallback - if still loading after 5 seconds, set loading to false
-    // Note: We always set loading to false here as a safety net
-    const timeout = setTimeout(() => {
-      console.warn('Auth check timed out, setting loading to false');
-      setLoading(false);
-    }, 5000);
+    initAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabaseBrowser.auth.onAuthStateChange(
       async (event, session) => {
         if (session?.user) {
           setUser(session.user);
-          // Fetch app user data - use maybeSingle() to avoid error when no row found
-          let { data: appUserData, error: fetchError } = await supabaseBrowser
-            .from('app_users')
-            .select('*')
-            .eq('email', session.user.email)
-            .maybeSingle();
-          
-          if (fetchError) {
-            console.error('Error fetching app_user:', fetchError);
-          }
-          
-          // Auto-create app_user for new Google OAuth users with @appreciate.io email
-          if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
-            const userName = session.user.user_metadata?.full_name || 
-                            session.user.user_metadata?.name || 
-                            session.user.email.split('@')[0];
-            
-            const { data: newUser, error: createError } = await supabaseBrowser
-              .from('app_users')
-              .insert({
-                email: session.user.email,
-                name: userName,
-                role: 'user',
-                is_active: true,
-                auth_user_id: session.user.id
-              })
-              .select()
-              .single();
-            
-            if (!createError && newUser) {
-              appUserData = newUser;
-              console.log('Created new app_user for:', session.user.email);
-            } else if (createError) {
-              console.error('Failed to create app_user:', createError);
-            }
-          }
-          
+          const appUserData = await getOrCreateAppUser(session);
           setAppUser(appUserData);
         } else {
           setUser(null);
@@ -135,18 +93,16 @@ export function AuthProvider({ children }) {
 
     return () => {
       subscription?.unsubscribe();
-      clearTimeout(timeout);
     };
   }, []);
 
   useEffect(() => {
     // Redirect to login if not authenticated (except on auth pages)
-    // Skip redirect if we're in the process of signing out
     const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-    if (!loading && !user && !authPages.includes(pathname) && !isSigningOut) {
+    if (!loading && !user && !authPages.includes(pathname)) {
       router.push('/login');
     }
-  }, [user, loading, pathname, router, isSigningOut]);
+  }, [user, loading, pathname, router]);
 
   const signIn = async (email, password) => {
     const { data, error } = await supabaseBrowser.auth.signInWithPassword({
@@ -159,7 +115,6 @@ export function AuthProvider({ children }) {
 
   const signOut = () => {
     console.log('Signing out...');
-    setIsSigningOut(true);
     setUser(null);
     setAppUser(null);
     
