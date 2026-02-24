@@ -71,11 +71,10 @@ export function AuthProvider({ children }) {
     checkSession();
 
     // Timeout fallback - if still loading after 5 seconds, set loading to false
+    // Note: We always set loading to false here as a safety net
     const timeout = setTimeout(() => {
-      if (loading) {
-        console.warn('Auth check timed out, setting loading to false');
-        setLoading(false);
-      }
+      console.warn('Auth check timed out, setting loading to false');
+      setLoading(false);
     }, 5000);
 
     // Listen for auth changes
