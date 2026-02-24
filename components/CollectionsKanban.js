@@ -60,11 +60,6 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
         : `https://appreciateinc.appfolio.com/occupancies/${item.occupancy_id}`)
     : null;
   
-  // Ledger URL - requires tenant_id (from af_lease_history)
-  // Format: t_{tenant_id} for tenant-based lookup
-  const ledgerUrl = item.tenant_id
-    ? `https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters%5Bparty_ids%5D%5B%5D=t_${item.tenant_id}`
-    : null;
   
   return (
     <div
@@ -116,17 +111,6 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
             Tenant
           </a>
         )}
-        {ledgerUrl && (
-          <a
-            href={ledgerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-          >
-            Ledger
-          </a>
-        )}
         {isLocked && (
           <span className={`text-xs ml-auto ${item.stage === 'current' ? 'text-green-600' : 'text-purple-600'}`}>🔒</span>
         )}
@@ -146,6 +130,7 @@ export default function CollectionsKanban() {
   const [noteInput, setNoteInput] = useState('');
   const [draggedItem, setDraggedItem] = useState(null);
   const [groupByProperty, setGroupByProperty] = useState(true);
+  const [largeBalancesOnly, setLargeBalancesOnly] = useState(false);
   const { makeCall } = useJustCall();
 
   useEffect(() => {
@@ -184,10 +169,15 @@ export default function CollectionsKanban() {
     }
   };
 
-  const fetchItemDetails = async (occupancyId) => {
+  const fetchItemDetails = async (item) => {
     try {
       setDetailsLoading(true);
-      const res = await fetch(`/api/collections?occupancy_id=${occupancyId}`);
+      const params = new URLSearchParams({
+        occupancy_id: item.occupancy_id,
+        property_name: item.property_name || '',
+        unit: item.unit || ''
+      });
+      const res = await fetch(`/api/collections?${params}`);
       const result = await res.json();
       setItemDetails(result);
     } catch (err) {
@@ -218,7 +208,7 @@ export default function CollectionsKanban() {
 
   const openItemDetails = (item) => {
     setSelectedItem(item);
-    fetchItemDetails(item.occupancy_id);
+    fetchItemDetails(item);
   };
 
   const formatCurrency = (amount) => {
@@ -320,10 +310,19 @@ export default function CollectionsKanban() {
     setDraggedItem(null);
   };
 
+  // Filter items if Large Balances Only is enabled (balance > 1/4 of monthly rent)
+  const filteredItems = largeBalancesOnly 
+    ? items.filter(item => {
+        const balance = parseFloat(item.amount_receivable || 0);
+        const rent = parseFloat(item.rent || 0);
+        return rent > 0 && balance > (rent / 4);
+      })
+    : items;
+
   // Group items by stage, then by property within each stage
   const itemsByStage = {};
   STAGES.forEach(stage => { itemsByStage[stage] = []; });
-  items.forEach(item => {
+  filteredItems.forEach(item => {
     if (itemsByStage[item.stage]) {
       itemsByStage[item.stage].push(item);
     }
@@ -367,6 +366,15 @@ export default function CollectionsKanban() {
                   className="rounded"
                 />
                 Group by Property
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={largeBalancesOnly}
+                  onChange={(e) => setLargeBalancesOnly(e.target.checked)}
+                  className="rounded"
+                />
+                Large Balances Only
               </label>
               <select
                 value={selectedProperty}
@@ -532,70 +540,75 @@ export default function CollectionsKanban() {
                     </div>
                   </div>
 
-                  {/* Contact Info */}
-                  <div className="bg-slate-50 rounded-lg p-4 mb-4">
-                    <h3 className="font-semibold text-slate-800 mb-2">Contact Info</h3>
-                    <div className="space-y-2 text-sm">
-                      {selectedItem.phone_numbers && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500">📞</span>
-                          <button
-                            onClick={() => handleCall(selectedItem)}
-                            className="text-indigo-600 hover:underline"
-                          >
-                            {selectedItem.phone_numbers}
-                          </button>
-                        </div>
-                      )}
-                      {selectedItem.primary_tenant_email && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500">✉️</span>
-                          <a 
-                            href={`mailto:${selectedItem.primary_tenant_email}`}
-                            className="text-indigo-600 hover:underline"
-                          >
-                            {selectedItem.primary_tenant_email}
-                          </a>
-                        </div>
-                      )}
-                      {selectedItem.occupancy_id && (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-500">🔗</span>
-                            <a 
-                              href={`https://appreciateinc.appfolio.com/occupancies/${selectedItem.occupancy_id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-indigo-600 hover:underline"
-                            >
-                              View Occupancy
-                            </a>
-                          </div>
-                          {selectedItem.tenant_id && (
-                            <div className="flex items-center gap-2">
-                              <span className="text-slate-500">📄</span>
-                              <a 
-                                href={`https://appreciateinc.appfolio.com/occupancies/${selectedItem.occupancy_id}/selected_tenant/${selectedItem.tenant_id}ledger`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-indigo-600 hover:underline"
-                              >
-                                View Tenant Ledger
-                              </a>
+                  {/* Transactions - Last 3 months, separate charge/payment rows */}
+                  {itemDetails?.transactions && itemDetails.transactions.length > 0 && (
+                    <div className="bg-slate-50 rounded-lg p-4 mb-4">
+                      <h3 className="font-semibold text-slate-800 mb-2">Transactions (Last 3 Months)</h3>
+                      <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-100 sticky top-0">
+                            <tr>
+                              <th className="text-left py-1 px-2 font-medium text-slate-600">Date</th>
+                              <th className="text-left py-1 px-2 font-medium text-slate-600">Payer</th>
+                              <th className="text-left py-1 px-2 font-medium text-slate-600">Description</th>
+                              <th className="text-right py-1 px-2 font-medium text-slate-600">Charges</th>
+                              <th className="text-right py-1 px-2 font-medium text-slate-600">Payments</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {itemDetails.transactions.map((txn, idx) => (
+                              <tr key={idx} className="border-b border-slate-200 last:border-0">
+                                <td className="py-1 px-2 text-slate-500 whitespace-nowrap">{txn.date}</td>
+                                <td className="py-1 px-2 text-slate-600">{txn.payer || ''}</td>
+                                <td className="py-1 px-2 text-slate-700">{txn.description}</td>
+                                <td className="py-1 px-2 text-right text-red-600">
+                                  {txn.type === 'charge' ? `$${txn.amount.toFixed(2)}` : ''}
+                                </td>
+                                <td className="py-1 px-2 text-right text-green-600">
+                                  {txn.type === 'payment' ? `$${txn.amount.toFixed(2)}` : ''}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Outstanding by GL Account */}
+                  {itemDetails?.glBreakdown && itemDetails.glBreakdown.length > 0 && (
+                    <div className="bg-slate-50 rounded-lg p-4 mb-4">
+                      <h3 className="font-semibold text-slate-800 mb-2">Outstanding by Account</h3>
+                      <div className="space-y-2">
+                        {itemDetails.glBreakdown.map((gl, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-sm">
+                            <div>
+                              <span className="font-medium text-slate-700">{gl.account_name}</span>
+                              <span className="text-slate-400 text-xs ml-2">({gl.account_number})</span>
                             </div>
-                          )}
-                        </>
-                      )}
-                      {selectedItem.af_eviction && (
-                        <div className="flex items-center gap-2 mt-2 p-2 bg-purple-100 rounded">
-                          <span className="text-purple-600">🔒</span>
-                          <span className="text-purple-700 text-sm font-medium">
-                            Locked - Eviction Status in AppFolio
+                            <span className={`font-semibold ${gl.outstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              ${gl.outstanding.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="border-t pt-2 mt-2 flex justify-between items-center font-semibold">
+                          <span className="text-slate-800">Total Outstanding</span>
+                          <span className="text-red-600">
+                            ${itemDetails.glBreakdown.reduce((sum, gl) => sum + gl.outstanding, 0).toFixed(2)}
                           </span>
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {selectedItem.af_eviction && (
+                    <div className="flex items-center gap-2 p-2 bg-purple-100 rounded mb-4">
+                      <span className="text-purple-600">🔒</span>
+                      <span className="text-purple-700 text-sm font-medium">
+                        Locked - Eviction Status in AppFolio
+                      </span>
+                    </div>
+                  )}
 
                   {/* Aging Breakdown */}
                   <div className="bg-slate-50 rounded-lg p-4 mb-4">
@@ -686,32 +699,6 @@ export default function CollectionsKanban() {
                     </div>
                   )}
 
-                  {/* Stage Actions */}
-                  <div className="border-t border-slate-200 pt-4">
-                    <h3 className="font-semibold text-slate-800 mb-3">Move to Stage</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {STAGES.filter(s => s !== selectedItem.stage).map(stage => (
-                        <button
-                          key={stage}
-                          onClick={() => {
-                            updateStage(selectedItem.occupancy_id, stage, noteInput);
-                            setSelectedItem(null);
-                            setItemDetails(null);
-                          }}
-                          className={`px-4 py-2 rounded-lg text-white text-sm font-medium ${STAGE_CONFIG[stage].color} hover:opacity-90`}
-                        >
-                          {STAGE_CONFIG[stage].label}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      value={noteInput}
-                      onChange={(e) => setNoteInput(e.target.value)}
-                      placeholder="Add a note (optional)..."
-                      className="w-full mt-3 px-3 py-2 border border-slate-300 rounded-lg text-sm resize-none"
-                      rows={2}
-                    />
-                  </div>
                 </>
               )}
             </div>

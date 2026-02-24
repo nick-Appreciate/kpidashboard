@@ -14,7 +14,9 @@ export async function GET(request) {
     
     // If requesting specific occupancy details (for modal)
     if (occupancyId) {
-      return await getOccupancyDetails(occupancyId);
+      const propertyName = searchParams.get('property_name');
+      const unit = searchParams.get('unit');
+      return await getOccupancyDetails(occupancyId, propertyName, unit);
     }
     
     // Get the latest snapshot date first
@@ -298,7 +300,7 @@ export async function GET(request) {
 }
 
 // Get detailed info for a specific occupancy (payment history, etc.)
-async function getOccupancyDetails(occupancyId) {
+async function getOccupancyDetails(occupancyId, propertyName, unit) {
   try {
     // Get delinquency info
     const { data: delinquency } = await supabase
@@ -315,23 +317,94 @@ async function getOccupancyDetails(occupancyId) {
       .eq('occupancy_id', occupancyId)
       .single();
     
-    // Get tenant ledger (payment history) - match by tenant name
-    const tenantName = delinquency?.[0]?.name;
-    let ledger = [];
-    if (tenantName) {
-      const { data: ledgerData } = await supabase
-        .from('af_tenant_ledger')
-        .select('*')
-        .ilike('payer', `%${tenantName.split(',')[0]}%`)
-        .order('date', { ascending: false })
-        .limit(20);
-      ledger = ledgerData || [];
+    // Get outstanding balance by GL account from charge_detail
+    let glBreakdown = [];
+    if (propertyName && unit) {
+      const { data: chargeData } = await supabase
+        .from('af_charge_detail')
+        .select('account_name, account_number, charge_amount, paid_amount')
+        .eq('property_name', propertyName)
+        .eq('unit', unit);
+      
+      // Aggregate by GL account
+      const glMap = {};
+      (chargeData || []).forEach(charge => {
+        const key = charge.account_name || 'Unknown';
+        if (!glMap[key]) {
+          glMap[key] = { 
+            account_name: charge.account_name, 
+            account_number: charge.account_number,
+            total_charges: 0, 
+            total_paid: 0 
+          };
+        }
+        glMap[key].total_charges += parseFloat(charge.charge_amount || 0);
+        glMap[key].total_paid += parseFloat(charge.paid_amount || 0);
+      });
+      
+      // Convert to array and calculate outstanding
+      glBreakdown = Object.values(glMap)
+        .map(gl => ({
+          ...gl,
+          outstanding: gl.total_charges - gl.total_paid
+        }))
+        .filter(gl => Math.abs(gl.outstanding) > 0.01)
+        .sort((a, b) => b.outstanding - a.outstanding);
+    }
+    
+    // Get transactions from last 3 months - separate rows for charges and payments
+    let transactions = [];
+    if (propertyName && unit) {
+      // Calculate 3 months ago
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      const threeMonthsAgoStr = threeMonthsAgo.toISOString().split('T')[0];
+      
+      const { data: chargeData } = await supabase
+        .from('af_charge_detail')
+        .select('charge_date, receipt_date, charge_description, account_name, charge_amount, paid_amount, received_from')
+        .eq('property_name', propertyName)
+        .eq('unit', unit)
+        .gte('charge_date', threeMonthsAgoStr)
+        .order('charge_date', { ascending: false });
+      
+      // Create separate rows for charges and payments
+      (chargeData || []).forEach(row => {
+        const chargeAmt = parseFloat(row.charge_amount || 0);
+        const paidAmt = parseFloat(row.paid_amount || 0);
+        
+        // Add charge row if there's a charge
+        if (chargeAmt > 0) {
+          transactions.push({
+            date: row.charge_date,
+            description: row.charge_description,
+            payer: null,
+            type: 'charge',
+            amount: chargeAmt
+          });
+        }
+        
+        // Add payment row if there's a payment
+        if (paidAmt > 0) {
+          transactions.push({
+            date: row.receipt_date || row.charge_date,
+            description: row.charge_description,
+            payer: row.received_from,
+            type: 'payment',
+            amount: paidAmt
+          });
+        }
+      });
+      
+      // Sort by date descending
+      transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
     
     return NextResponse.json({
       delinquency: delinquency?.[0] || null,
       stage: stageData || null,
-      ledger
+      glBreakdown,
+      transactions
     });
   } catch (error) {
     console.error('Error fetching occupancy details:', error);
