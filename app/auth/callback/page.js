@@ -15,6 +15,20 @@ export default function AuthCallbackPage() {
 
     const handleCallback = async () => {
       try {
+        // Check if we have hash tokens - if so, we're in a fresh OAuth callback
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const hasHashTokens = hashParams.get('access_token') || hashParams.get('refresh_token');
+        
+        // If we have fresh tokens in the URL, clear any stale session first
+        if (hasHashTokens) {
+          console.log('Fresh OAuth callback detected, clearing any stale session...');
+          try {
+            await supabaseBrowser.auth.signOut({ scope: 'local' });
+          } catch (e) {
+            // Ignore signout errors
+          }
+        }
+        
         // Give Supabase time to auto-detect session from URL hash
         // detectSessionInUrl: true in client config should handle this
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -32,8 +46,7 @@ export default function AuthCallbackPage() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
 
-        // Get the hash fragment from the URL (implicit flow)
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        // Get the hash fragment from the URL (implicit flow) - reuse hashParams from above
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
         const type = hashParams.get('type');
