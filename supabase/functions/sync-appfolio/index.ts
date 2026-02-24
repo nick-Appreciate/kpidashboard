@@ -640,6 +640,47 @@ async function syncProspectSourceTracking(): Promise<SyncResult> {
   }
 }
 
+async function syncTenantDirectory(): Promise<SyncResult> {
+  try {
+    // Include all tenant statuses to get eviction/prior tenant contact info
+    // Based on AppFolio UI: Tenant Status filter - try "all" to include Past/eviction tenants
+    const data = await fetchAppFolioReport('tenant_directory', { 
+      tenant_statuses: 'all'
+    });
+    
+    const records = data.map((row: any) => ({
+      tenant_id: row.tenant_id,
+      tenant_name: row.tenant_name || row.name,
+      property_name: row.property_name,
+      property_id: row.property_id,
+      unit: row.unit,
+      unit_id: row.unit_id,
+      occupancy_id: row.occupancy_id,
+      phone_numbers: row.phone_numbers,
+      email: row.email || row.primary_email,
+      status: row.status,
+      move_in: row.move_in || null,
+      move_out: row.move_out || null,
+      lease_start: row.lease_start || null,
+      lease_end: row.lease_end || null,
+      synced_at: new Date().toISOString()
+    }));
+    
+    await supabase.rpc('truncate_af_tenant_directory');
+    
+    const batchSize = 100;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+      const { error } = await supabase.from('af_tenant_directory').insert(batch);
+      if (error) throw new Error(JSON.stringify(error));
+    }
+    
+    return { report: 'tenant_directory', success: true, rowsProcessed: records.length };
+  } catch (error: any) {
+    return { report: 'tenant_directory', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 // Helper function for Central Time
 function getTodayDate(): string {
   const now = new Date();
@@ -680,7 +721,8 @@ Deno.serve(async (req: Request) => {
       results.push(await syncGeneralLedger()); await delay();
       results.push(await syncChartOfAccounts()); await delay();
       results.push(await syncTrialBalance()); await delay();
-      results.push(await syncProspectSourceTracking());
+      results.push(await syncProspectSourceTracking()); await delay();
+      results.push(await syncTenantDirectory());
       
     } else if (reportParam === 'core') {
       // Just the core reports for faster sync
@@ -690,7 +732,8 @@ Deno.serve(async (req: Request) => {
       results.push(await syncShowings()); await delay();
       results.push(await syncRentalApplications()); await delay();
       results.push(await syncGuestCards()); await delay();
-      results.push(await syncDelinquency());
+      results.push(await syncDelinquency()); await delay();
+      results.push(await syncTenantDirectory());
       
     } else if (reportParam === 'financial') {
       // Financial reports
@@ -719,7 +762,8 @@ Deno.serve(async (req: Request) => {
         'general_ledger': syncGeneralLedger,
         'chart_of_accounts': syncChartOfAccounts,
         'trial_balance': syncTrialBalance,
-        'prospect_source_tracking': syncProspectSourceTracking
+        'prospect_source_tracking': syncProspectSourceTracking,
+        'tenant_directory': syncTenantDirectory
       };
       
       const syncFn = syncFunctions[reportParam];

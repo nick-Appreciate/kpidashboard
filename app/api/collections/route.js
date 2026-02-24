@@ -64,11 +64,46 @@ export async function GET(request) {
     // Get tenant_id from af_lease_history for AppFolio links
     const { data: leaseData } = await supabase
       .from('af_lease_history')
-      .select('occupancy_id, tenant_id');
+      .select('occupancy_id, tenant_id, property_name, unit_name');
     
     const tenantIdMap = {};
+    const leaseByUnit = {};
     (leaseData || []).forEach(l => {
       tenantIdMap[l.occupancy_id] = l.tenant_id;
+      // Also create lookup by property+unit for rent_roll cards
+      const key = `${l.property_name}|${l.unit_name}`;
+      if (!leaseByUnit[key]) {
+        leaseByUnit[key] = l;
+      }
+    });
+    
+    // Get tenant directory for phone numbers and contact info (primary source)
+    const { data: tenantDirectory } = await supabase
+      .from('af_tenant_directory')
+      .select('property_name, unit, occupancy_id, phone_numbers, email, tenant_id');
+    
+    const tenantLookup = {};
+    (tenantDirectory || []).forEach(t => {
+      const key = `${t.property_name}|${t.unit}`;
+      if (!tenantLookup[key]) {
+        tenantLookup[key] = t;
+      }
+    });
+    
+    // Fallback: Get delinquency records for any missing contact info
+    const { data: allDelinquency } = await supabase
+      .from('af_delinquency')
+      .select('property_name, unit, occupancy_id, phone_numbers, primary_tenant_email')
+      .not('phone_numbers', 'is', null)
+      .order('snapshot_date', { ascending: false });
+    
+    const delinquencyLookup = {};
+    (allDelinquency || []).forEach(d => {
+      const key = `${d.property_name}|${d.unit}`;
+      // Keep the most recent record with phone data for each unit
+      if (!delinquencyLookup[key]) {
+        delinquencyLookup[key] = d;
+      }
     });
     
     // Get eviction status from rent_roll_snapshots
@@ -82,14 +117,31 @@ export async function GET(request) {
     
     const { data: evictionData } = await supabase
       .from('rent_roll_snapshots')
-      .select('property, unit, status, tenant, rent, balance')
+      .select('property, unit, status, tenant_name, total_rent, past_due')
       .eq('snapshot_date', rentRollDate)
       .eq('status', 'Evict');
+    
+    // Get current tenants (past_due <= 0) from rent_roll_snapshots
+    // Exclude Evict and any Vacant status (Vacant-Unrented, Vacant-Rented, etc.)
+    // Include Notice tenants - they should still appear in collections
+    const { data: currentTenants } = await supabase
+      .from('rent_roll_snapshots')
+      .select('property, unit, status, tenant_name, total_rent, past_due')
+      .eq('snapshot_date', rentRollDate)
+      .lte('past_due', 0)
+      .neq('status', 'Evict')
+      .not('status', 'ilike', 'Vacant%');
     
     // Create eviction lookup by property+unit
     const evictionMap = {};
     (evictionData || []).forEach(e => {
       evictionMap[`${e.property}|${e.unit}`] = e;
+    });
+    
+    // Create current tenants lookup by property+unit
+    const currentMap = {};
+    (currentTenants || []).forEach(c => {
+      currentMap[`${c.property}|${c.unit}`] = c;
     });
     
     // Create a set of property+unit keys from delinquency data
@@ -145,19 +197,67 @@ export async function GET(request) {
     (evictionData || []).forEach(evict => {
       const key = `${evict.property}|${evict.unit}`;
       if (!delinquencyKeys.has(key)) {
+        // Primary: tenant directory for contact info
+        const tenantInfo = tenantLookup[key];
+        // Fallback: delinquency lookup
+        const delinquencyInfo = delinquencyLookup[key];
+        // Also try lease history for occupancy_id and tenant_id
+        const leaseInfo = leaseByUnit[key];
+        const occupancyId = tenantInfo?.occupancy_id || delinquencyInfo?.occupancy_id || leaseInfo?.occupancy_id || null;
+        const tenantId = tenantInfo?.tenant_id || leaseInfo?.tenant_id || (occupancyId ? tenantIdMap[occupancyId] : null);
+        const phoneNumbers = tenantInfo?.phone_numbers || delinquencyInfo?.phone_numbers || null;
+        
         // This eviction unit is not in delinquency - add it
         items.push({
           property_name: evict.property,
           unit: evict.unit,
-          name: evict.tenant,
-          amount_receivable: parseFloat(evict.balance || 0),
-          rent: parseFloat(evict.rent || 0),
+          name: evict.tenant_name,
+          amount_receivable: parseFloat(evict.past_due || 0),
+          rent: parseFloat(evict.total_rent || 0),
           stage: 'eviction',
           stage_data: null,
-          tenant_id: null,
+          tenant_id: tenantId,
           af_eviction: true,
           balance_over_rent: 0,
-          occupancy_id: null, // No occupancy_id for these
+          occupancy_id: occupancyId,
+          phone_numbers: phoneNumbers,
+          days_0_to_30: 0,
+          days_30_to_60: 0,
+          days_60_to_90: 0,
+          days_90_plus: 0
+        });
+      }
+    });
+    
+    // Add current tenants from rent_roll_snapshots that aren't in delinquency data
+    // These are tenants with past_due <= 0 who never appeared in delinquency report
+    (currentTenants || []).forEach(current => {
+      const key = `${current.property}|${current.unit}`;
+      if (!delinquencyKeys.has(key)) {
+        // Primary: tenant directory for contact info
+        const tenantInfo = tenantLookup[key];
+        // Fallback: delinquency lookup
+        const delinquencyInfo = delinquencyLookup[key];
+        // Also try lease history for occupancy_id and tenant_id
+        const leaseInfo = leaseByUnit[key];
+        const occupancyId = tenantInfo?.occupancy_id || delinquencyInfo?.occupancy_id || leaseInfo?.occupancy_id || null;
+        const tenantId = tenantInfo?.tenant_id || leaseInfo?.tenant_id || (occupancyId ? tenantIdMap[occupancyId] : null);
+        const phoneNumbers = tenantInfo?.phone_numbers || delinquencyInfo?.phone_numbers || null;
+        
+        // This current tenant is not in delinquency - add it
+        items.push({
+          property_name: current.property,
+          unit: current.unit,
+          name: current.tenant_name,
+          amount_receivable: parseFloat(current.past_due || 0),
+          rent: parseFloat(current.total_rent || 0),
+          stage: 'current',
+          stage_data: null,
+          tenant_id: tenantId,
+          af_eviction: false,
+          balance_over_rent: 0,
+          occupancy_id: occupancyId,
+          phone_numbers: phoneNumbers,
           days_0_to_30: 0,
           days_30_to_60: 0,
           days_60_to_90: 0,
