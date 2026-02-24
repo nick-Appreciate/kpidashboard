@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 // Stage definitions
-const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'paid'];
+const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'current'];
 
 export async function GET(request) {
   try {
@@ -26,11 +26,10 @@ export async function GET(request) {
     
     const latestDate = latestSnapshot?.[0]?.snapshot_date;
     
-    // Query only the latest snapshot for current items
+    // Query only the latest snapshot for all items (including current/paid)
     let query = supabase
       .from('af_delinquency')
       .select('*')
-      .gt('amount_receivable', 0)
       .order('amount_receivable', { ascending: false });
     
     if (latestDate) {
@@ -111,11 +110,11 @@ export async function GET(request) {
       // Auto-move to paid if balance drops to zero or negative
       const shouldAutoPaid = balance <= 0;
       
-      // LOCKED STAGES: Eviction and Paid are programmatically controlled
+      // LOCKED STAGES: Eviction and Current are programmatically controlled
       // - Eviction: ONLY units with status='Evict' in rent_roll_snapshots
-      // - Paid: ONLY units with balance <= 0
+      // - Current: ONLY units with balance <= 0
       if (shouldAutoPaid) {
-        stage = 'paid';
+        stage = 'current';
       } else if (afEviction) {
         // AppFolio eviction status - lock to eviction stage
         stage = 'eviction';
@@ -143,7 +142,7 @@ export async function GET(request) {
         contact_1: items.filter(i => i.stage === 'contact_1').length,
         contact_2: items.filter(i => i.stage === 'contact_2').length,
         eviction: items.filter(i => i.stage === 'eviction').length,
-        paid: items.filter(i => i.stage === 'paid').length
+        current: items.filter(i => i.stage === 'current').length
       }
     };
     
@@ -248,8 +247,8 @@ export async function PATCH(request) {
       } else if (stage === 'eviction') {
         updateData.eviction_started_at = new Date().toISOString();
         if (notes) updateData.eviction_notes = notes;
-      } else if (stage === 'paid') {
-        updateData.paid_at = new Date().toISOString();
+      } else if (stage === 'current') {
+        updateData.current_at = new Date().toISOString();
       }
     }
     

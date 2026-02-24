@@ -29,20 +29,20 @@ const STAGE_CONFIG = {
     bgColor: 'bg-purple-50',
     borderColor: 'border-purple-200'
   },
-  paid: { 
-    label: 'Paid', 
+  current: { 
+    label: 'Current', 
     color: 'bg-green-500', 
     bgColor: 'bg-green-50',
     borderColor: 'border-green-200'
   }
 };
 
-const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'paid'];
+const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'current'];
 
 // Locked stages that users cannot drag cards in/out of
 // - 'eviction': Only units with status='Evict' in rent_roll_snapshots
-// - 'paid': Only units with balance <= 0
-const LOCKED_STAGES = ['eviction', 'paid'];
+// - 'current': Only units with balance <= 0
+const LOCKED_STAGES = ['eviction', 'current'];
 
 // Compact card component for Kanban
 function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgingBadge, formatCurrency, isDragging }) {
@@ -67,7 +67,7 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
       onClick={onClick}
       className={`bg-white rounded shadow-sm border p-2 transition-all mb-1 ${
         isLocked 
-          ? (item.stage === 'paid' ? 'border-green-300 bg-green-50' : 'border-purple-300 bg-purple-50') + ' cursor-not-allowed' 
+          ? (item.stage === 'current' ? 'border-green-300 bg-green-50' : 'border-purple-300 bg-purple-50') + ' cursor-not-allowed' 
           : 'border-slate-200 cursor-grab hover:shadow-md hover:border-slate-300'
       } ${isDragging ? 'opacity-50 ring-2 ring-indigo-400' : ''}`}
     >
@@ -110,7 +110,7 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
           </a>
         )}
         {isLocked && (
-          <span className={`text-xs ml-auto ${item.stage === 'paid' ? 'text-green-600' : 'text-purple-600'}`}>🔒</span>
+          <span className={`text-xs ml-auto ${item.stage === 'current' ? 'text-green-600' : 'text-purple-600'}`}>🔒</span>
         )}
       </div>
     </div>
