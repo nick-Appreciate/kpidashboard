@@ -21,12 +21,16 @@ export function AuthProvider({ children }) {
         
         if (session?.user) {
           setUser(session.user);
-          // Fetch app user data
-          let { data: appUserData } = await supabaseBrowser
+          // Fetch app user data - use maybeSingle() to avoid error when no row found
+          let { data: appUserData, error: fetchError } = await supabaseBrowser
             .from('app_users')
             .select('*')
             .eq('email', session.user.email)
-            .single();
+            .maybeSingle();
+          
+          if (fetchError) {
+            console.error('Error fetching app_user:', fetchError);
+          }
           
           // Auto-create app_user for new Google OAuth users with @appreciate.io email
           if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
@@ -49,6 +53,8 @@ export function AuthProvider({ children }) {
             if (!createError && newUser) {
               appUserData = newUser;
               console.log('Created new app_user for:', session.user.email);
+            } else if (createError) {
+              console.error('Error creating app_user:', createError);
             }
           }
           
@@ -68,12 +74,16 @@ export function AuthProvider({ children }) {
       async (event, session) => {
         if (session?.user) {
           setUser(session.user);
-          // Fetch app user data
-          let { data: appUserData } = await supabaseBrowser
+          // Fetch app user data - use maybeSingle() to avoid error when no row found
+          let { data: appUserData, error: fetchError } = await supabaseBrowser
             .from('app_users')
             .select('*')
             .eq('email', session.user.email)
-            .single();
+            .maybeSingle();
+          
+          if (fetchError) {
+            console.error('Error fetching app_user:', fetchError);
+          }
           
           // Auto-create app_user for new Google OAuth users with @appreciate.io email
           if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
@@ -96,7 +106,7 @@ export function AuthProvider({ children }) {
             if (!createError && newUser) {
               appUserData = newUser;
               console.log('Created new app_user for:', session.user.email);
-            } else {
+            } else if (createError) {
               console.error('Failed to create app_user:', createError);
             }
           }
