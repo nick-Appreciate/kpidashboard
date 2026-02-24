@@ -152,20 +152,16 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  const signOut = async () => {
+  const signOut = () => {
     console.log('Signing out...');
     setIsSigningOut(true);
-    
-    try {
-      await supabaseBrowser.auth.signOut();
-    } catch (error) {
-      console.error('Sign out error:', error);
-    }
-    
     setUser(null);
     setAppUser(null);
     
-    // Force redirect using window.location for reliability
+    // Fire and forget - don't wait for signOut to complete
+    supabaseBrowser.auth.signOut().catch(err => console.error('Sign out error:', err));
+    
+    // Force redirect immediately using window.location
     window.location.href = '/login';
   };
 
