@@ -16,17 +16,19 @@ export default function AuthCallbackPage() {
     const handleCallback = async () => {
       try {
         // Small delay to let Supabase Auth initialize properly
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
 
-        // Get the hash fragment from the URL
+        // Check for OAuth code in URL params (PKCE flow)
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+
+        // Get the hash fragment from the URL (implicit flow)
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
         const type = hashParams.get('type');
 
-        // Check for OAuth code in URL params
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
+        console.log('Auth callback - code:', !!code, 'accessToken:', !!accessToken);
 
         if (code) {
           // OAuth PKCE flow - exchange code for session

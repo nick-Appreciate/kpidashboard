@@ -22,11 +22,36 @@ export function AuthProvider({ children }) {
         if (session?.user) {
           setUser(session.user);
           // Fetch app user data
-          const { data: appUserData } = await supabaseBrowser
+          let { data: appUserData } = await supabaseBrowser
             .from('app_users')
             .select('*')
             .eq('email', session.user.email)
             .single();
+          
+          // Auto-create app_user for new Google OAuth users with @appreciate.io email
+          if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
+            const userName = session.user.user_metadata?.full_name || 
+                            session.user.user_metadata?.name || 
+                            session.user.email.split('@')[0];
+            
+            const { data: newUser, error: createError } = await supabaseBrowser
+              .from('app_users')
+              .insert({
+                email: session.user.email,
+                name: userName,
+                role: 'user',
+                is_active: true,
+                auth_user_id: session.user.id
+              })
+              .select()
+              .single();
+            
+            if (!createError && newUser) {
+              appUserData = newUser;
+              console.log('Created new app_user for:', session.user.email);
+            }
+          }
+          
           setAppUser(appUserData);
         }
       } catch (error) {
@@ -44,11 +69,38 @@ export function AuthProvider({ children }) {
         if (session?.user) {
           setUser(session.user);
           // Fetch app user data
-          const { data: appUserData } = await supabaseBrowser
+          let { data: appUserData } = await supabaseBrowser
             .from('app_users')
             .select('*')
             .eq('email', session.user.email)
             .single();
+          
+          // Auto-create app_user for new Google OAuth users with @appreciate.io email
+          if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
+            const userName = session.user.user_metadata?.full_name || 
+                            session.user.user_metadata?.name || 
+                            session.user.email.split('@')[0];
+            
+            const { data: newUser, error: createError } = await supabaseBrowser
+              .from('app_users')
+              .insert({
+                email: session.user.email,
+                name: userName,
+                role: 'user',
+                is_active: true,
+                auth_user_id: session.user.id
+              })
+              .select()
+              .single();
+            
+            if (!createError && newUser) {
+              appUserData = newUser;
+              console.log('Created new app_user for:', session.user.email);
+            } else {
+              console.error('Failed to create app_user:', createError);
+            }
+          }
+          
           setAppUser(appUserData);
         } else {
           setUser(null);
