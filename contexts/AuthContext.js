@@ -35,27 +35,32 @@ export function AuthProvider({ children }) {
           
           // Auto-create app_user for new Google OAuth users with @appreciate.io email
           if (!appUserData && session.user.email?.endsWith('@appreciate.io')) {
+            console.log('Auto-creating app_user for:', session.user.email);
             const userName = session.user.user_metadata?.full_name || 
                             session.user.user_metadata?.name || 
                             session.user.email.split('@')[0];
             
-            const { data: newUser, error: createError } = await supabaseBrowser
-              .from('app_users')
-              .insert({
-                email: session.user.email,
-                name: userName,
-                role: 'user',
-                is_active: true,
-                auth_user_id: session.user.id
-              })
-              .select()
-              .single();
-            
-            if (!createError && newUser) {
-              appUserData = newUser;
-              console.log('Created new app_user for:', session.user.email);
-            } else if (createError) {
-              console.error('Error creating app_user:', createError);
+            try {
+              const { data: newUser, error: createError } = await supabaseBrowser
+                .from('app_users')
+                .insert({
+                  email: session.user.email,
+                  name: userName,
+                  role: 'user',
+                  is_active: true,
+                  auth_user_id: session.user.id
+                })
+                .select()
+                .single();
+              
+              if (!createError && newUser) {
+                appUserData = newUser;
+                console.log('Created new app_user for:', session.user.email);
+              } else if (createError) {
+                console.error('Error creating app_user:', createError.message, createError.code, createError.details);
+              }
+            } catch (insertErr) {
+              console.error('Exception creating app_user:', insertErr);
             }
           }
           
