@@ -15,8 +15,18 @@ export default function AuthCallbackPage() {
 
     const handleCallback = async () => {
       try {
-        // Small delay to let Supabase Auth initialize properly
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Give Supabase time to auto-detect session from URL hash
+        // detectSessionInUrl: true in client config should handle this
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // First, check if session was already established by detectSessionInUrl
+        const { data: { session: existingSession } } = await supabaseBrowser.auth.getSession();
+        if (existingSession && isMounted) {
+          console.log('Session already established:', existingSession.user?.email);
+          setStatus('Login successful! Redirecting...');
+          router.push('/');
+          return;
+        }
 
         // Check for OAuth code in URL params (PKCE flow)
         const urlParams = new URLSearchParams(window.location.search);
@@ -28,7 +38,7 @@ export default function AuthCallbackPage() {
         const refreshToken = hashParams.get('refresh_token');
         const type = hashParams.get('type');
 
-        console.log('Auth callback - code:', !!code, 'accessToken:', !!accessToken);
+        console.log('Auth callback - code:', !!code, 'accessToken:', !!accessToken, 'refreshToken:', !!refreshToken);
 
         if (code) {
           // OAuth PKCE flow - exchange code for session
@@ -74,14 +84,27 @@ export default function AuthCallbackPage() {
           }
         } else if (accessToken && refreshToken) {
           // Legacy hash-based flow
-          const { error: sessionError } = await supabaseBrowser.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
+          console.log('Setting session with hash tokens...');
+          
+          try {
+            const { error: sessionError } = await supabaseBrowser.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken
+            });
 
-          if (sessionError) throw sessionError;
+            if (sessionError) {
+              console.error('setSession error:', sessionError);
+              throw sessionError;
+            }
+            
+            console.log('Session set successfully, getting user...');
+          } catch (setSessionErr) {
+            console.error('setSession failed:', setSessionErr);
+            // Try to continue anyway - session might already be set
+          }
 
           const { data: { user } } = await supabaseBrowser.auth.getUser();
+          console.log('Got user:', user?.email);
           
           if (user?.app_metadata?.provider === 'google') {
             const email = user.email?.toLowerCase() || '';
@@ -102,6 +125,16 @@ export default function AuthCallbackPage() {
               setStatus('Login successful! Redirecting...');
               router.push('/');
             }
+          }
+        } else if (accessToken) {
+          // Hash-based flow without refresh token - try to use access token directly
+          console.log('Hash flow with access token only, checking session...');
+          const { data: { session } } = await supabaseBrowser.auth.getSession();
+          if (session && isMounted) {
+            setStatus('Login successful! Redirecting...');
+            router.push('/');
+          } else if (isMounted) {
+            setError('Session could not be established. Please try logging in again.');
           }
         } else {
           // No auth params - check if already logged in
@@ -131,10 +164,18 @@ export default function AuthCallbackPage() {
 
     handleCallback();
 
+    // Timeout fallback - if still processing after 10 seconds, show error
+    const timeout = setTimeout(() => {
+      if (isMounted && status === 'Processing...') {
+        setError('Authentication timed out. Please try logging in again.');
+      }
+    }, 10000);
+
     return () => {
       isMounted = false;
+      clearTimeout(timeout);
     };
-  }, [router]);
+  }, [router, status]);
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
