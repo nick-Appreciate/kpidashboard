@@ -93,12 +93,6 @@ export async function GET(request) {
       evictionMap[`${e.property}|${e.unit}`] = true;
     });
     
-    // Get current date info for auto-eviction logic
-    const now = new Date();
-    const centralTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-    const dayOfMonth = centralTime.getDate();
-    const isAfter15th = dayOfMonth >= 15;
-    
     // Merge delinquency data with stages
     const items = (data || []).map(item => {
       const stageData = stagesMap[item.occupancy_id];
@@ -111,21 +105,23 @@ export async function GET(request) {
       const evictionKey = `${item.property_name}|${item.unit}`;
       const afEviction = evictionMap[evictionKey] === true;
       
-      // Auto-move to eviction if after 15th and balance > 1 month rent
       const balance = parseFloat(item.amount_receivable || 0);
       const monthlyRent = parseFloat(item.rent || 0);
-      const shouldAutoEvict = isAfter15th && balance > monthlyRent && stage !== 'eviction' && stage !== 'paid';
       
-      // Auto-move to paid if balance drops below threshold
+      // Auto-move to paid if balance drops to zero or negative
       const shouldAutoPaid = balance <= 0;
       
-      if (shouldAutoPaid && stage !== 'paid') {
+      // LOCKED STAGES: Eviction and Paid are programmatically controlled
+      // - Eviction: ONLY units with status='Evict' in rent_roll_snapshots
+      // - Paid: ONLY units with balance <= 0
+      if (shouldAutoPaid) {
         stage = 'paid';
       } else if (afEviction) {
-        // AppFolio eviction status takes priority - lock to eviction
+        // AppFolio eviction status - lock to eviction stage
         stage = 'eviction';
-      } else if (shouldAutoEvict) {
-        stage = 'eviction';
+      } else if (stage === 'eviction' && !afEviction) {
+        // If card was in eviction but no longer has eviction status, move back to needs_contacted
+        stage = 'needs_contacted';
       }
       
       return {
@@ -133,7 +129,6 @@ export async function GET(request) {
         stage,
         stage_data: stageData || null,
         tenant_id: tenantId,
-        auto_eviction: shouldAutoEvict,
         af_eviction: afEviction,
         balance_over_rent: monthlyRent > 0 ? (balance / monthlyRent).toFixed(1) : 0
       };

@@ -40,7 +40,9 @@ const STAGE_CONFIG = {
 const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'paid'];
 
 // Locked stages that users cannot drag cards in/out of
-const LOCKED_STAGES = ['paid'];
+// - 'eviction': Only units with status='Evict' in rent_roll_snapshots
+// - 'paid': Only units with balance <= 0
+const LOCKED_STAGES = ['eviction', 'paid'];
 
 // Compact card component for Kanban
 function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgingBadge, formatCurrency, isDragging }) {
