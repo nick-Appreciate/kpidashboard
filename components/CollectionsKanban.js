@@ -39,10 +39,14 @@ const STAGE_CONFIG = {
 
 const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'paid'];
 
+// Locked stages that users cannot drag cards in/out of
+const LOCKED_STAGES = ['paid'];
+
 // Compact card component for Kanban
 function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgingBadge, formatCurrency, isDragging }) {
   const aging = getAgingBadge(item);
-  const isLocked = item.af_eviction;
+  // Lock cards in eviction (if af_eviction) OR in paid stage
+  const isLocked = item.af_eviction || LOCKED_STAGES.includes(item.stage);
   
   // AppFolio URLs using exact format provided:
   // https://appreciateinc.appfolio.com/occupancies/{occupancy_id}/selected_tenant/{tenant_id}ledger
@@ -61,7 +65,7 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
       onClick={onClick}
       className={`bg-white rounded shadow-sm border p-2 transition-all mb-1 ${
         isLocked 
-          ? 'border-purple-300 bg-purple-50 cursor-not-allowed' 
+          ? (item.stage === 'paid' ? 'border-green-300 bg-green-50' : 'border-purple-300 bg-purple-50') + ' cursor-not-allowed' 
           : 'border-slate-200 cursor-grab hover:shadow-md hover:border-slate-300'
       } ${isDragging ? 'opacity-50 ring-2 ring-indigo-400' : ''}`}
     >
@@ -104,7 +108,7 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
           </a>
         )}
         {isLocked && (
-          <span className="text-xs text-purple-600 ml-auto">🔒</span>
+          <span className={`text-xs ml-auto ${item.stage === 'paid' ? 'text-green-600' : 'text-purple-600'}`}>🔒</span>
         )}
       </div>
     </div>
@@ -279,6 +283,13 @@ export default function CollectionsKanban() {
 
   const handleDrop = async (e, targetStage) => {
     e.preventDefault();
+    
+    // Prevent dropping into locked stages
+    if (LOCKED_STAGES.includes(targetStage)) {
+      setDraggedItem(null);
+      return;
+    }
+    
     if (draggedItem && draggedItem.stage !== targetStage) {
       await updateStage(draggedItem.occupancy_id, targetStage);
     }
@@ -366,17 +377,22 @@ export default function CollectionsKanban() {
             const stageTotal = stageItems.reduce((sum, i) => sum + parseFloat(i.amount_receivable || 0), 0);
             const stageProperties = groupByProperty ? getPropertiesInStage(stageItems) : [];
             
+            const isLockedStage = LOCKED_STAGES.includes(stage);
+            
             return (
               <div 
                 key={stage}
-                className={`${config.bgColor} rounded-lg border ${config.borderColor} flex flex-col min-w-0`}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, stage)}
+                className={`${config.bgColor} rounded-lg border ${config.borderColor} flex flex-col min-w-0 ${isLockedStage ? 'opacity-90' : ''}`}
+                onDragOver={isLockedStage ? undefined : handleDragOver}
+                onDrop={isLockedStage ? undefined : (e) => handleDrop(e, stage)}
               >
                 {/* Column Header */}
                 <div className={`${config.color} text-white px-2 py-1.5 rounded-t-lg`}>
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-xs">{config.label}</span>
+                    <span className="font-semibold text-xs">
+                      {config.label}
+                      {isLockedStage && <span className="ml-1">🔒</span>}
+                    </span>
                     <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded-full">
                       {stageItems.length}
                     </span>
@@ -390,7 +406,7 @@ export default function CollectionsKanban() {
                 <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
                   {stageItems.length === 0 ? (
                     <div className="text-center text-slate-400 text-xs py-4">
-                      Drop here
+                      {isLockedStage ? 'Auto-populated' : 'Drop here'}
                     </div>
                   ) : groupByProperty ? (
                     stageProperties.map(propName => {
