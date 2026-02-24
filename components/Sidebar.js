@@ -114,7 +114,14 @@ export default function Sidebar({ user, onLogout }) {
         </div>
         {isExpanded && (
           <button
-            onClick={onLogout}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('Sign out button clicked');
+              if (onLogout) {
+                onLogout();
+              }
+            }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
