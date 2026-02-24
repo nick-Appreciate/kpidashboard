@@ -69,6 +69,14 @@ export function AuthProvider({ children }) {
 
     checkSession();
 
+    // Timeout fallback - if still loading after 5 seconds, set loading to false
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('Auth check timed out, setting loading to false');
+        setLoading(false);
+      }
+    }, 5000);
+
     // Listen for auth changes
     const { data: { subscription } } = supabaseBrowser.auth.onAuthStateChange(
       async (event, session) => {
@@ -122,6 +130,7 @@ export function AuthProvider({ children }) {
 
     return () => {
       subscription?.unsubscribe();
+      clearTimeout(timeout);
     };
   }, []);
 
