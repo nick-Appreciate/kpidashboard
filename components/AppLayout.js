@@ -14,12 +14,20 @@ function LayoutContent({ children }) {
     return <>{children}</>;
   }
   
-  // TEMPORARILY DISABLED: Auth loading/check - allow access without login
-  // Combine auth user and app user data for sidebar (use defaults if no user)
+  // Show loading state while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  // Combine auth user and app user data for sidebar
   const sidebarUser = {
-    email: user?.email || 'guest@appreciate.io',
-    name: appUser?.name || user?.user_metadata?.name || 'Guest',
-    role: appUser?.role || 'admin'
+    email: user?.email || '',
+    name: appUser?.name || user?.user_metadata?.name || user?.email?.split('@')[0] || '',
+    role: appUser?.role || 'user'
   };
   
   return (
