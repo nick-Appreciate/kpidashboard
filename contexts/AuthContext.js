@@ -6,43 +6,56 @@ import { supabaseBrowser } from '../lib/supabase-browser';
 
 const AuthContext = createContext(null);
 
-// Helper to fetch/create app_user
+// Helper to fetch/create app_user - wrapped in try-catch to never block auth
 async function getOrCreateAppUser(session) {
   if (!session?.user) return null;
   
   const email = session.user.email;
   
-  // Fetch existing app_user
-  let { data: appUserData } = await supabaseBrowser
-    .from('app_users')
-    .select('*')
-    .eq('email', email)
-    .maybeSingle();
-  
-  // Auto-create for @appreciate.io emails
-  if (!appUserData && email?.endsWith('@appreciate.io')) {
-    const userName = session.user.user_metadata?.full_name || 
-                    session.user.user_metadata?.name || 
-                    email.split('@')[0];
-    
-    const { data: newUser } = await supabaseBrowser
+  try {
+    // Fetch existing app_user
+    let { data: appUserData, error: fetchError } = await supabaseBrowser
       .from('app_users')
-      .insert({
-        email: email,
-        name: userName,
-        role: 'user',
-        is_active: true,
-        auth_user_id: session.user.id
-      })
-      .select()
-      .single();
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
     
-    if (newUser) {
-      appUserData = newUser;
+    if (fetchError) {
+      console.error('Error fetching app_user:', fetchError);
+      return null;
     }
+    
+    // Auto-create for @appreciate.io emails
+    if (!appUserData && email?.endsWith('@appreciate.io')) {
+      const userName = session.user.user_metadata?.full_name || 
+                      session.user.user_metadata?.name || 
+                      email.split('@')[0];
+      
+      const { data: newUser, error: insertError } = await supabaseBrowser
+        .from('app_users')
+        .insert({
+          email: email,
+          name: userName,
+          role: 'user',
+          is_active: true,
+          auth_user_id: session.user.id
+        })
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error('Error creating app_user:', insertError);
+        // Don't block - user can still use the app without app_user record
+      } else if (newUser) {
+        appUserData = newUser;
+      }
+    }
+    
+    return appUserData;
+  } catch (error) {
+    console.error('getOrCreateAppUser error:', error);
+    return null;
   }
-  
-  return appUserData;
 }
 
 export function AuthProvider({ children }) {
