@@ -23,7 +23,6 @@ export default function AuthCallbackPage() {
         const { data: { session: existingSession } } = await supabaseBrowser.auth.getSession();
         if (existingSession && isMounted) {
           console.log('Session established:', existingSession.user?.email);
-          setStatus('Login successful! Redirecting...');
           router.push('/');
           return;
         }
@@ -58,7 +57,7 @@ export default function AuthCallbackPage() {
                     setError('Only @appreciate.io email addresses are allowed. Please sign in with your company email.');
                     return;
                   }
-                  setStatus('Login successful! Redirecting...');
+                  // Redirect immediately without status update
                   router.push('/');
                 }
                 return;
@@ -79,7 +78,7 @@ export default function AuthCallbackPage() {
               }
             }
             
-            setStatus('Login successful! Redirecting...');
+            // Redirect immediately without status update
             router.push('/');
           }
         } else if (accessToken && refreshToken) {
@@ -122,7 +121,7 @@ export default function AuthCallbackPage() {
               setStatus('Redirecting to set password...');
               router.push('/auth/set-password');
             } else {
-              setStatus('Login successful! Redirecting...');
+              // Redirect immediately without status update
               router.push('/');
             }
           }
@@ -131,7 +130,7 @@ export default function AuthCallbackPage() {
           console.log('Hash flow with access token only, checking session...');
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session && isMounted) {
-            setStatus('Login successful! Redirecting...');
+            // Redirect immediately without status update
             router.push('/');
           } else if (isMounted) {
             setError('Session could not be established. Please try logging in again.');
