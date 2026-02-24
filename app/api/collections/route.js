@@ -113,17 +113,18 @@ export async function GET(request) {
       const balance = parseFloat(item.amount_receivable || 0);
       const monthlyRent = parseFloat(item.rent || 0);
       
-      // Auto-move to paid if balance drops to zero or negative
-      const shouldAutoPaid = balance <= 0;
+      // Auto-move to current if balance drops to zero or negative
+      const shouldAutoCurrent = balance <= 0;
       
       // LOCKED STAGES: Eviction and Current are programmatically controlled
-      // - Eviction: ONLY units with status='Evict' in rent_roll_snapshots
-      // - Current: ONLY units with balance <= 0
-      if (shouldAutoPaid) {
-        stage = 'current';
-      } else if (afEviction) {
-        // AppFolio eviction status - lock to eviction stage
+      // Priority: Eviction > Current > Manual stage
+      // - Eviction: ONLY units with status='Evict' in rent_roll_snapshots (highest priority)
+      // - Current: ONLY units with balance <= 0 (if not in eviction)
+      if (afEviction) {
+        // AppFolio eviction status takes highest priority
         stage = 'eviction';
+      } else if (shouldAutoCurrent) {
+        stage = 'current';
       } else if (stage === 'eviction' && !afEviction) {
         // If card was in eviction but no longer has eviction status, move back to needs_contacted
         stage = 'needs_contacted';
