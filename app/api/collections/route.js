@@ -155,8 +155,10 @@ export async function GET(request) {
       const stageData = stagesMap[item.occupancy_id];
       let stage = stageData?.stage || 'needs_contacted';
       
-      // Get tenant_id for AppFolio links
-      const tenantId = tenantIdMap[item.occupancy_id] || null;
+      // Get tenant_id for AppFolio links - check tenant directory first, then lease history
+      const unitKey = `${item.property_name}|${item.unit}`;
+      const tenantInfo = tenantLookup[unitKey];
+      const tenantId = tenantInfo?.tenant_id || tenantIdMap[item.occupancy_id] || null;
       
       // Check if unit is in eviction status in rent roll
       const evictionKey = `${item.property_name}|${item.unit}`;

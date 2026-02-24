@@ -50,13 +50,20 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
   // Lock cards in eviction (if af_eviction) OR in paid stage
   const isLocked = item.af_eviction || LOCKED_STAGES.includes(item.stage);
   
-  // AppFolio URLs using exact format provided:
-  // https://appreciateinc.appfolio.com/occupancies/{occupancy_id}/selected_tenant/{tenant_id}ledger
-  // Fallback to occupancy page if no tenant_id
-  const ledgerUrl = item.occupancy_id
+  // AppFolio URLs:
+  // Tenant page: https://appreciateinc.appfolio.com/occupancies/{occupancy_id}/selected_tenant/{tenant_id}ledger
+  // Ledger report: https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters[party_ids][]=t_{tenant_id}
+  // Note: tenant_id comes from af_lease_history, not all tenants have it
+  const tenantUrl = item.occupancy_id
     ? (item.tenant_id 
         ? `https://appreciateinc.appfolio.com/occupancies/${item.occupancy_id}/selected_tenant/${item.tenant_id}ledger`
         : `https://appreciateinc.appfolio.com/occupancies/${item.occupancy_id}`)
+    : null;
+  
+  // Ledger URL - requires tenant_id (from af_lease_history)
+  // Format: t_{tenant_id} for tenant-based lookup
+  const ledgerUrl = item.tenant_id
+    ? `https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters%5Bparty_ids%5D%5B%5D=t_${item.tenant_id}`
     : null;
   
   return (
@@ -98,15 +105,26 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
             📞
           </button>
         )}
+        {tenantUrl && (
+          <a
+            href={tenantUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+          >
+            Tenant
+          </a>
+        )}
         {ledgerUrl && (
           <a
             href={ledgerUrl}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="text-xs px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+            className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
           >
-            AppFolio
+            Ledger
           </a>
         )}
         {isLocked && (

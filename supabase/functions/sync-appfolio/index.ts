@@ -643,14 +643,14 @@ async function syncProspectSourceTracking(): Promise<SyncResult> {
 async function syncTenantDirectory(): Promise<SyncResult> {
   try {
     // Include all tenant statuses to get eviction/prior tenant contact info
-    // Based on AppFolio UI: Tenant Status filter - try "all" to include Past/eviction tenants
     const data = await fetchAppFolioReport('tenant_directory', { 
       tenant_statuses: 'all'
     });
     
     const records = data.map((row: any) => ({
-      tenant_id: row.tenant_id,
-      tenant_name: row.tenant_name || row.name,
+      // API returns 'selected_tenant_id' for tenant directory
+      tenant_id: row.selected_tenant_id,
+      tenant_name: row.tenant_name || row.name || row.tenantName,
       property_name: row.property_name,
       property_id: row.property_id,
       unit: row.unit,
