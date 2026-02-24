@@ -4,6 +4,10 @@ import AppLayout from '../components/AppLayout';
 export const metadata = {
   title: 'Appreciate Dashboard',
   description: 'Property Management Analytics',
+  icons: {
+    icon: '/icon.png',
+    apple: '/apple-icon.png',
+  },
 };
 
 export default function RootLayout({ children }) {
