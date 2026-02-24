@@ -77,12 +77,19 @@ export function AuthProvider({ children }) {
         
         if (session?.user) {
           setUser(session.user);
-          const appUserData = await getOrCreateAppUser(session);
-          setAppUser(appUserData);
+          setLoading(false); // Set loading false immediately once we have a user
+          
+          // Fetch app_user in background - don't block
+          getOrCreateAppUser(session).then(appUserData => {
+            setAppUser(appUserData);
+          }).catch(err => {
+            console.error('Error fetching app_user:', err);
+          });
+        } else {
+          setLoading(false);
         }
       } catch (error) {
         console.error('Auth init error:', error);
-      } finally {
         setLoading(false);
       }
     };
@@ -91,16 +98,21 @@ export function AuthProvider({ children }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabaseBrowser.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         if (session?.user) {
           setUser(session.user);
-          const appUserData = await getOrCreateAppUser(session);
-          setAppUser(appUserData);
+          setLoading(false);
+          // Fetch app_user in background - don't block
+          getOrCreateAppUser(session).then(appUserData => {
+            setAppUser(appUserData);
+          }).catch(err => {
+            console.error('Error fetching app_user:', err);
+          });
         } else {
           setUser(null);
           setAppUser(null);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
