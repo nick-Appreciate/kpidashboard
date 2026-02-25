@@ -1,3 +1,23 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Ensure proper viewport handling on mobile orientation change */
+html, body {
+  width: 100%;
+  min-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Force reflow on orientation change */
+@media screen and (orientation: landscape) {
+  html {
+    width: 100vw;
+  }
+}
+
+@media screen and (orientation: portrait) {
+  html {
+    width: 100vw;
+  }
+}
