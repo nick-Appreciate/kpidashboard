@@ -251,6 +251,12 @@ export default function RehabsDashboard() {
       { key: 'leasing_signoff', label: 'Final Walkthrough', completed: rehab.leasing_signoff_completed, excluded: rehab.leasing_signoff_excluded },
       { key: 'tenant_key', label: 'Tenant Key', completed: rehab.tenant_key_completed, excluded: rehab.tenant_key_excluded },
     ];
+    
+    // Add Mail Key item only for Glen Oaks units
+    if (rehab.property && rehab.property.toLowerCase().includes('glen oaks')) {
+      items.push({ key: 'mail_key', label: 'Mail Key', completed: rehab.mail_key_completed, excluded: rehab.mail_key_excluded });
+    }
+    
     return items;
   };
 

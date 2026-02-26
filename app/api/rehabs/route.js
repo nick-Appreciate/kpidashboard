@@ -360,7 +360,7 @@ export async function PATCH(request) {
       const checklistFields = [
         'vendor_key_completed', 'utilities_completed', 'pest_control_completed',
         'surface_restoration_completed', 'junk_removal_completed', 'cleaned_completed',
-        'tenant_key_completed', 'leasing_signoff_completed'
+        'tenant_key_completed', 'leasing_signoff_completed', 'mail_key_completed'
       ];
       const completedCount = checklistFields.filter(f => data[f]).length;
       const totalCount = checklistFields.filter(f => {
