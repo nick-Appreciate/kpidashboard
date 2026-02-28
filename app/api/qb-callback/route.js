@@ -33,7 +33,7 @@ export async function GET(req) {
   const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const body = `grant_type=authorization_code&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
 
-  const tokenRes = await fetch('https://oauth.platform.intuit.com/op/v1/token', {
+  const tokenRes = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${credentials}`,
