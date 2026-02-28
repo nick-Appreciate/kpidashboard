@@ -24,6 +24,10 @@ export async function GET(req) {
     return NextResponse.json({ error: 'Missing code or realmId' }, { status: 400 });
   }
 
+  console.log('CLIENT_ID set:', !!CLIENT_ID);
+  console.log('CLIENT_SECRET set:', !!CLIENT_SECRET);
+  console.log('code:', code?.substring(0, 20));
+
   const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
