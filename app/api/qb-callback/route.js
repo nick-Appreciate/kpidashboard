@@ -47,7 +47,9 @@ export async function GET(req) {
 
   const rawText = await tokenRes.text();
   console.log('Token response status:', tokenRes.status);
+  console.log('Token response headers:', JSON.stringify(Object.fromEntries(tokenRes.headers.entries())));
   console.log('Token response body:', rawText);
+  console.log('Redirect URI used:', REDIRECT_URI);
 
   let tokens;
   try {
