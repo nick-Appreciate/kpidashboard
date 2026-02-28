@@ -39,6 +39,7 @@ export default function Dashboard() {
   const leadTypeChartRef = useRef(null);
   const sourceChartRef = useRef(null);
   const unitTypeChartRef = useRef(null);
+  const sourceWeeklyChartRef = useRef(null);
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -209,7 +210,7 @@ export default function Dashboard() {
     updateChartsWithData(stageStats, getStageDisplayNames());
     
     return () => {
-      [weeklyChartRef, dailyChartRef, propertyChartRef, leadTypeChartRef, sourceChartRef, statusChartRef].forEach(ref => {
+      [weeklyChartRef, dailyChartRef, propertyChartRef, leadTypeChartRef, sourceChartRef, statusChartRef, sourceWeeklyChartRef, conversionChartRef].forEach(ref => {
         if (ref.current?.chart) {
           ref.current.chart.destroy();
         }
@@ -494,6 +495,72 @@ export default function Dashboard() {
           responsive: true,
           maintainAspectRatio: true,
           plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+    
+    // Weekly By Source line chart - shows lead sources over time
+    if (sourceWeeklyChartRef.current && data.weeklyBySource && Object.keys(data.weeklyBySource).length > 0) {
+      const ctx = sourceWeeklyChartRef.current.getContext('2d');
+      if (sourceWeeklyChartRef.current.chart) sourceWeeklyChartRef.current.chart.destroy();
+      
+      const weeklyData = data.weeklyBySource;
+      const weeks = Object.keys(weeklyData).sort();
+      
+      // Get all unique sources across all weeks
+      const allSources = new Set();
+      weeks.forEach(week => {
+        Object.keys(weeklyData[week]).forEach(source => allSources.add(source));
+      });
+      
+      // Take top 8 sources by total count
+      const sourceTotals = {};
+      allSources.forEach(source => {
+        sourceTotals[source] = weeks.reduce((sum, week) => sum + (weeklyData[week][source] || 0), 0);
+      });
+      const topSources = Object.entries(sourceTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([source]) => source);
+      
+      const colors = ['#f093fb', '#4facfe', '#43e97b', '#667eea', '#764ba2', '#ff6b6b', '#feca57', '#48dbfb'];
+      
+      const datasets = topSources.map((source, idx) => ({
+        label: source || 'Unknown',
+        data: weeks.map(week => weeklyData[week][source] || 0),
+        borderColor: colors[idx % colors.length],
+        backgroundColor: `${colors[idx % colors.length]}40`,
+        fill: false,
+        tension: 0.4,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }));
+      
+      // Format week labels as M/D
+      const weekLabels = weeks.map(w => {
+        const [year, month, day] = w.split('-').map(Number);
+        return `${month}/${day}`;
+      });
+      
+      sourceWeeklyChartRef.current.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: weekLabels,
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { 
+            legend: { display: true, position: 'bottom' }
+          },
+          scales: { 
+            y: { beginAtZero: true, ticks: { stepSize: 1 } },
+            x: { 
+              ticks: { maxRotation: 45, minRotation: 45 },
+              title: { display: true, text: 'Week Starting' }
+            }
+          }
         }
       });
     }
@@ -1073,6 +1140,15 @@ export default function Dashboard() {
                 <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Weekly Conversion Rate (% of Previous Stage)</h2>
                 <p className="text-sm text-gray-500 mb-4">Shows what percentage converted from the previous funnel stage each week</p>
                 <canvas ref={conversionChartRef}></canvas>
+              </div>
+            )}
+            
+            {/* Weekly By Source Line Chart - Full Width */}
+            {stageStats?.weeklyBySource && Object.keys(stageStats.weeklyBySource).length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Weekly By Source</h2>
+                <p className="text-sm text-gray-500 mb-4">Shows weekly counts by lead source for selected stages</p>
+                <canvas ref={sourceWeeklyChartRef}></canvas>
               </div>
             )}
             

@@ -1,21 +1,33 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import Sidebar from './Sidebar';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 
 function LayoutContent({ children }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, appUser, loading, signOut } = useAuth();
   
   // Don't show sidebar on auth pages
   const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-  if (authPages.includes(pathname)) {
+  const isAuthPage = authPages.includes(pathname);
+  
+  // Redirect to login if not authenticated (after loading completes)
+  useEffect(() => {
+    if (!loading && !user && !isAuthPage) {
+      router.push('/login');
+    }
+  }, [loading, user, isAuthPage, router]);
+  
+  // Show auth pages without auth check
+  if (isAuthPage) {
     return <>{children}</>;
   }
   
-  // Show loading state while checking auth
-  if (loading) {
+  // Show loading state while checking auth OR if not authenticated (waiting for redirect)
+  if (loading || !user) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
