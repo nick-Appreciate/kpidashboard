@@ -1,16 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const CLIENT_ID = process.env.QB_CLIENT_ID!;
-const CLIENT_SECRET = process.env.QB_CLIENT_SECRET!;
+const CLIENT_ID = process.env.QB_CLIENT_ID;
+const CLIENT_SECRET = process.env.QB_CLIENT_SECRET;
 const REDIRECT_URI = 'https://appreciate.io/api/qb-callback';
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
 );
 
-export async function GET(req: NextRequest) {
+export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');
   const realmId = searchParams.get('realmId');
@@ -24,7 +24,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing code or realmId' }, { status: 400 });
   }
 
-  // Exchange code for tokens
   const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -48,7 +47,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Token exchange failed', details: tokens }, { status: 500 });
   }
 
-  // Store tokens in Supabase
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
   const refreshExpiresAt = new Date(Date.now() + tokens.x_refresh_token_expires_in * 1000).toISOString();
 
