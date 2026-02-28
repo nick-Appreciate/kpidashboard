@@ -29,11 +29,7 @@ export async function GET(req) {
   console.log('code:', code?.substring(0, 20));
 
   const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: REDIRECT_URI,
-  });
+  const body = `grant_type=authorization_code&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
 
   const tokenRes = await fetch('https://oauth.platform.intuit.com/op/v1/token', {
     method: 'POST',
@@ -42,7 +38,7 @@ export async function GET(req) {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Accept': 'application/json',
     },
-    body: body.toString(),
+    body,
   });
 
   const rawText = await tokenRes.text();
