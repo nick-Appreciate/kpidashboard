@@ -41,7 +41,16 @@ export async function GET(req) {
     body: body.toString(),
   });
 
-  const tokens = await tokenRes.json();
+  const rawText = await tokenRes.text();
+  console.log('Token response status:', tokenRes.status);
+  console.log('Token response body:', rawText);
+
+  let tokens;
+  try {
+    tokens = JSON.parse(rawText);
+  } catch (e) {
+    return NextResponse.json({ error: 'Invalid token response', raw: rawText, status: tokenRes.status }, { status: 500 });
+  }
 
   if (!tokens.access_token) {
     return NextResponse.json({ error: 'Token exchange failed', details: tokens }, { status: 500 });
