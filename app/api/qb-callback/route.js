@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const CLIENT_ID = process.env.QB_CLIENT_ID;
 const CLIENT_SECRET = process.env.QB_CLIENT_SECRET;
-const REDIRECT_URI = 'https://appreciate.io/api/qb-callback';
+const REDIRECT_URI = 'https://www.appreciate.io/api/qb-callback';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
