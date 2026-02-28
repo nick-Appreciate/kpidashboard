@@ -50,6 +50,7 @@ export async function GET(req) {
   console.log('Token response headers:', JSON.stringify(Object.fromEntries(tokenRes.headers.entries())));
   console.log('Token response body:', rawText);
   console.log('Redirect URI used:', REDIRECT_URI);
+  console.log('POST body sent:', body.toString());
 
   let tokens;
   try {
