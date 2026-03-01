@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Billing Dashboard Page
  * Route: /dashboard/billing
