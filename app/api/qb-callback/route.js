@@ -5,14 +5,17 @@ const CLIENT_ID = process.env.QB_CLIENT_ID;
 const CLIENT_SECRET = process.env.QB_CLIENT_SECRET;
 const REDIRECT_URI = 'https://www.appreciate.io/api/qb-callback';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const getSupabaseClient = () => {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+};
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req) {
+  const supabase = getSupabaseClient();
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');
   const realmId = searchParams.get('realmId');
@@ -28,63 +31,70 @@ export async function GET(req) {
 
   console.log('CLIENT_ID set:', !!CLIENT_ID);
   console.log('CLIENT_SECRET set:', !!CLIENT_SECRET);
-  console.log('code:', code?.substring(0, 20));
 
-  const credentials = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-  const body = `grant_type=authorization_code&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-
-  const tokenRes = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json',
-    },
-    body,
-  });
-
-  const rawText = await tokenRes.text();
-  console.log('Token response status:', tokenRes.status);
-  console.log('Token response headers:', JSON.stringify(Object.fromEntries(tokenRes.headers.entries())));
-  console.log('Token response body:', rawText);
-  console.log('Redirect URI used:', REDIRECT_URI);
-  console.log('POST body sent:', body.toString());
-
-  let tokens;
   try {
-    tokens = JSON.parse(rawText);
-  } catch (e) {
-    return NextResponse.json({ error: 'Invalid token response', raw: rawText, status: tokenRes.status }, { status: 500 });
+    const tokenResponse = await fetch('https://quickbooks.api.intuit.com/oauth2/tokens/bearer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic ' + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64'),
+      },
+      body: `grant_type=authorization_code&code=${code}&redirect_uri=${REDIRECT_URI}`,
+    });
+
+    if (!tokenResponse.ok) {
+      const errorData = await tokenResponse.text();
+      console.error('Token exchange failed:', errorData);
+      return NextResponse.json({ error: 'Token exchange failed' }, { status: 401 });
+    }
+
+    const tokens = await tokenResponse.json();
+    console.log('Tokens received, realmId:', realmId);
+
+    // Store tokens in Supabase
+    const { data: existingData, error: selectError } = await supabase
+      .from('qb_tokens')
+      .select('*')
+      .eq('realm_id', realmId)
+      .single();
+
+    let dbResult;
+    if (existingData) {
+      dbResult = await supabase
+        .from('qb_tokens')
+        .update({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('realm_id', realmId);
+    } else {
+      dbResult = await supabase
+        .from('qb_tokens')
+        .insert([
+          {
+            realm_id: realmId,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ]);
+    }
+
+    if (dbResult.error) {
+      console.error('Database error:', dbResult.error);
+      return NextResponse.json({ error: 'Failed to store tokens' }, { status: 500 });
+    }
+
+    return NextResponse.json(
+      { success: true, message: 'Connected to QuickBooks' },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('QBCallback error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-
-  if (!tokens.access_token) {
-    return NextResponse.json({ error: 'Token exchange failed', details: tokens }, { status: 500 });
-  }
-
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
-  const refreshExpiresAt = new Date(Date.now() + tokens.x_refresh_token_expires_in * 1000).toISOString();
-
-  const { error: dbError } = await supabase
-    .from('qb_credentials')
-    .upsert({
-      realm_id: realmId,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      access_token_expires_at: expiresAt,
-      refresh_token_expires_at: refreshExpiresAt,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'realm_id' });
-
-  if (dbError) {
-    console.error('Supabase error:', dbError);
-    return NextResponse.json({ error: 'Failed to save tokens', details: dbError }, { status: 500 });
-  }
-
-  return new NextResponse(`
-    <html><body style="font-family:sans-serif;max-width:600px;margin:60px auto;text-align:center">
-      <h2>✅ QuickBooks Connected!</h2>
-      <p>Realm ID: <code>${realmId}</code></p>
-      <p>Tokens saved. You can close this window.</p>
-    </body></html>
-  `, { headers: { 'Content-Type': 'text/html' } });
 }
