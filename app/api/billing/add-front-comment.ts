@@ -1,18 +1,9 @@
-/**
- * API Handler: /api/billing/add-front-comment
- * 
- * Triggered when user clicks "Entered" on a bill
- * Adds a comment to the Front conversation
- */
-
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-const FRONT_API_KEY = process.env.FRONT_API_KEY;
-
-interface AddCommentRequest {
+interface MarkBillEnteredRequest {
+  billId: number;
   conversationId: string;
-  messageId: string;
   vendorName: string;
   amount: number;
   invoiceDate: string;
@@ -20,53 +11,50 @@ interface AddCommentRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!FRONT_API_KEY) {
-      return NextResponse.json(
-        { error: "FRONT_API_KEY not configured" },
-        { status: 500 }
-      );
-    }
+    const body: MarkBillEnteredRequest = await request.json();
+    const { billId, conversationId, vendorName, amount, invoiceDate } = body;
 
-    const body: AddCommentRequest = await request.json();
-    const { conversationId, messageId, vendorName, amount, invoiceDate } = body;
-
-    if (!conversationId || !vendorName || !amount) {
+    if (!billId || !conversationId) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    // Construct comment text
-    const commentText = `✓ Entered into Appfolio
-      
-Vendor: ${vendorName}
-Amount: $${amount.toFixed(2)}
-Invoice Date: ${invoiceDate}
+    // Call Supabase Edge Function
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY;
 
-Bill marked as processed and removed from AP queue.`;
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { error: "Supabase configuration missing" },
+        { status: 500 }
+      );
+    }
 
-    // Add comment via Front API
     const response = await fetch(
-      `https://api2.frontapp.com/conversations/${conversationId}/comments`,
+      `${supabaseUrl}/functions/v1/mark-bill-entered`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${FRONT_API_KEY}`,
+          Authorization: `Bearer ${supabaseKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          author_id: "alt:email:elise@appreciate.io", // Elise as author
-          body: commentText,
+          billId,
+          conversationId,
+          vendorName,
+          amount,
+          invoiceDate,
         }),
       }
     );
 
     if (!response.ok) {
       const error = await response.text();
-      console.error("Front API error:", error);
+      console.error("Edge Function error:", error);
       return NextResponse.json(
-        { error: `Failed to add comment: ${error}` },
+        { error: `Failed to mark bill as entered: ${error}` },
         { status: response.status }
       );
     }
@@ -74,7 +62,7 @@ Bill marked as processed and removed from AP queue.`;
     const result = await response.json();
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    console.error("Error adding comment:", error);
+    console.error("Error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

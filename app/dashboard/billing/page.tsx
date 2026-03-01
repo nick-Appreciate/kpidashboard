@@ -94,21 +94,13 @@ export default function BillingDashboard() {
     setProcessingId(bill.id);
 
     try {
-      // 1. Update ops_bills status
-      const { error: updateError } = await supabase
-        .from("ops_bills")
-        .update({ status: "entered", status_comment: "Manually marked as entered" })
-        .eq("id", bill.id);
-
-      if (updateError) throw updateError;
-
-      // 2. Add comment to Front conversation
+      // Call API handler which calls Supabase Edge Function
       const response = await fetch("/api/billing/add-front-comment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          billId: bill.id,
           conversationId: bill.front_conversation_id,
-          messageId: bill.front_message_id,
           vendorName: bill.vendor_name,
           amount: bill.amount,
           invoiceDate: bill.invoice_date,
@@ -116,7 +108,8 @@ export default function BillingDashboard() {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to add Front comment: ${response.statusText}`);
+        const error = await response.json();
+        throw new Error(error.error || `Error: ${response.statusText}`);
       }
 
       // Update UI
