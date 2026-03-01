@@ -7,7 +7,6 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   Card,
   CardContent,
@@ -19,11 +18,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 interface Bill {
   id: number;
@@ -56,37 +50,22 @@ export default function BillingDashboard() {
   useEffect(() => {
     const fetchBills = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("ops_bills")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Error fetching bills:", error);
-      } else {
+      try {
+        const response = await fetch("/api/billing/get-bills");
+        if (!response.ok) throw new Error("Failed to fetch bills");
+        const data = await response.json();
         setBills(data || []);
+      } catch (error) {
+        console.error("Error fetching bills:", error);
       }
       setLoading(false);
     };
 
     fetchBills();
 
-    // Subscribe to real-time updates
-    const subscription = supabase
-      .channel("ops_bills_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "ops_bills" },
-        (payload) => {
-          fetchBills();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    // Poll for updates every 10 seconds (until we have proper subscriptions)
+    const interval = setInterval(fetchBills, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // Handle "Entered" button click
