@@ -1,23 +1,7 @@
 'use client';
 
-/**
- * Billing Dashboard Page
- * Route: /dashboard/billing
- * Displays tape feed of pending bills with "Entered" action
- */
-
 import React, { useEffect, useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { Loader2, ExternalLink, CheckCircle2 } from "lucide-react";
 
 interface Bill {
   id: number;
@@ -34,19 +18,11 @@ interface Bill {
   created_at: string;
 }
 
-const statusColors = {
-  pending: "bg-yellow-100 text-yellow-800",
-  entered: "bg-green-100 text-green-800",
-  skipped: "bg-gray-100 text-gray-800",
-  error: "bg-red-100 text-red-800",
-};
-
 export default function BillingDashboard() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<number | null>(null);
 
-  // Fetch pending bills
   useEffect(() => {
     const fetchBills = async () => {
       setLoading(true);
@@ -62,18 +38,14 @@ export default function BillingDashboard() {
     };
 
     fetchBills();
-
-    // Poll for updates every 10 seconds (until we have proper subscriptions)
     const interval = setInterval(fetchBills, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Handle "Entered" button click
   const handleEntered = async (bill: Bill) => {
     setProcessingId(bill.id);
 
     try {
-      // Call API handler which calls Supabase Edge Function
       const response = await fetch("/api/billing/add-front-comment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -91,19 +63,15 @@ export default function BillingDashboard() {
         throw new Error(error.error || `Error: ${response.statusText}`);
       }
 
-      // Update UI
-      setBills((prev) =>
-        prev.filter((b) => b.id !== bill.id)
-      );
+      setBills((prev) => prev.filter((b) => b.id !== bill.id));
     } catch (error) {
-      console.error("Error marking bill as entered:", error);
+      console.error("Error:", error);
       alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setProcessingId(null);
     }
   };
 
-  // Parse attachments
   const getAttachments = (attachmentsJson: string | null) => {
     if (!attachmentsJson) return [];
     try {
@@ -117,7 +85,7 @@ export default function BillingDashboard() {
     return (
       <div className="space-y-4">
         {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-32" />
+          <div key={i} className="h-32 bg-gray-200 animate-pulse rounded" />
         ))}
       </div>
     );
@@ -133,104 +101,99 @@ export default function BillingDashboard() {
       </div>
 
       {bills.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-center text-gray-500">
-            No pending bills. All caught up! ✓
-          </CardContent>
-        </Card>
+        <div className="border rounded-lg p-6 text-center text-gray-500">
+          No pending bills. All caught up! ✓
+        </div>
       ) : (
         <div className="space-y-4">
           {bills.map((bill) => (
-            <Card key={bill.id} className="border-l-4 border-l-yellow-400">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="text-xl">
-                      {bill.vendor_name}
-                    </CardTitle>
-                    <CardDescription className="mt-1">
-                      {bill.front_email_from} • {new Date(bill.created_at).toLocaleDateString()}
-                    </CardDescription>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold">${bill.amount.toFixed(2)}</div>
-                    <Badge className={statusColors[bill.status]}>
-                      {bill.status}
-                    </Badge>
-                  </div>
+            <div
+              key={bill.id}
+              className="border-l-4 border-l-yellow-400 border rounded-lg p-6 bg-white shadow-sm"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <h2 className="text-xl font-bold">{bill.vendor_name}</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {bill.front_email_from} • {new Date(bill.created_at).toLocaleDateString()}
+                  </p>
                 </div>
-              </CardHeader>
-
-              <CardContent className="space-y-4">
-                {/* Bill details grid */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-500">Invoice Date</span>
-                    <p className="font-mono">{bill.invoice_date}</p>
-                  </div>
-                  {bill.invoice_number && (
-                    <div>
-                      <span className="text-gray-500">Invoice #</span>
-                      <p className="font-mono">{bill.invoice_number}</p>
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-gray-500">Email Subject</span>
-                    <p className="line-clamp-2">{bill.front_email_subject}</p>
-                  </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold">${bill.amount.toFixed(2)}</div>
+                  <span className="inline-block mt-2 px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-800">
+                    {bill.status}
+                  </span>
                 </div>
+              </div>
 
-                {/* Attachments */}
-                {getAttachments(bill.attachments_json).length > 0 && (
+              <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+                <div>
+                  <span className="text-gray-500">Invoice Date</span>
+                  <p className="font-mono">{bill.invoice_date}</p>
+                </div>
+                {bill.invoice_number && (
                   <div>
-                    <p className="text-sm text-gray-500 mb-2">Attachments</p>
-                    <div className="space-y-1">
-                      {getAttachments(bill.attachments_json).map((att: any, idx: number) => (
-                        <a
-                          key={idx}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                          {att.filename}
-                        </a>
-                      ))}
-                    </div>
+                    <span className="text-gray-500">Invoice #</span>
+                    <p className="font-mono">{bill.invoice_number}</p>
                   </div>
                 )}
-
-                {/* Actions */}
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    onClick={() => handleEntered(bill)}
-                    disabled={processingId === bill.id}
-                    className="flex-1 gap-2"
-                  >
-                    {processingId === bill.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4" />
-                        Mark as Entered
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      window.open(`https://app.frontapp.com/conversations/${bill.front_conversation_id}`, "_blank")
-                    }
-                  >
-                    View in Front
-                  </Button>
+                <div className="col-span-2">
+                  <span className="text-gray-500">Email Subject</span>
+                  <p className="line-clamp-2">{bill.front_email_subject}</p>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+
+              {getAttachments(bill.attachments_json).length > 0 && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-500 mb-2">Attachments</p>
+                  <div className="space-y-1">
+                    {getAttachments(bill.attachments_json).map((att: any, idx: number) => (
+                      <a
+                        key={idx}
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        {att.filename}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => handleEntered(bill)}
+                  disabled={processingId === bill.id}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded flex items-center justify-center gap-2"
+                >
+                  {processingId === bill.id ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Mark as Entered
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() =>
+                    window.open(
+                      `https://app.frontapp.com/conversations/${bill.front_conversation_id}`,
+                      "_blank"
+                    )
+                  }
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded"
+                >
+                  View in Front
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}
