@@ -147,6 +147,25 @@ export async function GET(request) {
         rehab.source_type = currentVacancy.source_type;
         console.log(`Updated source_type for ${rehab.property} ${rehab.unit} → ${currentVacancy.source_type}`);
       }
+
+      // Sync "Rented" status: auto-set when AppFolio shows Vacant-Rented, unlock when it doesn't
+      const isVacantRented = currentVacancy && currentVacancy.status === 'Vacant-Rented';
+      if (isVacantRented && rehab.rehab_status !== 'Rented') {
+        await supabase
+          .from('rehabs')
+          .update({ rehab_status: 'Rented', updated_at: new Date().toISOString() })
+          .eq('id', rehab.id);
+        rehab.rehab_status = 'Rented';
+        console.log(`Set rehab_status to Rented for ${rehab.property} ${rehab.unit} (Vacant-Rented in AppFolio)`);
+      } else if (!isVacantRented && rehab.rehab_status === 'Rented') {
+        // Unit is no longer Vacant-Rented, unlock status back to Not Started
+        await supabase
+          .from('rehabs')
+          .update({ rehab_status: 'Not Started', updated_at: new Date().toISOString() })
+          .eq('id', rehab.id);
+        rehab.rehab_status = 'Not Started';
+        console.log(`Unlocked rehab_status for ${rehab.property} ${rehab.unit} (no longer Vacant-Rented)`);
+      }
     }
 
     // Build a map of active rehabs by property|unit|vacancy_start_date
@@ -184,15 +203,17 @@ export async function GET(request) {
     }
 
     // Auto-create rehab records for new vacancies with "Not Started" status
+    // Units with "Vacant-Rented" AppFolio status get locked "Rented" rehab status
     const createdRehabs = [];
     for (const vacancy of newVacancies) {
+      const isVacantRented = vacancy.status === 'Vacant-Rented';
       const { data: newRehab, error: createError } = await supabase
         .from('rehabs')
         .insert({
           property: vacancy.property,
           unit: vacancy.unit,
           status: 'in_progress',
-          rehab_status: 'Not Started',
+          rehab_status: isVacantRented ? 'Rented' : 'Not Started',
           source_type: vacancy.source_type,
           vacancy_start_date: vacancy.vacancy_start_date,
           move_out_date: vacancy.move_out_date,
@@ -316,7 +337,6 @@ export async function POST(request) {
         junk_removal_excluded: true,
         pest_control_excluded: true,
         surface_restoration_excluded: true,
-        mail_key_excluded: true,
       })
       .select()
       .single();
@@ -369,6 +389,11 @@ export async function PATCH(request) {
       .select('*')
       .eq('id', id)
       .single();
+
+    // Prevent users from changing off "Rented" status — this is auto-managed by AppFolio sync
+    if (currentRehab?.rehab_status === 'Rented' && updates.rehab_status && updates.rehab_status !== 'Rented') {
+      return NextResponse.json({ error: 'Cannot change status from Rented — this is automatically set by AppFolio' }, { status: 400 });
+    }
 
     // Add timestamp for completed checklist items
     const timestampedUpdates = { ...updates, updated_at: new Date().toISOString() };
