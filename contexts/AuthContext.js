@@ -58,6 +58,13 @@ async function getOrCreateAppUser(session) {
   }
 }
 
+const DEV_BYPASS_AUTH = process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === 'true';
+const DEV_USER = {
+  id: 'dev-user',
+  email: 'dev@appreciate.io',
+  user_metadata: { full_name: 'Dev User' },
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
@@ -72,11 +79,19 @@ export function AuthProvider({ children }) {
     initialCheckDone.current = true;
 
     const initAuth = async () => {
+      // Dev bypass - skip Supabase auth entirely
+      if (DEV_BYPASS_AUTH) {
+        setUser(DEV_USER);
+        setAppUser({ email: DEV_USER.email, name: 'Dev User', role: 'admin', is_active: true });
+        setLoading(false);
+        return;
+      }
+
       try {
         // Use getUser() instead of getSession() to verify the session is valid
         // getSession() can return stale data from localStorage
         const { data: { user: authUser }, error: userError } = await supabaseBrowser.auth.getUser();
-        
+
         if (userError || !authUser) {
           // No valid session - clear any stale data and redirect to login
           setUser(null);
