@@ -22,12 +22,14 @@ export async function GET(request) {
       rehabQuery = rehabQuery.eq('property', property);
     }
 
-    const { data: rehabs, error: rehabError } = await rehabQuery;
+    const { data: rehabsData, error: rehabError } = await rehabQuery;
 
     if (rehabError) {
       console.error('Error fetching rehabs:', rehabError);
       return NextResponse.json({ error: rehabError.message }, { status: 500 });
     }
+
+    let rehabs = rehabsData || [];
 
     // Fetch current vacancies and notices from rent_roll_snapshots
     const { data: latestSnapshotData, error: snapshotError } = await supabase
@@ -102,6 +104,51 @@ export async function GET(request) {
       };
     }));
 
+    // Build a map of currently vacant/notice/evict units from AppFolio
+    const currentVacancyMap = new Map();
+    for (const v of vacanciesWithDates) {
+      currentVacancyMap.set(`${v.property}|${v.unit}`, v);
+    }
+
+    // Archive rehabs for units that are no longer vacant/notice/evict in AppFolio
+    // This handles: (1) units that got leased, (2) evictions where tenant paid
+    // Note: if an eviction unit transitions to notice, it stays in the vacancy list
+    const rehabsToArchive = rehabs.filter(r =>
+      r.status !== 'completed' &&
+      r.status !== 'archived' &&
+      !currentVacancyMap.has(`${r.property}|${r.unit}`)
+    );
+
+    for (const rehab of rehabsToArchive) {
+      await supabase
+        .from('rehabs')
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .eq('id', rehab.id);
+      console.log(`Archived rehab for ${rehab.property} ${rehab.unit} - unit no longer vacant/notice/evict`);
+    }
+
+    // Remove archived rehabs from local array
+    if (rehabsToArchive.length > 0) {
+      const archivedIds = new Set(rehabsToArchive.map(r => r.id));
+      rehabs = rehabs.filter(r => !archivedIds.has(r.id));
+    }
+
+    // Update source_type if vacancy status changed (e.g., eviction → notice)
+    for (const rehab of rehabs.filter(r => r.status !== 'completed' && r.status !== 'archived')) {
+      const currentVacancy = currentVacancyMap.get(`${rehab.property}|${rehab.unit}`);
+      if (currentVacancy && currentVacancy.source_type !== rehab.source_type) {
+        await supabase
+          .from('rehabs')
+          .update({
+            source_type: currentVacancy.source_type,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', rehab.id);
+        rehab.source_type = currentVacancy.source_type;
+        console.log(`Updated source_type for ${rehab.property} ${rehab.unit} → ${currentVacancy.source_type}`);
+      }
+    }
+
     // Build a map of active rehabs by property|unit|vacancy_start_date
     // This ensures each vacancy CYCLE gets its own rehab record
     const activeRehabKeys = new Set(
@@ -139,9 +186,6 @@ export async function GET(request) {
     // Auto-create rehab records for new vacancies with "Not Started" status
     const createdRehabs = [];
     for (const vacancy of newVacancies) {
-      // Glen Oaks doesn't need rehab key by default
-      const isGlenOaks = vacancy.property?.toLowerCase().includes('glen oaks');
-      
       const { data: newRehab, error: createError } = await supabase
         .from('rehabs')
         .insert({
@@ -152,7 +196,13 @@ export async function GET(request) {
           source_type: vacancy.source_type,
           vacancy_start_date: vacancy.vacancy_start_date,
           move_out_date: vacancy.move_out_date,
-          vendor_key_excluded: isGlenOaks
+          // Recurring items (rehab key, utilities, clean, final walkthrough, tenant key)
+          // default to "needs done" (not excluded)
+          // Non-recurring items default to "ignored" (excluded)
+          junk_removal_excluded: true,
+          pest_control_excluded: true,
+          surface_restoration_excluded: true,
+          mail_key_excluded: true,
         })
         .select()
         .single();
@@ -217,9 +267,6 @@ export async function POST(request) {
       unit,
       contractor,
       goal_completion_date,
-      pest_control_needed,
-      surface_restoration_needed,
-      junk_removal_needed,
       source_type,
       move_out_date,
       rehab_status
@@ -261,14 +308,16 @@ export async function POST(request) {
         unit,
         contractor,
         goal_completion_date,
-        pest_control_needed: pest_control_needed || false,
-        surface_restoration_needed: surface_restoration_needed || false,
-        junk_removal_needed: junk_removal_needed || false,
         source_type,
         move_out_date,
         vacancy_start_date,
         rehab_status: rehab_status || 'Supervisor onboard',
-        status: 'in_progress'
+        status: 'in_progress',
+        // Non-recurring items default to "ignored" (excluded)
+        junk_removal_excluded: true,
+        pest_control_excluded: true,
+        surface_restoration_excluded: true,
+        mail_key_excluded: true,
       })
       .select()
       .single();
@@ -279,6 +328,14 @@ export async function POST(request) {
     }
 
     // Log initial status to history
+    // Count non-excluded items as the total
+    const excludedFields = [
+      'vendor_key_excluded', 'utilities_excluded', 'pest_control_excluded',
+      'surface_restoration_excluded', 'junk_removal_excluded', 'cleaned_excluded',
+      'tenant_key_excluded', 'leasing_signoff_excluded', 'mail_key_excluded'
+    ];
+    const initialTotal = excludedFields.filter(f => !data[f]).length;
+
     await supabase.from('rehab_status_history').insert({
       rehab_id: data.id,
       property: data.property,
@@ -286,7 +343,7 @@ export async function POST(request) {
       previous_status: null,
       new_status: data.rehab_status || 'Supervisor onboard',
       checklist_completed: 0,
-      checklist_total: 4 + (pest_control_needed ? 1 : 0) + (surface_restoration_needed ? 1 : 0) + (junk_removal_needed ? 1 : 0)
+      checklist_total: initialTotal
     });
 
     return NextResponse.json(data);
@@ -319,8 +376,8 @@ export async function PATCH(request) {
     
     // If a checklist item is being completed, add its timestamp
     const checklistItems = [
-      'vendor_key', 'utilities', 
-      'pest_control', 'surface_restoration', 'junk_removal', 'cleaned', 'tenant_key', 'leasing_signoff'
+      'vendor_key', 'utilities',
+      'pest_control', 'surface_restoration', 'junk_removal', 'cleaned', 'tenant_key', 'leasing_signoff', 'mail_key'
     ];
     
     for (const item of checklistItems) {
@@ -358,17 +415,14 @@ export async function PATCH(request) {
     // Log status change to history if rehab_status changed
     if (updates.rehab_status && currentRehab && updates.rehab_status !== currentRehab.rehab_status) {
       const checklistFields = [
-        'vendor_key_completed', 'utilities_completed', 'pest_control_completed',
-        'surface_restoration_completed', 'junk_removal_completed', 'cleaned_completed',
-        'tenant_key_completed', 'leasing_signoff_completed', 'mail_key_completed'
+        'vendor_key', 'utilities', 'pest_control',
+        'surface_restoration', 'junk_removal', 'cleaned',
+        'tenant_key', 'leasing_signoff', 'mail_key'
       ];
-      const completedCount = checklistFields.filter(f => data[f]).length;
-      const totalCount = checklistFields.filter(f => {
-        if (f === 'pest_control_completed' && !data.pest_control_needed) return false;
-        if (f === 'surface_restoration_completed' && !data.surface_restoration_needed) return false;
-        if (f === 'junk_removal_completed' && !data.junk_removal_needed) return false;
-        return true;
-      }).length;
+      // Count non-excluded items as total, completed among those as completed
+      const activeFields = checklistFields.filter(f => !data[`${f}_excluded`]);
+      const completedCount = activeFields.filter(f => data[`${f}_completed`]).length;
+      const totalCount = activeFields.length;
 
       await supabase.from('rehab_status_history').insert({
         rehab_id: id,

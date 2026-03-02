@@ -56,9 +56,6 @@ export default function RehabsDashboard() {
   const [onboardingForm, setOnboardingForm] = useState({
     contractor: '',
     goal_completion_date: '',
-    pest_control_needed: false,
-    surface_restoration_needed: false,
-    junk_removal_needed: false
   });
   const [saving, setSaving] = useState(false);
 
@@ -122,9 +119,6 @@ export default function RehabsDashboard() {
       contractor: '',
       goal_completion_date: '',
       rehab_status: 'Not Started',
-      pest_control_needed: false,
-      surface_restoration_needed: false,
-      junk_removal_needed: false
     });
     setShowOnboarding(true);
   };
@@ -143,9 +137,6 @@ export default function RehabsDashboard() {
           contractor: onboardingForm.contractor,
           goal_completion_date: onboardingForm.goal_completion_date || null,
           rehab_status: onboardingForm.rehab_status,
-          pest_control_needed: onboardingForm.pest_control_needed,
-          surface_restoration_needed: onboardingForm.surface_restoration_needed,
-          junk_removal_needed: onboardingForm.junk_removal_needed,
           source_type: onboardingUnit.source_type,
           move_out_date: onboardingUnit.move_out_date
         })
@@ -537,12 +528,12 @@ export default function RehabsDashboard() {
                               onClick={() => cycleChecklistState(unit.id, item.key, item.completed, item.excluded)}
                               className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                                 item.excluded
-                                  ? 'bg-red-400 text-white line-through opacity-60'
-                                  : item.completed 
-                                    ? 'bg-green-500 text-white' 
-                                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                  ? 'bg-gray-200 text-gray-400'
+                                  : item.completed
+                                    ? 'bg-green-500 text-white'
+                                    : 'border border-green-500 bg-white text-green-700 hover:bg-green-50'
                               }`}
-                              title={`${item.label}: ${item.excluded ? 'Excluded (not counted)' : item.completed ? 'Complete' : 'Pending'} - Click to cycle`}
+                              title={`${item.label}: ${item.excluded ? 'Ignored' : item.completed ? 'Complete' : 'Needs Done'} - Click to cycle`}
                             >
                               {item.label}
                             </button>
