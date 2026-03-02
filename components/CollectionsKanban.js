@@ -434,9 +434,10 @@ export default function CollectionsKanban() {
   }
   if (agingFilter !== 'all') {
     filteredItems = filteredItems.filter(item => {
-      if (agingFilter === '30') return parseFloat(item.days_30_to_60 || 0) > 0 || parseFloat(item.days_60_to_90 || 0) > 0 || parseFloat(item.days_90_plus || 0) > 0;
-      if (agingFilter === '60') return parseFloat(item.days_60_to_90 || 0) > 0 || parseFloat(item.days_90_plus || 0) > 0;
-      if (agingFilter === '90+') return parseFloat(item.days_90_plus || 0) > 0;
+      const badge = getAgingBadge(item).label;
+      if (agingFilter === '30') return badge === '30-60' || badge === '60-90' || badge === '90+';
+      if (agingFilter === '60') return badge === '60-90' || badge === '90+';
+      if (agingFilter === '90+') return badge === '90+';
       return true;
     });
   }
