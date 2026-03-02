@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { ExternalLink, FileText, CheckCircle2, AlertCircle } from "lucide-react";
-import { LogoLoader } from "../../../components/Logo";
+import { LogoLoader } from "./Logo";
 
 interface Bill {
   id: number;
