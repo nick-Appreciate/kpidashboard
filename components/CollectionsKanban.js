@@ -197,6 +197,7 @@ export default function CollectionsKanban() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [groupByProperty, setGroupByProperty] = useState(true);
   const [largeBalancesOnly, setLargeBalancesOnly] = useState(false);
+  const [agingFilter, setAgingFilter] = useState('all'); // 'all', '30', '60', '90+'
   const [contactPrompt, setContactPrompt] = useState(null); // { item, contactNumber }
   const [contactNoteInput, setContactNoteInput] = useState('');
   const { makeCall } = useJustCall();
@@ -431,6 +432,14 @@ export default function CollectionsKanban() {
       return rent > 0 && balance > (rent / 4);
     });
   }
+  if (agingFilter !== 'all') {
+    filteredItems = filteredItems.filter(item => {
+      if (agingFilter === '30') return parseFloat(item.days_30_to_60 || 0) > 0 || parseFloat(item.days_60_to_90 || 0) > 0 || parseFloat(item.days_90_plus || 0) > 0;
+      if (agingFilter === '60') return parseFloat(item.days_60_to_90 || 0) > 0 || parseFloat(item.days_90_plus || 0) > 0;
+      if (agingFilter === '90+') return parseFloat(item.days_90_plus || 0) > 0;
+      return true;
+    });
+  }
 
   // Group items by stage, then by property within each stage
   const itemsByStage = {};
@@ -489,6 +498,26 @@ export default function CollectionsKanban() {
                 />
                 Large Balances Only
               </label>
+              <div className="flex items-center border border-slate-300 rounded overflow-hidden text-xs">
+                {[
+                  { value: 'all', label: 'All' },
+                  { value: '30', label: '30+' },
+                  { value: '60', label: '60+' },
+                  { value: '90+', label: '90+' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setAgingFilter(opt.value)}
+                    className={`px-2 py-1 transition-colors ${
+                      agingFilter === opt.value
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-50'
+                    } ${opt.value !== 'all' ? 'border-l border-slate-300' : ''}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
               <select
                 value={selectedFilter}
                 onChange={(e) => setSelectedFilter(e.target.value)}
