@@ -152,15 +152,31 @@ async function parseInvoiceWithClaude(
         content: [
           {
             type: 'text',
-            text: `You are an invoice parsing expert. Extract the following information from this PDF document:
-- Vendor/Company name: Use the actual vendor or company that provided the goods/services, as shown on the invoice/document itself. Do NOT use the email sender if it is a payment processor, bank, or notification service (e.g. Mercury, PayPal, Stripe, Square). If the PDF does not clearly show a vendor, extract the vendor name from the email subject or body (e.g. "charged by Plumb Perfect Plum" → "Plumb Perfect Plum").
-- Invoice number
-- Invoice amount (total, as a number)
-- Invoice date (YYYY-MM-DD format)
+            text: `You are an accounts payable document classifier and parser for a property management company. Your job is to determine what kind of document this is, then extract relevant data.
+
+STEP 1 — CLASSIFY THE DOCUMENT TYPE. This is the most important step.
+Read the PDF, email subject, and email body carefully. Classify as one of:
+- "invoice" — A bill requesting payment FROM us to a vendor. Must show an amount due, balance due, or similar language demanding payment.
+- "estimate" — A quote, proposal, bid, or estimate. Often from Docusign, marked "Proposal", "Quote", "Estimate", or "Bid". No payment is due yet.
+- "receipt" — Proof of a purchase already completed and paid (e.g., Home Depot receipts, store receipts, credit card transaction confirmations). The money has already left our account.
+- "payment" — Someone is paying US. Look for: "payment remittance", "ACH payment", "rent payment", "deposit", "remittance advice", "payment confirmation" in the subject/body. Entities like Salvation Army, Housing Authority, or tenants sending money TO us are payments.
+- "other" — Thank-you notes for paying a bill, account statements, marketing, subscription confirmations, or anything that is NOT a bill requiring action.
+
+KEY CLASSIFICATION RULES:
+- If the email subject contains "remittance", "payment", "ACH", "deposit", or "rent" — it is almost certainly a "payment" (money coming to us), NOT an invoice.
+- If the document is a store receipt or electronic receipt (Home Depot, Lowe's, etc.) — classify as "receipt" with payment_status "paid".
+- If the document comes from Docusign or contains "proposal", "quote", "bid" — classify as "estimate".
+- If the email body thanks us for a payment or confirms a payment we made — classify as "other".
+- ONLY classify as "invoice" if you are confident this is a genuine bill requesting payment from us.
+
+STEP 2 — EXTRACT DATA:
+- Vendor/Company name: Use the actual vendor or company that provided goods/services, as shown on the document. Do NOT use the email sender if it is a payment processor, bank, or notification service (e.g. Mercury, PayPal, Stripe, Square).
+- Invoice number (or reference number, receipt number, etc.)
+- Amount (total, as a number)
+- Date (YYYY-MM-DD format)
 - Due date (YYYY-MM-DD format, if available)
-- Brief description of what was invoiced
-- Document type: classify as "invoice", "estimate", or "other"
-- Payment status: look for language like "paid", "payment received", "balance due", "amount due", "past due", "bill is due", etc. Classify as "paid", "unpaid", or "unknown"
+- Brief description of what the document is about
+- Payment status: "paid", "unpaid", or "unknown"
 
 Email Subject: ${emailSubject}
 Sender Name: ${senderName}
@@ -174,7 +190,7 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
   "invoice_date": "YYYY-MM-DD or null",
   "due_date": "YYYY-MM-DD or null",
   "description": "string or null",
-  "document_type": "invoice or estimate or other",
+  "document_type": "invoice or estimate or receipt or payment or other",
   "payment_status": "paid or unpaid or unknown"
 }`,
           },
