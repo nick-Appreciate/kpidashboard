@@ -1,13 +1,13 @@
 /**
  * Supabase Edge Function: Parse Invoice PDFs from Front
- * 
+ *
  * Workflow:
  * 1. Query front_messages table for messages with attachments not yet parsed
- * 2. Download PDF from Front API
- * 3. Extract text using pdf-parse
- * 4. Send text + image to Claude for intelligent invoice parsing
+ * 2. Check for duplicates in ops_bills by front_message_id
+ * 3. Download PDF from Front API
+ * 4. Send PDF to Claude for intelligent invoice parsing
  * 5. Store PDF in Supabase Storage
- * 6. Insert parsed data into ops_bills table
+ * 6. Insert parsed data into ops_bills table (with conflict handling)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
@@ -29,6 +29,7 @@ interface FrontMessage {
   sender_email: string;
   body_text: string;
   attachment_ids: string[];
+  attachment_count: number;
   created_at: string;
 }
 
@@ -51,7 +52,7 @@ async function downloadPdfFromFront(attachmentId: string): Promise<Uint8Array> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to download PDF: ${response.statusText}`);
+    throw new Error(`Failed to download PDF (${response.status}): ${response.statusText}`);
   }
 
   return new Uint8Array(await response.arrayBuffer());
@@ -66,6 +67,22 @@ function bufferToBase64(buffer: Uint8Array): string {
   return btoa(binary);
 }
 
+// Check if a bill already exists for this front_message_id
+async function billAlreadyExists(frontMessageId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('ops_bills')
+    .select('id')
+    .eq('front_message_id', frontMessageId)
+    .limit(1);
+
+  if (error) {
+    console.error('Error checking for duplicate:', error);
+    return false; // Proceed on error, let the unique constraint catch it
+  }
+
+  return data !== null && data.length > 0;
+}
+
 // Use Claude to intelligently parse invoice data
 async function parseInvoiceWithClaude(
   pdfBase64: string,
@@ -74,7 +91,7 @@ async function parseInvoiceWithClaude(
   senderName: string
 ): Promise<ParsedInvoice> {
   const message = await anthropic.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
     messages: [
       {
@@ -92,7 +109,7 @@ async function parseInvoiceWithClaude(
 
 Email Subject: ${emailSubject}
 Sender Name: ${senderName}
-Email Body Preview: ${emailBody.slice(0, 500)}
+Email Body Preview: ${(emailBody || '').slice(0, 500)}
 
 Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
 {
@@ -105,7 +122,7 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
 }`,
           },
           {
-            type: 'image',
+            type: 'document',
             source: {
               type: 'base64',
               media_type: 'application/pdf',
@@ -120,18 +137,17 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
   try {
     const content = message.content[0];
     if (content.type !== 'text') throw new Error('Unexpected response type');
-    
+
     // Extract JSON from response (handle markdown code blocks if present)
     let jsonStr = content.text.trim();
     if (jsonStr.startsWith('```json')) jsonStr = jsonStr.slice(7);
     if (jsonStr.startsWith('```')) jsonStr = jsonStr.slice(3);
     if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
-    
+
     const parsed = JSON.parse(jsonStr.trim());
     return parsed as ParsedInvoice;
   } catch (error) {
     console.error('Failed to parse Claude response:', error);
-    // Return partial data on parse error
     return {
       vendor_name: null,
       invoice_number: null,
@@ -150,8 +166,8 @@ async function uploadPdfToStorage(
   attachmentId: string
 ): Promise<string> {
   const filename = `${conversationId}/${attachmentId}.pdf`;
-  
-  const { data, error } = await supabase.storage
+
+  const { error } = await supabase.storage
     .from('billing-invoices')
     .upload(filename, pdfBuffer, {
       contentType: 'application/pdf',
@@ -171,8 +187,8 @@ async function uploadPdfToStorage(
   return urlData.publicUrl;
 }
 
-// Main handler
-export default async function handler(req: Request) {
+// Main handler using Deno.serve
+Deno.serve(async (req: Request) => {
   try {
     console.log('Starting invoice PDF parsing...');
 
@@ -183,7 +199,7 @@ export default async function handler(req: Request) {
       .eq('ap_extracted', false)
       .gt('attachment_count', 0)
       .order('created_at', { ascending: false })
-      .limit(10); // Process 10 at a time
+      .limit(10);
 
     if (error) {
       throw new Error(`Supabase query error: ${error.message}`);
@@ -196,17 +212,41 @@ export default async function handler(req: Request) {
       });
     }
 
-    console.log(`Processing ${messages.length} messages...`);
+    console.log(`Found ${messages.length} messages to process...`);
 
-    const results = [];
-    const opsBillsInserts = [];
+    const results: Array<Record<string, unknown>> = [];
+    const opsBillsInserts: Array<Record<string, unknown>> = [];
 
     for (const msg of messages as FrontMessage[]) {
       try {
-        if (!msg.attachment_ids || msg.attachment_ids.length === 0) continue;
+        if (!msg.attachment_ids || msg.attachment_ids.length === 0) {
+          // Mark as extracted since there are no actual attachment IDs to process
+          await supabase
+            .from('front_messages')
+            .update({ ap_extracted: true })
+            .eq('front_id', msg.front_id);
+          continue;
+        }
+
+        // Duplicate check: skip if bill already exists for this message
+        const exists = await billAlreadyExists(msg.front_id);
+        if (exists) {
+          console.log(`Skipping ${msg.front_id} — bill already exists`);
+          // Mark as extracted so we don't check it again
+          await supabase
+            .from('front_messages')
+            .update({ ap_extracted: true })
+            .eq('front_id', msg.front_id);
+          results.push({
+            frontMessageId: msg.front_id,
+            status: 'skipped',
+            reason: 'duplicate',
+          });
+          continue;
+        }
 
         const attachmentId = msg.attachment_ids[0]; // Use first attachment
-        console.log(`Processing attachment ${attachmentId}...`);
+        console.log(`Processing message ${msg.front_id}, attachment ${attachmentId}...`);
 
         // Download PDF
         const pdfBuffer = await downloadPdfFromFront(attachmentId);
@@ -214,15 +254,43 @@ export default async function handler(req: Request) {
         // Parse with Claude
         const invoice = await parseInvoiceWithClaude(
           bufferToBase64(pdfBuffer),
-          msg.subject,
-          msg.body_text,
+          msg.subject || '',
+          msg.body_text || '',
           msg.sender_name || 'Unknown'
         );
+
+        // Validate required fields — ops_bills requires vendor_name, amount, invoice_date as NOT NULL
+        if (!invoice.vendor_name || invoice.invoice_amount === null || !invoice.invoice_date) {
+          console.warn(`Incomplete parse for ${msg.front_id}: vendor=${invoice.vendor_name}, amount=${invoice.invoice_amount}, date=${invoice.invoice_date}`);
+
+          // Still mark as extracted but record the partial data on front_messages
+          await supabase
+            .from('front_messages')
+            .update({
+              ap_extracted: true,
+              vendor_name: invoice.vendor_name,
+              invoice_number: invoice.invoice_number,
+              invoice_amount: invoice.invoice_amount,
+              invoice_date: invoice.invoice_date,
+              due_date: invoice.due_date,
+              ap_notes: 'Incomplete parse — missing required fields for ops_bills',
+            })
+            .eq('front_id', msg.front_id);
+
+          results.push({
+            frontMessageId: msg.front_id,
+            attachmentId,
+            status: 'incomplete',
+            invoice,
+            reason: 'Missing required fields (vendor_name, amount, or invoice_date)',
+          });
+          continue;
+        }
 
         // Upload to Storage
         const pdfUrl = await uploadPdfToStorage(pdfBuffer, msg.conversation_id, attachmentId);
 
-        // Create ops_bills entry
+        // Prepare ops_bills entry
         opsBillsInserts.push({
           vendor_name: invoice.vendor_name,
           amount: invoice.invoice_amount,
@@ -232,32 +300,38 @@ export default async function handler(req: Request) {
           front_message_id: msg.front_id,
           front_email_subject: msg.subject,
           front_email_from: msg.sender_email,
-          attachments_json: JSON.stringify([{
-            filename: `${attachmentId}.pdf`,
-            url: pdfUrl,
-          }]),
+          attachments_json: [{ filename: `${attachmentId}.pdf`, url: pdfUrl }],
           status: 'pending',
           due_date: invoice.due_date,
           description: invoice.description,
         });
 
-        // Mark message as extracted
+        // Mark message as extracted with parsed data
         await supabase
           .from('front_messages')
-          .update({ ap_extracted: true, vendor_name: invoice.vendor_name })
+          .update({
+            ap_extracted: true,
+            vendor_name: invoice.vendor_name,
+            invoice_number: invoice.invoice_number,
+            invoice_amount: invoice.invoice_amount,
+            invoice_date: invoice.invoice_date,
+            due_date: invoice.due_date,
+          })
           .eq('front_id', msg.front_id);
 
         results.push({
+          frontMessageId: msg.front_id,
           attachmentId,
           status: 'success',
           invoice,
           pdfUrl,
         });
 
-        console.log(`✓ Parsed ${invoice.vendor_name}: $${invoice.invoice_amount}`);
+        console.log(`Parsed ${invoice.vendor_name}: $${invoice.invoice_amount}`);
       } catch (error) {
-        console.error(`Error processing attachment:`, error);
+        console.error(`Error processing message ${msg.front_id}:`, error);
         results.push({
+          frontMessageId: msg.front_id,
           attachmentId: msg.attachment_ids?.[0],
           status: 'error',
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -265,16 +339,19 @@ export default async function handler(req: Request) {
       }
     }
 
-    // Insert into ops_bills
+    // Batch insert into ops_bills with conflict handling
     if (opsBillsInserts.length > 0) {
       const { error: insertError } = await supabase
         .from('ops_bills')
-        .insert(opsBillsInserts);
+        .upsert(opsBillsInserts, {
+          onConflict: 'vendor_name,amount,invoice_date,front_message_id',
+          ignoreDuplicates: true,
+        });
 
       if (insertError) {
         console.error('ops_bills insert error:', insertError);
       } else {
-        console.log(`✓ Inserted ${opsBillsInserts.length} bills into ops_bills`);
+        console.log(`Inserted ${opsBillsInserts.length} bills into ops_bills`);
       }
     }
 
@@ -283,6 +360,9 @@ export default async function handler(req: Request) {
         success: true,
         processed: results.length,
         inserted: opsBillsInserts.length,
+        skipped: results.filter(r => r.status === 'skipped').length,
+        incomplete: results.filter(r => r.status === 'incomplete').length,
+        errors: results.filter(r => r.status === 'error').length,
         results,
       }),
       {
@@ -302,4 +382,4 @@ export default async function handler(req: Request) {
       }
     );
   }
-}
+});
