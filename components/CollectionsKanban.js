@@ -466,10 +466,10 @@ export default function CollectionsKanban() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4">
-      <div className="max-w-full mx-auto">
+    <div className="h-screen bg-slate-100 p-4 flex flex-col overflow-hidden">
+      <div className="max-w-full mx-auto flex flex-col flex-1 min-h-0 w-full">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold text-slate-800">💰 Collections</h1>
@@ -544,7 +544,7 @@ export default function CollectionsKanban() {
         </div>
 
         {/* Kanban Board */}
-        <div className="grid grid-cols-6 gap-2" style={{ minHeight: 'calc(100vh - 180px)' }}>
+        <div className="grid grid-cols-6 gap-2 flex-1 min-h-0">
           {STAGES.map(stage => {
             const config = STAGE_CONFIG[stage];
             const stageItems = itemsByStage[stage];
@@ -554,14 +554,14 @@ export default function CollectionsKanban() {
             const isLockedStage = LOCKED_STAGES.includes(stage);
             
             return (
-              <div 
+              <div
                 key={stage}
-                className={`${config.bgColor} rounded-lg border ${config.borderColor} flex flex-col min-w-0 ${isLockedStage ? 'opacity-90' : ''}`}
+                className={`${config.bgColor} rounded-lg border ${config.borderColor} flex flex-col min-w-0 min-h-0 ${isLockedStage ? 'opacity-90' : ''}`}
                 onDragOver={isLockedStage ? undefined : handleDragOver}
                 onDrop={isLockedStage ? undefined : (e) => handleDrop(e, stage)}
               >
-                {/* Column Header */}
-                <div className={`${config.color} text-white px-2 py-1.5 rounded-t-lg`}>
+                {/* Column Header - sticky */}
+                <div className={`${config.color} text-white px-2 py-1.5 rounded-t-lg flex-shrink-0`}>
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-xs">
                       {config.label}
