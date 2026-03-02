@@ -421,32 +421,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Batch insert into ops_bills with conflict handling
-    // Split by invoice_number presence to match the two partial unique indexes
-    if (opsBillsInserts.length > 0) {
-      const withInvoiceNum = opsBillsInserts.filter(r => r.invoice_number);
-      const withoutInvoiceNum = opsBillsInserts.filter(r => !r.invoice_number);
+    // Insert into ops_bills one at a time for proper error handling
+    // Dedup is handled by billAlreadyExists() check above; partial unique indexes are a safety net
+    let actualInserted = 0;
+    const insertErrors: Array<{ vendor: string; error: string }> = [];
 
-      if (withInvoiceNum.length > 0) {
-        const { error: insertError } = await supabase
-          .from('ops_bills')
-          .upsert(withInvoiceNum, {
-            onConflict: 'invoice_number,amount',
-            ignoreDuplicates: true,
-          });
-        if (insertError) console.error('ops_bills insert error (with invoice#):', insertError);
-        else console.log(`Inserted ${withInvoiceNum.length} bills with invoice numbers`);
-      }
+    for (const bill of opsBillsInserts) {
+      const { error: insertError } = await supabase
+        .from('ops_bills')
+        .insert(bill);
 
-      if (withoutInvoiceNum.length > 0) {
-        const { error: insertError } = await supabase
-          .from('ops_bills')
-          .upsert(withoutInvoiceNum, {
-            onConflict: 'vendor_name,amount,invoice_date',
-            ignoreDuplicates: true,
-          });
-        if (insertError) console.error('ops_bills insert error (no invoice#):', insertError);
-        else console.log(`Inserted ${withoutInvoiceNum.length} bills without invoice numbers`);
+      if (insertError) {
+        console.error(`ops_bills insert error for ${bill.vendor_name}:`, insertError.message);
+        insertErrors.push({
+          vendor: bill.vendor_name as string,
+          error: insertError.message,
+        });
+      } else {
+        actualInserted++;
+        console.log(`Inserted bill: ${bill.vendor_name} $${bill.amount}`);
       }
     }
 
@@ -454,7 +447,8 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         success: true,
         processed: results.length,
-        inserted: opsBillsInserts.length,
+        inserted: actualInserted,
+        insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
         skipped: results.filter(r => r.status === 'skipped').length,
         incomplete: results.filter(r => r.status === 'incomplete').length,
         errors: results.filter(r => r.status === 'error').length,
