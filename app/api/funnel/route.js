@@ -43,6 +43,10 @@ export async function GET(request) {
 
     // Get applications with status breakdown - include unit for deduplication
     let applicationsQuery = supabase.from('rental_applications').select('status, application_status, unit, received');
+    if (property && property !== 'all') {
+      // rental_applications stores property in the unit field as "Property - Unit - Address"
+      applicationsQuery = applicationsQuery.like('unit', `${property} - %`);
+    }
     applicationsQuery = addDateFilters(applicationsQuery, 'received');
     const { data: applicationsData, error: applicationsError } = await applicationsQuery;
     if (applicationsError) throw applicationsError;

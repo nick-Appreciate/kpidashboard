@@ -118,6 +118,9 @@ export async function GET(request) {
       if (property && property !== 'all') {
         if (tableName === 'leasing_reports' || tableName === 'showings') {
           query = query.eq('property', property);
+        } else if (tableName === 'rental_applications') {
+          // rental_applications stores property in the unit field as "Property - Unit - Address"
+          query = query.like('unit', `${property} - %`);
         }
       }
 
