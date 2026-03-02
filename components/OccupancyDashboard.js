@@ -318,6 +318,31 @@ export default function OccupancyDashboard() {
     '#14b8a6', '#a855f7', '#eab308', '#22c55e', '#0ea5e9'
   ];
   
+  // Helper: aggregate daily data points into weekly (one per week, using last value in each week)
+  const aggregateWeekly = (dataPoints, dateKey = 'date', valueKey = 'occupancyRate') => {
+    if (!dataPoints || dataPoints.length === 0) return [];
+    const weekMap = {};
+    dataPoints.forEach(d => {
+      const date = new Date(d[dateKey] + 'T00:00:00');
+      // Get the Monday of the week
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(date);
+      monday.setDate(diff);
+      const weekKey = monday.toISOString().split('T')[0];
+      // Keep the last (most recent) entry per week
+      if (!weekMap[weekKey] || d[dateKey] >= weekMap[weekKey][dateKey]) {
+        weekMap[weekKey] = { ...d, _weekKey: weekKey };
+      }
+    });
+    return Object.values(weekMap).sort((a, b) => a._weekKey.localeCompare(b._weekKey));
+  };
+
+  const formatWeekLabel = (dateStr) => {
+    const [year, month, day] = dateStr.split('-');
+    return `${month}/${day}`;
+  };
+
   const updateCharts = () => {
     // Occupancy Trend Chart
     if (occupancyChartRef.current && stats.occupancyTrend?.length > 0) {
@@ -329,18 +354,24 @@ export default function OccupancyDashboard() {
       
       let chartData;
       if (showMultiProperty) {
-        // Get all unique dates across all properties
-        const allDates = [...new Set(
-          Object.values(stats.propertyTrends).flatMap(arr => arr.map(d => d.date))
+        // Aggregate each property's daily data into weekly
+        const weeklyPropertyTrends = {};
+        Object.entries(stats.propertyTrends).forEach(([property, data]) => {
+          weeklyPropertyTrends[property] = aggregateWeekly(data);
+        });
+
+        // Get all unique week dates across all properties
+        const allWeekDates = [...new Set(
+          Object.values(weeklyPropertyTrends).flatMap(arr => arr.map(d => d._weekKey))
         )].sort();
-        
+
         // Create a dataset for each property
-        const datasets = Object.entries(stats.propertyTrends).map(([property, data], idx) => {
+        const datasets = Object.entries(weeklyPropertyTrends).map(([property, data], idx) => {
           const color = propertyColors[idx % propertyColors.length];
-          const dataMap = Object.fromEntries(data.map(d => [d.date, parseFloat(d.occupancyRate)]));
+          const dataMap = Object.fromEntries(data.map(d => [d._weekKey, parseFloat(d.occupancyRate)]));
           return {
             label: property,
-            data: allDates.map(date => dataMap[date] ?? null),
+            data: allWeekDates.map(date => dataMap[date] ?? null),
             borderColor: color,
             backgroundColor: color + '20',
             fill: false,
@@ -348,37 +379,25 @@ export default function OccupancyDashboard() {
             spanGaps: true
           };
         });
-        
+
         chartData = {
-          labels: allDates.map(d => {
-            const [year, month, day] = d.split('-');
-            return `${month}/${day}`;
-          }),
+          labels: allWeekDates.map(d => formatWeekLabel(d)),
           datasets
         };
       } else {
         // Single line (portfolio or single property)
-        // Sample data to show ~30 points max for cleaner X-axis
-        let sampledTrend = stats.occupancyTrend;
-        if (stats.occupancyTrend.length > 30) {
-          const step = Math.ceil(stats.occupancyTrend.length / 30);
-          sampledTrend = stats.occupancyTrend.filter((_, i) => 
-            i % step === 0 || i === stats.occupancyTrend.length - 1
-          );
-        }
-        
+        // Aggregate daily data into weekly data points
+        const weeklyTrend = aggregateWeekly(stats.occupancyTrend);
+
         // Adjust the latest data point if user has overridden occupied count
-        let trendData = sampledTrend.map(d => parseFloat(d.occupancyRate));
+        let trendData = weeklyTrend.map(d => parseFloat(d.occupancyRate));
         if (occupiedOverride !== null && stats?.summary?.totalUnits > 0 && trendData.length > 0) {
           const adjustedRate = (occupiedOverride / stats.summary.totalUnits) * 100;
           trendData[trendData.length - 1] = parseFloat(adjustedRate.toFixed(1));
         }
-        
+
         chartData = {
-          labels: sampledTrend.map(d => {
-            const [year, month, day] = d.date.split('-');
-            return `${month}/${day}`;
-          }),
+          labels: weeklyTrend.map(d => formatWeekLabel(d.date)),
           datasets: [{
             label: 'Occupancy Rate (%)',
             data: trendData,
@@ -425,8 +444,9 @@ export default function OccupancyDashboard() {
             },
             x: {
               ticks: {
-                maxTicksLimit: 10,
-                autoSkip: true
+                autoSkip: false,
+                maxRotation: 45,
+                minRotation: 45
               }
             }
           }
@@ -536,18 +556,24 @@ export default function OccupancyDashboard() {
       
       let healthyChartData;
       if (showMultiPropertyHealthy) {
-        // Get all unique dates across all properties
-        const allDates = [...new Set(
-          Object.values(stats.healthyLeaseTrendByProperty).flatMap(arr => arr.map(d => d.date))
+        // Aggregate each property's daily data into weekly
+        const weeklyHealthyByProperty = {};
+        Object.entries(stats.healthyLeaseTrendByProperty).forEach(([property, data]) => {
+          weeklyHealthyByProperty[property] = aggregateWeekly(data, 'date', 'healthyLeaseRate');
+        });
+
+        // Get all unique week dates across all properties
+        const allWeekDates = [...new Set(
+          Object.values(weeklyHealthyByProperty).flatMap(arr => arr.map(d => d._weekKey))
         )].sort();
-        
+
         // Create a dataset for each property
-        const datasets = Object.entries(stats.healthyLeaseTrendByProperty).map(([property, data], idx) => {
+        const datasets = Object.entries(weeklyHealthyByProperty).map(([property, data], idx) => {
           const color = propertyColors[idx % propertyColors.length];
-          const dataMap = Object.fromEntries(data.map(d => [d.date, parseFloat(d.healthyLeaseRate)]));
+          const dataMap = Object.fromEntries(data.map(d => [d._weekKey, parseFloat(d.healthyLeaseRate)]));
           return {
             label: property,
-            data: allDates.map(date => dataMap[date] ?? null),
+            data: allWeekDates.map(date => dataMap[date] ?? null),
             borderColor: color,
             backgroundColor: color + '20',
             fill: false,
@@ -555,24 +581,19 @@ export default function OccupancyDashboard() {
             spanGaps: true
           };
         });
-        
+
         healthyChartData = {
-          labels: allDates.map(d => {
-            const [year, month, day] = d.split('-');
-            return `${month}/${day}`;
-          }),
+          labels: allWeekDates.map(d => formatWeekLabel(d)),
           datasets
         };
       } else {
-        // Single line (portfolio or single property)
+        // Single line (portfolio or single property) - aggregate to weekly
+        const weeklyHealthy = aggregateWeekly(stats.healthyLeaseTrend || [], 'date', 'healthyLeaseRate');
         healthyChartData = {
-          labels: stats.healthyLeaseTrend?.map(d => {
-            const [year, month, day] = d.date.split('-');
-            return `${month}/${day}`;
-          }) || [],
+          labels: weeklyHealthy.map(d => formatWeekLabel(d.date)),
           datasets: [{
             label: 'Healthy Lease Rate (%)',
-            data: stats.healthyLeaseTrend?.map(d => parseFloat(d.healthyLeaseRate)) || [],
+            data: weeklyHealthy.map(d => parseFloat(d.healthyLeaseRate)),
             borderColor: '#f59e0b',
             backgroundColor: '#f59e0b20',
             fill: true,
