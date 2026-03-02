@@ -132,8 +132,7 @@ export default function CollectionsKanban() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedRegion, setSelectedRegion] = useState('all');
-  const [selectedProperty, setSelectedProperty] = useState('all');
+  const [selectedFilter, setSelectedFilter] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [itemDetails, setItemDetails] = useState(null);
@@ -145,7 +144,7 @@ export default function CollectionsKanban() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedProperty]);
+  }, [selectedFilter]);
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -162,7 +161,10 @@ export default function CollectionsKanban() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (selectedProperty !== 'all') params.append('property', selectedProperty);
+      // Only pass property param for specific property selections (not regions)
+      if (selectedFilter !== 'all' && !selectedFilter.startsWith('region_')) {
+        params.append('property', selectedFilter);
+      }
       
       const res = await fetch(`/api/collections?${params}`);
       const result = await res.json();
@@ -290,14 +292,6 @@ export default function CollectionsKanban() {
 
   const { items = [], summary = {}, properties = [] } = data || {};
 
-  // Filter properties list by region for the dropdown
-  const regionFilteredProperties = selectedRegion === 'all'
-    ? properties
-    : properties.filter(prop => {
-        const isKC = isKCProperty(prop);
-        return selectedRegion === 'region_kansas_city' ? isKC : !isKC;
-      });
-
   // Drag and drop handlers
   const handleDragStart = (e, item) => {
     setDraggedItem(item);
@@ -328,13 +322,12 @@ export default function CollectionsKanban() {
     setDraggedItem(null);
   };
 
-  // Filter items by region, then by large balances if enabled
+  // Filter items by region selection, then by large balances if enabled
   let filteredItems = items;
-  if (selectedRegion !== 'all') {
-    filteredItems = filteredItems.filter(item => {
-      const isKC = isKCProperty(item.property_name);
-      return selectedRegion === 'region_kansas_city' ? isKC : !isKC;
-    });
+  if (selectedFilter === 'region_kansas_city') {
+    filteredItems = filteredItems.filter(item => isKCProperty(item.property_name));
+  } else if (selectedFilter === 'region_columbia') {
+    filteredItems = filteredItems.filter(item => !isKCProperty(item.property_name));
   }
   if (largeBalancesOnly) {
     filteredItems = filteredItems.filter(item => {
@@ -380,7 +373,6 @@ export default function CollectionsKanban() {
               <h1 className="text-xl font-semibold text-slate-800">💰 Collections</h1>
               <p className="text-sm text-slate-500">
                 {filteredItems.length} accounts · {formatCurrency(filteredItems.reduce((sum, i) => sum + parseFloat(i.amount_receivable || 0), 0))} total
-                {selectedRegion !== 'all' && <span className="ml-1 text-indigo-500">({selectedRegion === 'region_kansas_city' ? 'Kansas City' : 'Columbia'})</span>}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -403,26 +395,20 @@ export default function CollectionsKanban() {
                 Large Balances Only
               </label>
               <select
-                value={selectedRegion}
-                onChange={(e) => {
-                  setSelectedRegion(e.target.value);
-                  setSelectedProperty('all');
-                }}
+                value={selectedFilter}
+                onChange={(e) => setSelectedFilter(e.target.value)}
                 className="px-2 py-1 border border-slate-300 rounded text-sm bg-white"
               >
-                <option value="all">All Regions</option>
-                <option value="region_kansas_city">Kansas City</option>
-                <option value="region_columbia">Columbia</option>
-              </select>
-              <select
-                value={selectedProperty}
-                onChange={(e) => setSelectedProperty(e.target.value)}
-                className="px-2 py-1 border border-slate-300 rounded text-sm bg-white"
-              >
-                <option value="all">All Properties</option>
-                {regionFilteredProperties.map(prop => (
-                  <option key={prop} value={prop}>{prop}</option>
-                ))}
+                <option value="all">Portfolio</option>
+                <optgroup label="Regions">
+                  <option value="region_kansas_city">Kansas City</option>
+                  <option value="region_columbia">Columbia</option>
+                </optgroup>
+                <optgroup label="Properties">
+                  {properties.map(prop => (
+                    <option key={prop} value={prop}>{prop}</option>
+                  ))}
+                </optgroup>
               </select>
               <button
                 onClick={fetchData}
