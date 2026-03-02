@@ -202,7 +202,6 @@ export async function GET(request) {
           junk_removal_excluded: true,
           pest_control_excluded: true,
           surface_restoration_excluded: true,
-          mail_key_excluded: true,
         })
         .select()
         .single();
