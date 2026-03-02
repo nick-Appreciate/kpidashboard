@@ -22,7 +22,10 @@ export default function Dashboard() {
     return lastMonth.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
+    const today = new Date();
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+    return nextWeek.toISOString().split('T')[0];
   });
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null);
@@ -44,30 +47,32 @@ export default function Dashboard() {
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
     const today = new Date();
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
     const formatDate = (date) => date.toISOString().split('T')[0];
-    
+
     switch (preset) {
       case 'today':
-        return { start: formatDate(today), end: formatDate(today) };
+        return { start: formatDate(today), end: formatDate(nextWeek) };
       case 'last_week': {
         const lastWeekStart = new Date(today);
         lastWeekStart.setDate(today.getDate() - 7);
-        return { start: formatDate(lastWeekStart), end: formatDate(today) };
+        return { start: formatDate(lastWeekStart), end: formatDate(nextWeek) };
       }
       case 'last_month': {
         const lastMonthStart = new Date(today);
         lastMonthStart.setMonth(today.getMonth() - 1);
-        return { start: formatDate(lastMonthStart), end: formatDate(today) };
+        return { start: formatDate(lastMonthStart), end: formatDate(nextWeek) };
       }
       case 'last_quarter': {
         const lastQuarterStart = new Date(today);
         lastQuarterStart.setMonth(today.getMonth() - 3);
-        return { start: formatDate(lastQuarterStart), end: formatDate(today) };
+        return { start: formatDate(lastQuarterStart), end: formatDate(nextWeek) };
       }
       case 'last_year': {
         const lastYearStart = new Date(today);
         lastYearStart.setFullYear(today.getFullYear() - 1);
-        return { start: formatDate(lastYearStart), end: formatDate(today) };
+        return { start: formatDate(lastYearStart), end: formatDate(nextWeek) };
       }
       case 'all_time':
         return { start: '', end: '' };
@@ -225,7 +230,56 @@ export default function Dashboard() {
     if (isMultiStage) {
       // Multi-stage: create separate datasets for each stage
       const stages = data.stages || [];
-      
+
+      // Compute "Today" line position for charts (only when future data exists)
+      let todayDailyIndex = -1;
+      let todayWeeklyIndex = -1;
+
+      if (data.hasFutureData) {
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        todayDailyIndex = data.allDates ? data.allDates.indexOf(todayStr) : -1;
+
+        // For weekly: find which week contains today based on chart end date
+        if (data.allDates?.length > 0 && data.allWeeks?.length > 0) {
+          const lastDateStr = data.allDates[data.allDates.length - 1];
+          const [ly, lm, ld] = lastDateStr.split('-').map(Number);
+          const lastDate = new Date(ly, lm - 1, ld);
+          const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const daysDiff = Math.round((lastDate - todayDate) / (24 * 60 * 60 * 1000));
+          const weeksFromEnd = Math.floor(daysDiff / 7);
+          todayWeeklyIndex = data.allWeeks.length - 1 - weeksFromEnd;
+          if (todayWeeklyIndex < 0 || todayWeeklyIndex >= data.allWeeks.length) todayWeeklyIndex = -1;
+        }
+      }
+
+      // Chart.js plugin to draw a vertical "Today" line
+      const todayLinePlugin = {
+        id: 'todayLine',
+        afterDraw(chart) {
+          const todayIdx = chart.options.plugins?.todayLine?.index;
+          if (todayIdx == null || todayIdx < 0) return;
+          const meta = chart.getDatasetMeta(0);
+          if (!meta.data[todayIdx]) return;
+          const ctx = chart.ctx;
+          const yScale = chart.scales.y;
+          const x = meta.data[todayIdx].x;
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(x, yScale.top);
+          ctx.lineTo(x, yScale.bottom);
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+          ctx.setLineDash([6, 4]);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';
+          ctx.font = 'bold 11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Today', x, yScale.top - 6);
+          ctx.restore();
+        }
+      };
+
       // Weekly chart with multiple lines
       if (weeklyChartRef.current && data.allWeeks?.length > 0) {
         const ctx = weeklyChartRef.current.getContext('2d');
@@ -258,10 +312,12 @@ export default function Dashboard() {
             labels: data.allWeeks, // Already formatted as "M/D-M/D" rolling periods
             datasets
           },
+          plugins: [todayLinePlugin],
           options: {
             responsive: true,
             maintainAspectRatio: true,
-            plugins: { 
+            plugins: {
+              todayLine: { index: todayWeeklyIndex },
               legend: { display: true, position: 'top' },
               tooltip: {
                 callbacks: {
@@ -271,7 +327,7 @@ export default function Dashboard() {
                     const stage = stages[datasetIndex];
                     const details = weeklyDetailsByStage[stage]?.[idx] || [];
                     if (details.length === 0) return '';
-                    
+
                     const lines = details.slice(0, 10).map(d => {
                       const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
                       return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
@@ -327,10 +383,12 @@ export default function Dashboard() {
             }),
             datasets
           },
+          plugins: [todayLinePlugin],
           options: {
             responsive: true,
             maintainAspectRatio: true,
-            plugins: { 
+            plugins: {
+              todayLine: { index: todayDailyIndex },
               legend: { display: true, position: 'top' },
               tooltip: {
                 callbacks: {
@@ -340,7 +398,7 @@ export default function Dashboard() {
                     const stage = stages[datasetIndex];
                     const details = dailyDetailsByStage[stage]?.[idx] || [];
                     if (details.length === 0) return '';
-                    
+
                     const lines = details.slice(0, 10).map(d => {
                       const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
                       return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
@@ -389,10 +447,12 @@ export default function Dashboard() {
             labels: data.allWeeks, // Already formatted as "M/D-M/D" rolling periods
             datasets: conversionDatasets
           },
+          plugins: [todayLinePlugin],
           options: {
             responsive: true,
             maintainAspectRatio: true,
-            plugins: { 
+            plugins: {
+              todayLine: { index: todayWeeklyIndex },
               legend: { display: true, position: 'top' },
               tooltip: {
                 callbacks: {

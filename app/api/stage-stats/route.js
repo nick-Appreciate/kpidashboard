@@ -149,9 +149,24 @@ export async function GET(request) {
       allRecords = allRecords.concat(enrichedRecords);
     }
 
+    // Check if any records from selected stages have dates after today
+    // If no future data exists, cap endDate to today (normal cutoff)
+    const now = new Date();
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const hasFutureData = allRecords.some(record => {
+      if (!selectedStages.includes(record._stage)) return false;
+      const dateVal = record[record._dateField];
+      if (!dateVal) return false;
+      return new Date(dateVal) > todayEnd;
+    });
+
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const effectiveEndDate = hasFutureData ? endDate : todayStr;
+
     // Process data separately for each stage
     // Pass both selectedStages (for display) and all fetched stages (for conversion calculation)
-    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, endDate, [...stagesToFetch]);
+    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, effectiveEndDate, [...stagesToFetch]);
+    result.hasFutureData = hasFutureData;
 
     return NextResponse.json(result);
   } catch (error) {
@@ -391,10 +406,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     chartEndDate = new Date(year, month - 1, day);
   }
   
-  // Ensure endDate doesn't exceed today
-  if (chartEndDate > today) {
-    chartEndDate = today;
-  }
+  // Allow future dates so scheduled showings are visible on charts
   
   // If no startDate provided, calculate from data
   if (!chartStartDate) {
@@ -427,21 +439,22 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     }
   }
 
-  // Generate rolling 7-day periods (from today going back)
+  // Generate rolling 7-day periods (from chartEndDate going back)
   // Each period is labeled by its end date (most recent day in the period)
-  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  // Anchored at chartEndDate to include future dates for scheduled showings
+  const chartEndWithTime = new Date(chartEndDate.getFullYear(), chartEndDate.getMonth(), chartEndDate.getDate(), 23, 59, 59, 999);
   const allWeeks = [];
   const rollingWeekRanges = []; // Store {start, end} for each rolling week
-  
+
   // Calculate how many weeks back we need to go based on filter date range
-  const weeksBack = chartStartDate ? Math.ceil((todayEnd - chartStartDate) / (7 * 24 * 60 * 60 * 1000)) + 1 : 8;
+  const weeksBack = chartStartDate ? Math.ceil((chartEndWithTime - chartStartDate) / (7 * 24 * 60 * 60 * 1000)) + 1 : 8;
   const maxWeeks = Math.min(weeksBack, 12); // Cap at 12 weeks
-  
+
   for (let i = 0; i < maxWeeks; i++) {
-    const endDate = new Date(todayEnd.getTime() - (i * 7 * 24 * 60 * 60 * 1000));
+    const endDate = new Date(chartEndWithTime.getTime() - (i * 7 * 24 * 60 * 60 * 1000));
     const startDate = new Date(endDate.getTime() - (6 * 24 * 60 * 60 * 1000));
     startDate.setHours(0, 0, 0, 0);
-    
+
     const weekLabel = `${startDate.getMonth() + 1}/${startDate.getDate()}-${endDate.getMonth() + 1}/${endDate.getDate()}`;
     allWeeks.unshift(weekLabel); // Add to beginning so oldest is first
     rollingWeekRanges.unshift({ start: new Date(startDate), end: new Date(endDate), label: weekLabel });

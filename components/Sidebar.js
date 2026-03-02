@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Logo from './Logo';
@@ -8,6 +8,7 @@ import Logo from './Logo';
 export default function Sidebar({ user, onLogout }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const pathname = usePathname();
+  const hoverTimeoutRef = useRef(null);
 
   const navItems = [
     {
@@ -70,11 +71,16 @@ export default function Sidebar({ user, onLogout }) {
   return (
     <aside
       className={`fixed left-0 top-0 h-full bg-slate-900 text-white z-50 transition-all duration-300 ease-in-out ${
-        isExpanded ? 'w-64' : 'w-16'
+        isExpanded ? 'w-64' : 'w-16 overflow-hidden'
       }`}
       style={{ width: isExpanded ? '16rem' : '4rem' }}
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
+      onMouseEnter={() => {
+        hoverTimeoutRef.current = setTimeout(() => setIsExpanded(true), 300);
+      }}
+      onMouseLeave={() => {
+        clearTimeout(hoverTimeoutRef.current);
+        setIsExpanded(false);
+      }}
     >
       {/* Logo */}
       <div className="h-16 flex items-center justify-center border-b border-slate-700 p-2">
