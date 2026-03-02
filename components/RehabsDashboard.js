@@ -220,6 +220,8 @@ export default function RehabsDashboard() {
         return 'bg-orange-300 text-orange-900';
       case 'Not Started':
         return 'bg-red-500 text-white';
+      case 'Rented':
+        return 'bg-blue-500 text-white';
       default:
         return 'bg-gray-200 text-gray-700';
     }
@@ -276,7 +278,7 @@ export default function RehabsDashboard() {
   }
 
   // Status order for sorting
-  const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete'];
+  const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Rented', 'Complete'];
   
   // Filter rehabs by selected property
   const filteredRehabs = selectedProperty === 'all' 
@@ -506,13 +508,15 @@ export default function RehabsDashboard() {
                         <select
                           value={unit.rehab_status || 'Not Started'}
                           onChange={(e) => updateRehabField(unit.id, 'rehab_status', e.target.value)}
-                          className={`w-full px-1 py-1 text-xs border-0 rounded text-center font-medium ${getStatusStyle(unit.rehab_status || 'Not Started')}`}
+                          disabled={unit.rehab_status === 'Rented'}
+                          className={`w-full px-1 py-1 text-xs border-0 rounded text-center font-medium ${getStatusStyle(unit.rehab_status || 'Not Started')} ${unit.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-90' : ''}`}
                         >
                           <option value="Not Started">Not Started</option>
                           <option value="Supervisor Onboard">Supervisor Onboard</option>
                           <option value="Back Burner">Back Burner</option>
                           <option value="Waiting">Waiting</option>
                           <option value="In Progress">In Progress</option>
+                          <option value="Rented">Rented</option>
                           <option value="Complete">Complete</option>
                         </select>
                       </td>
@@ -605,13 +609,15 @@ export default function RehabsDashboard() {
                       updateRehabField(editingRehab.id, 'rehab_status', e.target.value);
                       setEditingRehab(prev => ({ ...prev, rehab_status: e.target.value }));
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    disabled={editingRehab.rehab_status === 'Rented'}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${editingRehab.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-75 bg-gray-100' : ''}`}
                   >
                     <option value="Not Started">Not Started</option>
                     <option value="Supervisor Onboard">Supervisor Onboard</option>
                     <option value="Back Burner">Back Burner</option>
                     <option value="Waiting">Waiting</option>
                     <option value="In Progress">In Progress</option>
+                    <option value="Rented">Rented</option>
                     <option value="Complete">Complete</option>
                   </select>
                 </div>
@@ -702,10 +708,11 @@ export default function RehabsDashboard() {
                   <option value="Back Burner">Back Burner</option>
                   <option value="Waiting">Waiting</option>
                   <option value="In Progress">In Progress</option>
+                  <option value="Rented">Rented</option>
                   <option value="Complete">Complete</option>
                 </select>
               </div>
-              
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
