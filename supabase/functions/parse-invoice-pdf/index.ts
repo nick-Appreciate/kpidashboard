@@ -44,7 +44,7 @@ interface ParsedInvoice {
 
 // Fetch a PDF from Front API
 async function downloadPdfFromFront(attachmentId: string): Promise<Uint8Array> {
-  const url = `https://api2.frontapp.com/download/file/${attachmentId}`;
+  const url = `https://api2.frontapp.com/download/${attachmentId}`;
   const response = await fetch(url, {
     headers: {
       'Authorization': `Bearer ${frontApiKey}`,
