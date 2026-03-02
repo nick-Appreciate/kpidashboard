@@ -197,7 +197,7 @@ export default function CollectionsKanban() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [groupByProperty, setGroupByProperty] = useState(true);
   const [largeBalancesOnly, setLargeBalancesOnly] = useState(false);
-  const [agingFilter, setAgingFilter] = useState('all'); // 'all', '30', '60', '90+'
+  const [agingFilter, setAgingFilter] = useState('all'); // 'all', '0-30', '60-90', '90+'
   const [contactPrompt, setContactPrompt] = useState(null); // { item, contactNumber }
   const [contactNoteInput, setContactNoteInput] = useState('');
   const { makeCall } = useJustCall();
@@ -435,10 +435,7 @@ export default function CollectionsKanban() {
   if (agingFilter !== 'all') {
     filteredItems = filteredItems.filter(item => {
       const badge = getAgingBadge(item).label;
-      if (agingFilter === '30') return badge === '30-60' || badge === '60-90' || badge === '90+';
-      if (agingFilter === '60') return badge === '60-90' || badge === '90+';
-      if (agingFilter === '90+') return badge === '90+';
-      return true;
+      return badge === agingFilter;
     });
   }
 
@@ -502,8 +499,8 @@ export default function CollectionsKanban() {
               <div className="flex items-center border border-slate-300 rounded overflow-hidden text-xs">
                 {[
                   { value: 'all', label: 'All' },
-                  { value: '30', label: '30+' },
-                  { value: '60', label: '60+' },
+                  { value: '0-30', label: '0-30' },
+                  { value: '60-90', label: '60-90' },
                   { value: '90+', label: '90+' },
                 ].map(opt => (
                   <button
