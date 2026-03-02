@@ -244,7 +244,7 @@ export default function BillingDashboard() {
                         )}
                         {bill.front_conversation_id && (
                           <a
-                            href={`https://app.frontapp.com/open/${bill.front_conversation_id}`}
+                            href="https://app.frontapp.com/inboxes/teams/folders/16787218/unassigned/"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
