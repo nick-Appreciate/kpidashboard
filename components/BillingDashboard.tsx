@@ -26,6 +26,7 @@ interface Bill {
   af_paid_date: string | null;
   af_memo: string | null;
   af_match_status: "matched" | "unmatched";
+  front_message_id: string | null;
 }
 
 type SortOption = "unmatched_first" | "matched_first" | "date_newest" | "date_oldest";
@@ -244,7 +245,7 @@ export default function BillingDashboard() {
                         )}
                         {bill.front_conversation_id && (
                           <a
-                            href={`https://app.frontapp.com/open/${bill.front_conversation_id}`}
+                            href={`https://app.frontapp.com/open/${bill.front_message_id || bill.front_conversation_id}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
