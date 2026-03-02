@@ -3,11 +3,7 @@ import { supabase } from '../../../../lib/supabase';
 
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from("ops_bills")
-      .select("*")
-      .eq("status", "pending")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.rpc('get_bills_with_af_match');
 
     if (error) {
       return NextResponse.json(

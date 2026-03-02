@@ -40,6 +40,8 @@ interface ParsedInvoice {
   invoice_date: string | null;
   due_date: string | null;
   description: string | null;
+  document_type: string | null;
+  payment_status: string | null;
 }
 
 // Fetch a PDF from Front API
@@ -83,6 +85,57 @@ async function billAlreadyExists(frontMessageId: string): Promise<boolean> {
   return data !== null && data.length > 0;
 }
 
+// Strip common prefixes/suffixes for better vendor matching
+function normalizeVendorName(name: string): string {
+  let n = name.trim();
+  // Strip leading "The "
+  n = n.replace(/^The\s+/i, '');
+  // Strip trailing legal suffixes
+  n = n.replace(/,?\s*(Inc\.?|LLC\.?|L\.?L\.?C\.?|Corp\.?|Co\.?|Ltd\.?)$/i, '');
+  return n.trim();
+}
+
+// Try to match vendor name against AppFolio vendor directory
+async function matchAppfolioVendor(vendorName: string): Promise<string> {
+  if (!vendorName) return vendorName;
+
+  // 1. Exact match (case-insensitive)
+  const { data: exact } = await supabase
+    .from('af_vendor_directory')
+    .select('company_name')
+    .ilike('company_name', vendorName)
+    .limit(1);
+
+  if (exact && exact.length > 0) return exact[0].company_name;
+
+  // 2. Try normalized name (strip "The ", ", Inc.", ", LLC" etc.)
+  const normalized = normalizeVendorName(vendorName);
+  if (normalized !== vendorName) {
+    const { data: normMatch } = await supabase
+      .from('af_vendor_directory')
+      .select('company_name')
+      .ilike('company_name', normalized)
+      .limit(1);
+
+    if (normMatch && normMatch.length > 0) return normMatch[0].company_name;
+  }
+
+  // 3. Fuzzy: first word match (skip common words like "The")
+  const firstWord = normalized.split(' ')[0];
+  if (firstWord && firstWord.length > 2) {
+    const { data: fuzzy } = await supabase
+      .from('af_vendor_directory')
+      .select('company_name')
+      .or(`company_name.ilike.%${normalized}%,company_name.ilike.${firstWord}%`)
+      .limit(1);
+
+    if (fuzzy && fuzzy.length > 0) return fuzzy[0].company_name;
+  }
+
+  // No match — return original name
+  return vendorName;
+}
+
 // Use Claude to intelligently parse invoice data
 async function parseInvoiceWithClaude(
   pdfBase64: string,
@@ -99,13 +152,15 @@ async function parseInvoiceWithClaude(
         content: [
           {
             type: 'text',
-            text: `You are an invoice parsing expert. Extract the following information from this invoice PDF:
-- Vendor/Company name
+            text: `You are an invoice parsing expert. Extract the following information from this PDF document:
+- Vendor/Company name: Use the actual vendor or company that provided the goods/services, as shown on the invoice/document itself. Do NOT use the email sender if it is a payment processor, bank, or notification service (e.g. Mercury, PayPal, Stripe, Square). If the PDF does not clearly show a vendor, extract the vendor name from the email subject or body (e.g. "charged by Plumb Perfect Plum" → "Plumb Perfect Plum").
 - Invoice number
 - Invoice amount (total, as a number)
 - Invoice date (YYYY-MM-DD format)
 - Due date (YYYY-MM-DD format, if available)
 - Brief description of what was invoiced
+- Document type: classify as "invoice", "estimate", or "other"
+- Payment status: look for language like "paid", "payment received", "balance due", "amount due", "past due", "bill is due", etc. Classify as "paid", "unpaid", or "unknown"
 
 Email Subject: ${emailSubject}
 Sender Name: ${senderName}
@@ -118,7 +173,9 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
   "invoice_amount": number or null,
   "invoice_date": "YYYY-MM-DD or null",
   "due_date": "YYYY-MM-DD or null",
-  "description": "string or null"
+  "description": "string or null",
+  "document_type": "invoice or estimate or other",
+  "payment_status": "paid or unpaid or unknown"
 }`,
           },
           {
@@ -155,6 +212,8 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
       invoice_date: null,
       due_date: null,
       description: null,
+      document_type: null,
+      payment_status: null,
     };
   }
 }
@@ -259,6 +318,11 @@ Deno.serve(async (req: Request) => {
           msg.sender_name || 'Unknown'
         );
 
+        // Try to match vendor name against AppFolio vendor directory
+        if (invoice.vendor_name) {
+          invoice.vendor_name = await matchAppfolioVendor(invoice.vendor_name);
+        }
+
         // Validate required fields — ops_bills requires vendor_name, amount, invoice_date as NOT NULL
         if (!invoice.vendor_name || invoice.invoice_amount === null || !invoice.invoice_date) {
           console.warn(`Incomplete parse for ${msg.front_id}: vendor=${invoice.vendor_name}, amount=${invoice.invoice_amount}, date=${invoice.invoice_date}`);
@@ -304,6 +368,8 @@ Deno.serve(async (req: Request) => {
           status: 'pending',
           due_date: invoice.due_date,
           description: invoice.description,
+          document_type: invoice.document_type || 'invoice',
+          payment_status: invoice.payment_status || 'unpaid',
         });
 
         // Mark message as extracted with parsed data
@@ -340,18 +406,31 @@ Deno.serve(async (req: Request) => {
     }
 
     // Batch insert into ops_bills with conflict handling
+    // Split by invoice_number presence to match the two partial unique indexes
     if (opsBillsInserts.length > 0) {
-      const { error: insertError } = await supabase
-        .from('ops_bills')
-        .upsert(opsBillsInserts, {
-          onConflict: 'vendor_name,amount,invoice_date,front_message_id',
-          ignoreDuplicates: true,
-        });
+      const withInvoiceNum = opsBillsInserts.filter(r => r.invoice_number);
+      const withoutInvoiceNum = opsBillsInserts.filter(r => !r.invoice_number);
 
-      if (insertError) {
-        console.error('ops_bills insert error:', insertError);
-      } else {
-        console.log(`Inserted ${opsBillsInserts.length} bills into ops_bills`);
+      if (withInvoiceNum.length > 0) {
+        const { error: insertError } = await supabase
+          .from('ops_bills')
+          .upsert(withInvoiceNum, {
+            onConflict: 'invoice_number,amount',
+            ignoreDuplicates: true,
+          });
+        if (insertError) console.error('ops_bills insert error (with invoice#):', insertError);
+        else console.log(`Inserted ${withInvoiceNum.length} bills with invoice numbers`);
+      }
+
+      if (withoutInvoiceNum.length > 0) {
+        const { error: insertError } = await supabase
+          .from('ops_bills')
+          .upsert(withoutInvoiceNum, {
+            onConflict: 'vendor_name,amount,invoice_date',
+            ignoreDuplicates: true,
+          });
+        if (insertError) console.error('ops_bills insert error (no invoice#):', insertError);
+        else console.log(`Inserted ${withoutInvoiceNum.length} bills without invoice numbers`);
       }
     }
 
