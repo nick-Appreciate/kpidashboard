@@ -220,34 +220,33 @@ export async function GET(request) {
             reservation_of_rights_entered_at: now.toISOString()
           });
         }
-      } else if (stage === 'needs_contacted' && todayDate >= 9) {
-        // On/after 9th of month: auto-move based on balance vs rent
-        if (monthlyRent > 0 && balance > 0) {
-          const noticeType = isKCProperty(item.property_name) ? '3-day' : '10-day';
-          if (balance <= monthlyRent) {
-            stage = 'balance_letter';
-            autoMoveUpdates.push({
-              occupancy_id: item.occupancy_id,
-              property_name: item.property_name || '',
-              unit: item.unit || '',
-              tenant_name: item.name || '',
-              stage: 'balance_letter',
-              stage_updated_at: now.toISOString(),
-              balance_letter_entered_at: now.toISOString()
-            });
-          } else {
-            stage = 'notice';
-            autoMoveUpdates.push({
-              occupancy_id: item.occupancy_id,
-              property_name: item.property_name || '',
-              unit: item.unit || '',
-              tenant_name: item.name || '',
-              stage: 'notice',
-              stage_updated_at: now.toISOString(),
-              notice_type: noticeType,
-              notice_entered_at: now.toISOString()
-            });
-          }
+      } else if (stage === 'needs_contacted' && monthlyRent > 0 && balance > 0) {
+        const noticeType = isKCProperty(item.property_name) ? '3-day' : '10-day';
+        if (balance > monthlyRent) {
+          // Balance over one month's rent → notice immediately
+          stage = 'notice';
+          autoMoveUpdates.push({
+            occupancy_id: item.occupancy_id,
+            property_name: item.property_name || '',
+            unit: item.unit || '',
+            tenant_name: item.name || '',
+            stage: 'notice',
+            stage_updated_at: now.toISOString(),
+            notice_type: noticeType,
+            notice_entered_at: now.toISOString()
+          });
+        } else if (todayDate >= 9) {
+          // Balance <= rent, on/after 9th → balance letter
+          stage = 'balance_letter';
+          autoMoveUpdates.push({
+            occupancy_id: item.occupancy_id,
+            property_name: item.property_name || '',
+            unit: item.unit || '',
+            tenant_name: item.name || '',
+            stage: 'balance_letter',
+            stage_updated_at: now.toISOString(),
+            balance_letter_entered_at: now.toISOString()
+          });
         }
       }
 

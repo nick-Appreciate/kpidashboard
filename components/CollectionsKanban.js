@@ -162,8 +162,8 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, onConta
             Tenant
           </a>
         )}
-        {/* Contact buttons for needs_contacted cards */}
-        {item.stage === 'needs_contacted' && onContactClick && (
+        {/* Contact buttons for needs_contacted, balance_letter, and notice cards */}
+        {['needs_contacted', 'balance_letter', 'notice'].includes(item.stage) && onContactClick && (
           <div className="flex items-center gap-0.5 ml-auto">
             {[1, 2, 3].map(n => (
               <ContactButton
