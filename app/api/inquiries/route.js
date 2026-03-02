@@ -1,43 +1,61 @@
 import { supabaseAdmin } from '../../../lib/supabase';
 
+// Region definitions - matches occupancy dashboard
+const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+
+function filterByRegion(records, region) {
+  if (!region) return records;
+  return records.filter(record => {
+    const prop = (record.property || '').toLowerCase();
+    const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc));
+    if (region === 'region_kansas_city') return matchesKC;
+    if (region === 'region_columbia') return !matchesKC;
+    return true;
+  });
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
     const status = searchParams.get('status');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const limit = parseInt(searchParams.get('limit') || '1000');
-    
+
     let query = supabaseAdmin
       .from('leasing_reports')
       .select('*')
       .order('inquiry_received', { ascending: false })
       .limit(limit);
-    
+
     if (property) {
       query = query.eq('property', property);
     }
-    
+
     if (status) {
       query = query.eq('status', status);
     }
-    
+
     if (startDate) {
       query = query.gte('inquiry_received', startDate);
     }
-    
+
     if (endDate) {
       query = query.lte('inquiry_received', endDate);
     }
-    
-    const { data, error } = await query;
-    
+
+    let { data, error } = await query;
+
     if (error) {
       console.error('Supabase error:', error);
       return Response.json({ error: error.message }, { status: 500 });
     }
-    
+
+    // Apply region filter post-fetch
+    if (region) data = filterByRegion(data || [], region);
+
     return Response.json({
       inquiries: data,
       count: data.length

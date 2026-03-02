@@ -110,7 +110,11 @@ export default function Dashboard() {
       try {
         const params = new URLSearchParams();
         params.append('stages', selectedStages.join(','));
-        if (selectedProperty !== 'all') params.append('property', selectedProperty);
+        if (selectedProperty.startsWith('region_')) {
+          params.append('region', selectedProperty);
+        } else if (selectedProperty !== 'all') {
+          params.append('property', selectedProperty);
+        }
         if (startDate) params.append('startDate', startDate);
         if (endDate) params.append('endDate', endDate);
         
@@ -164,11 +168,15 @@ export default function Dashboard() {
       setLoading(true);
       
       const params = new URLSearchParams();
-      if (selectedProperty !== 'all') params.append('property', selectedProperty);
+      if (selectedProperty.startsWith('region_')) {
+        params.append('region', selectedProperty);
+      } else if (selectedProperty !== 'all') {
+        params.append('property', selectedProperty);
+      }
       if (selectedStatus !== 'all') params.append('status', selectedStatus);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      
+
       // Fetch inquiries
       const inquiriesRes = await fetch(`/api/inquiries?${params}`);
       const inquiriesData = await inquiriesRes.json();
@@ -868,11 +876,17 @@ export default function Dashboard() {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
               >
                 <option value="all">All Properties</option>
-                {properties.map(prop => (
-                  <option key={prop} value={prop}>
-                    {prop.substring(0, 50)}{prop.length > 50 ? '...' : ''}
-                  </option>
-                ))}
+                <optgroup label="Regions">
+                  <option value="region_kansas_city">Kansas City</option>
+                  <option value="region_columbia">Columbia</option>
+                </optgroup>
+                <optgroup label="Properties">
+                  {properties.map(prop => (
+                    <option key={prop} value={prop}>
+                      {prop.substring(0, 50)}{prop.length > 50 ? '...' : ''}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </div>
             

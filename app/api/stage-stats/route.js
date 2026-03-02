@@ -3,12 +3,29 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+// Region definitions - matches occupancy dashboard
+const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+
+function filterByRegion(records, region) {
+  if (!region) return records;
+  return records.filter(record => {
+    // Check property field first, fall back to unit field for rental_applications
+    const prop = (record.property || '').toLowerCase();
+    const unit = (record.unit || '').toLowerCase();
+    const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc) || unit.includes(kc));
+    if (region === 'region_kansas_city') return matchesKC;
+    if (region === 'region_columbia') return !matchesKC;
+    return true;
+  });
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const stagesParam = searchParams.get('stages'); // comma-separated list for multi-select
     const stage = searchParams.get('stage'); // single stage (backwards compatible)
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
@@ -36,12 +53,14 @@ export async function GET(request) {
 
     // Fetch name lookup from leasing_reports (inquiry_id -> name)
     // Also fetch all inquiries for baseline conversion calculation
-    let inquiriesQuery = supabase.from('leasing_reports').select('inquiry_id, name, guest_card_id, inquiry_received');
+    let inquiriesQuery = supabase.from('leasing_reports').select('inquiry_id, name, guest_card_id, inquiry_received, property');
     if (startDate) inquiriesQuery = inquiriesQuery.gte('inquiry_received', startDate);
     if (endDate) inquiriesQuery = inquiriesQuery.lte('inquiry_received', endDate + 'T23:59:59');
     if (property && property !== 'all') inquiriesQuery = inquiriesQuery.eq('property', property);
-    
-    const { data: leasingData } = await inquiriesQuery;
+
+    let { data: leasingData } = await inquiriesQuery;
+    // Apply region filter to inquiry baseline data
+    if (region) leasingData = filterByRegion(leasingData || [], region);
     
     const nameLookup = {};
     const guestCardLookup = {};
@@ -151,6 +170,9 @@ export async function GET(request) {
 
       allRecords = allRecords.concat(enrichedRecords);
     }
+
+    // Apply region filter to all records (post-fetch filtering)
+    if (region) allRecords = filterByRegion(allRecords, region);
 
     // Check if any records from selected stages have dates after today
     // If no future data exists, cap endDate to today (normal cutoff)

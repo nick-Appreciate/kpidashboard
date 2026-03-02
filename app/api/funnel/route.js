@@ -1,10 +1,26 @@
 import { supabase } from '../../../lib/supabase';
 import { NextResponse } from 'next/server';
 
+// Region definitions - matches occupancy dashboard
+const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+
+function filterByRegion(records, region) {
+  if (!region) return records;
+  return records.filter(record => {
+    const prop = (record.property || '').toLowerCase();
+    const unit = (record.unit || '').toLowerCase();
+    const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc) || unit.includes(kc));
+    if (region === 'region_kansas_city') return matchesKC;
+    if (region === 'region_columbia') return !matchesKC;
+    return true;
+  });
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
@@ -16,11 +32,12 @@ export async function GET(request) {
     };
 
     // Get inquiry status breakdown
-    let inquiriesQuery = supabase.from('leasing_reports').select('status');
+    let inquiriesQuery = supabase.from('leasing_reports').select('status, property');
     if (property && property !== 'all') inquiriesQuery = inquiriesQuery.eq('property', property);
     inquiriesQuery = addDateFilters(inquiriesQuery, 'inquiry_received');
-    const { data: inquiriesData, error: inquiriesError } = await inquiriesQuery;
+    let { data: inquiriesData, error: inquiriesError } = await inquiriesQuery;
     if (inquiriesError) throw inquiriesError;
+    if (region) inquiriesData = filterByRegion(inquiriesData || [], region);
 
     const inquiryStatusCounts = {};
     inquiriesData?.forEach(row => {
@@ -29,11 +46,12 @@ export async function GET(request) {
     });
 
     // Get showings with status breakdown
-    let showingsQuery = supabase.from('showings').select('status');
+    let showingsQuery = supabase.from('showings').select('status, property');
     if (property && property !== 'all') showingsQuery = showingsQuery.eq('property', property);
     showingsQuery = addDateFilters(showingsQuery, 'showing_time');
-    const { data: showingsData, error: showingsError } = await showingsQuery;
+    let { data: showingsData, error: showingsError } = await showingsQuery;
     if (showingsError) throw showingsError;
+    if (region) showingsData = filterByRegion(showingsData || [], region);
 
     const showingStatusCounts = {};
     showingsData?.forEach(row => {
@@ -48,8 +66,9 @@ export async function GET(request) {
       applicationsQuery = applicationsQuery.like('unit', `${property} - %`);
     }
     applicationsQuery = addDateFilters(applicationsQuery, 'received');
-    const { data: applicationsData, error: applicationsError } = await applicationsQuery;
+    let { data: applicationsData, error: applicationsError } = await applicationsQuery;
     if (applicationsError) throw applicationsError;
+    if (region) applicationsData = filterByRegion(applicationsData || [], region);
 
     const applicationStatusCounts = {};
     applicationsData?.forEach(row => {

@@ -1,5 +1,19 @@
 import { supabase } from '../../../lib/supabase';
 
+// Region definitions - matches occupancy dashboard
+const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+
+function filterByRegion(records, region) {
+  if (!region) return records;
+  return records.filter(record => {
+    const prop = (record.property || '').toLowerCase();
+    const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc));
+    if (region === 'region_kansas_city') return matchesKC;
+    if (region === 'region_columbia') return !matchesKC;
+    return true;
+  });
+}
+
 // Convert UTC date to Central Time and return YYYY-MM-DD string
 function toCentralDate(dateStr) {
   if (!dateStr) return null;
@@ -13,19 +27,22 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
     const status = searchParams.get('status');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
-    
+
     // Build base query
     let baseQuery = supabase.from('leasing_reports').select('*');
-    
+
     if (property) baseQuery = baseQuery.eq('property', property);
     if (status) baseQuery = baseQuery.eq('status', status);
     if (startDate) baseQuery = baseQuery.gte('inquiry_received', startDate);
     if (endDate) baseQuery = baseQuery.lte('inquiry_received', endDate);
-    
-    const { data: inquiries, error } = await baseQuery;
+
+    let { data: inquiries, error } = await baseQuery;
+    // Apply region filter post-fetch
+    if (region) inquiries = filterByRegion(inquiries || [], region);
     
     if (error) {
       return Response.json({ error: error.message }, { status: 500 });
