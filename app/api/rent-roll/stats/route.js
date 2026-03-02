@@ -154,18 +154,19 @@ export async function GET(request) {
     
     // Get historical occupancy data - fetch all snapshots with pagination to avoid row limits
     // Supabase has a max of 1000 rows per request, so we need to paginate
+    // Only select fields needed for trend calculations to reduce payload size
     let allHistoryData = [];
     let page = 0;
     const pageSize = 1000;
     let hasMore = true;
-    
+
     while (hasMore) {
       let historyQuery = supabase
         .from('rent_roll_snapshots')
-        .select('*')
+        .select('snapshot_date, property, unit, status, lease_to, past_due')
         .order('snapshot_date', { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
-      
+
       if (startDate) {
         historyQuery = historyQuery.gte('snapshot_date', startDate);
       }
@@ -175,12 +176,12 @@ export async function GET(request) {
       if (property && property !== 'all') {
         historyQuery = historyQuery.eq('property', property);
       }
-      
+
       const { data: pageData, error: pageError } = await historyQuery;
-      
+
       // Note: Region filtering is now done during aggregation, not here
       // This allows us to build regional trends from the full dataset
-      
+
       if (pageError || !pageData || pageData.length === 0) {
         hasMore = false;
       } else {
@@ -188,9 +189,9 @@ export async function GET(request) {
         hasMore = pageData.length === pageSize;
         page++;
       }
-      
-      // Safety limit to prevent infinite loops
-      if (page > 10) hasMore = false;
+
+      // Safety limit - 100 pages handles ~100k records (~400 days of daily snapshots)
+      if (page > 100) hasMore = false;
     }
     
     const historyData = allHistoryData;
