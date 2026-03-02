@@ -4,7 +4,14 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 // Stage definitions
-const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'current'];
+const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current'];
+
+// Region definitions for notice type determination
+const REGION_PROPERTIES = {
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+};
+const isKCProperty = (prop) =>
+  REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));
 
 export async function GET(request) {
   try {
@@ -152,49 +159,126 @@ export async function GET(request) {
       delinquencyKeys.add(`${item.property_name}|${item.unit}`);
     });
     
+    // Auto-move logic helpers
+    const now = new Date();
+    const todayDate = now.getDate();
+    const autoMoveUpdates = [];
+
+    const daysBetween = (dateStr) => {
+      if (!dateStr) return 0;
+      const diff = now - new Date(dateStr);
+      return Math.floor(diff / (1000 * 60 * 60 * 24));
+    };
+
     // Merge delinquency data with stages
     const items = (data || []).map(item => {
       const stageData = stagesMap[item.occupancy_id];
       let stage = stageData?.stage || 'needs_contacted';
-      
+
+      // Migrate old stages that no longer exist
+      if (stage === 'contact_1' || stage === 'contact_2' || stage === 'promise_to_pay') {
+        stage = 'needs_contacted';
+      }
+
       // Get tenant_id for AppFolio links - check tenant directory first, then lease history
       const unitKey = `${item.property_name}|${item.unit}`;
       const tenantInfo = tenantLookup[unitKey];
       const tenantId = tenantInfo?.tenant_id || tenantIdMap[item.occupancy_id] || null;
-      
+
       // Check if unit is in eviction status in rent roll
-      const evictionKey = `${item.property_name}|${item.unit}`;
-      const afEviction = !!evictionMap[evictionKey];
-      
+      const afEviction = !!evictionMap[unitKey];
+
       const balance = parseFloat(item.amount_receivable || 0);
       const monthlyRent = parseFloat(item.rent || 0);
-      
-      // Auto-move to current if balance drops to zero or negative
-      const shouldAutoCurrent = balance <= 0;
-      
-      // LOCKED STAGES: Eviction and Current are programmatically controlled
-      // Priority: Eviction > Current > Manual stage
-      // - Eviction: ONLY units with status='Evict' in rent_roll_snapshots (highest priority)
-      // - Current: ONLY units with balance <= 0 (if not in eviction)
+
+      // AUTO-STAGE PRIORITY:
+      // 1. Eviction (rent_roll status=Evict) - locked
+      // 2. Current (balance <= 0) - locked
+      // 3. Notice → Reservation of Rights (after 3/10 days)
+      // 4. Needs Contacted → Balance Letter or Notice (on/after 9th of month)
+      // 5. Otherwise: use stored stage
+
       if (afEviction) {
-        // AppFolio eviction status takes highest priority
         stage = 'eviction';
-      } else if (shouldAutoCurrent) {
+      } else if (balance <= 0) {
         stage = 'current';
       } else if (stage === 'eviction' && !afEviction) {
-        // If card was in eviction but no longer has eviction status, move back to needs_contacted
         stage = 'needs_contacted';
+      } else if (stage === 'notice' && stageData?.notice_entered_at) {
+        // Check if notice period has elapsed → move to reservation_of_rights
+        const daysInNotice = daysBetween(stageData.notice_entered_at);
+        const requiredDays = stageData.notice_type === '3-day' ? 3 : 10;
+        if (daysInNotice >= requiredDays) {
+          stage = 'reservation_of_rights';
+          autoMoveUpdates.push({
+            occupancy_id: item.occupancy_id,
+            property_name: item.property_name || '',
+            unit: item.unit || '',
+            tenant_name: item.name || '',
+            stage: 'reservation_of_rights',
+            stage_updated_at: now.toISOString(),
+            reservation_of_rights_entered_at: now.toISOString()
+          });
+        }
+      } else if (stage === 'needs_contacted' && todayDate >= 9) {
+        // On/after 9th of month: auto-move based on balance vs rent
+        if (monthlyRent > 0 && balance > 0) {
+          const noticeType = isKCProperty(item.property_name) ? '3-day' : '10-day';
+          if (balance <= monthlyRent) {
+            stage = 'balance_letter';
+            autoMoveUpdates.push({
+              occupancy_id: item.occupancy_id,
+              property_name: item.property_name || '',
+              unit: item.unit || '',
+              tenant_name: item.name || '',
+              stage: 'balance_letter',
+              stage_updated_at: now.toISOString(),
+              balance_letter_entered_at: now.toISOString()
+            });
+          } else {
+            stage = 'notice';
+            autoMoveUpdates.push({
+              occupancy_id: item.occupancy_id,
+              property_name: item.property_name || '',
+              unit: item.unit || '',
+              tenant_name: item.name || '',
+              stage: 'notice',
+              stage_updated_at: now.toISOString(),
+              notice_type: noticeType,
+              notice_entered_at: now.toISOString()
+            });
+          }
+        }
       }
-      
+
+      // Enrich stage_data with notice_type for frontend display
+      const enrichedStageData = stageData ? { ...stageData } : null;
+      if (stage === 'notice' && !enrichedStageData?.notice_type) {
+        // For freshly auto-moved items, inject notice_type
+        const noticeType = isKCProperty(item.property_name) ? '3-day' : '10-day';
+        if (enrichedStageData) {
+          enrichedStageData.notice_type = noticeType;
+        }
+      }
+
       return {
         ...item,
         stage,
-        stage_data: stageData || null,
+        stage_data: enrichedStageData,
         tenant_id: tenantId,
         af_eviction: afEviction,
         balance_over_rent: monthlyRent > 0 ? (balance / monthlyRent).toFixed(1) : 0
       };
     });
+
+    // Persist auto-move stage changes to DB
+    if (autoMoveUpdates.length > 0) {
+      await Promise.all(autoMoveUpdates.map(update =>
+        supabase
+          .from('collection_stages')
+          .upsert(update, { onConflict: 'occupancy_id' })
+      ));
+    }
     
     // Add eviction units that aren't in delinquency data
     // These are units with status='Evict' in rent_roll but not in af_delinquency
@@ -274,13 +358,10 @@ export async function GET(request) {
     const summary = {
       totalAccounts: items.length,
       totalReceivable: items.reduce((sum, item) => sum + parseFloat(item.amount_receivable || 0), 0),
-      byStage: {
-        needs_contacted: items.filter(i => i.stage === 'needs_contacted').length,
-        contact_1: items.filter(i => i.stage === 'contact_1').length,
-        contact_2: items.filter(i => i.stage === 'contact_2').length,
-        eviction: items.filter(i => i.stage === 'eviction').length,
-        current: items.filter(i => i.stage === 'current').length
-      }
+      byStage: STAGES.reduce((acc, s) => {
+        acc[s] = items.filter(i => i.stage === s).length;
+        return acc;
+      }, {})
     };
     
     // Get unique properties for filter
@@ -446,12 +527,16 @@ export async function PATCH(request) {
       updateData.stage_updated_at = new Date().toISOString();
       
       // Set stage-specific timestamps
-      if (stage === 'contact_1') {
-        updateData.contact_1_date = new Date().toISOString();
-        if (notes) updateData.contact_1_notes = notes;
-      } else if (stage === 'contact_2') {
-        updateData.contact_2_date = new Date().toISOString();
-        if (notes) updateData.contact_2_notes = notes;
+      if (stage === 'balance_letter') {
+        updateData.balance_letter_entered_at = new Date().toISOString();
+        if (notes) updateData.balance_letter_notes = notes;
+      } else if (stage === 'notice') {
+        updateData.notice_entered_at = new Date().toISOString();
+        updateData.notice_type = isKCProperty(tenantInfo.property_name) ? '3-day' : '10-day';
+        if (notes) updateData.notice_notes = notes;
+      } else if (stage === 'reservation_of_rights') {
+        updateData.reservation_of_rights_entered_at = new Date().toISOString();
+        if (notes) updateData.reservation_of_rights_notes = notes;
       } else if (stage === 'eviction') {
         updateData.eviction_started_at = new Date().toISOString();
         if (notes) updateData.eviction_notes = notes;

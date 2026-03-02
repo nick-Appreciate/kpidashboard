@@ -5,39 +5,45 @@ import { LogoLoader } from './Logo';
 import JustCallDialer, { useJustCall } from './JustCallDialer';
 
 const STAGE_CONFIG = {
-  needs_contacted: { 
-    label: 'Needs Contacted', 
-    color: 'bg-red-500', 
+  needs_contacted: {
+    label: 'Needs Contacted',
+    color: 'bg-red-500',
     bgColor: 'bg-red-50',
     borderColor: 'border-red-200'
   },
-  contact_1: { 
-    label: 'Contact 1', 
-    color: 'bg-orange-500', 
+  balance_letter: {
+    label: 'Balance Letter',
+    color: 'bg-orange-500',
     bgColor: 'bg-orange-50',
     borderColor: 'border-orange-200'
   },
-  contact_2: { 
-    label: 'Contact 2', 
-    color: 'bg-yellow-500', 
+  notice: {
+    label: 'Notice',
+    color: 'bg-yellow-500',
     bgColor: 'bg-yellow-50',
     borderColor: 'border-yellow-200'
   },
-  eviction: { 
-    label: 'Eviction', 
-    color: 'bg-purple-500', 
+  reservation_of_rights: {
+    label: 'Reservation of Rights',
+    color: 'bg-amber-600',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200'
+  },
+  eviction: {
+    label: 'Eviction',
+    color: 'bg-purple-500',
     bgColor: 'bg-purple-50',
     borderColor: 'border-purple-200'
   },
-  current: { 
-    label: 'Current', 
-    color: 'bg-green-500', 
+  current: {
+    label: 'Current',
+    color: 'bg-green-500',
     bgColor: 'bg-green-50',
     borderColor: 'border-green-200'
   }
 };
 
-const STAGES = ['needs_contacted', 'contact_1', 'contact_2', 'eviction', 'current'];
+const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current'];
 
 // Locked stages that users cannot drag cards in/out of
 // - 'eviction': Only units with status='Evict' in rent_roll_snapshots
@@ -53,23 +59,47 @@ const isKCProperty = (prop) => {
   return REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));
 };
 
+// Contact button with hover tooltip
+function ContactButton({ number, date, notes, onClick, formatDate }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const hasContact = !!date;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        onMouseEnter={() => hasContact && setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        className={`text-xs w-5 h-5 rounded-full flex items-center justify-center font-medium transition-colors ${
+          hasContact
+            ? 'bg-blue-500 text-white'
+            : 'bg-white border border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500'
+        }`}
+        title={hasContact ? `Contact ${number}: ${formatDate(date)}` : `Log Contact ${number}`}
+      >
+        {number}
+      </button>
+      {showTooltip && hasContact && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-50 max-w-48">
+          <div className="font-medium">{formatDate(date)}</div>
+          {notes && <div className="text-slate-300 truncate">{notes}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Compact card component for Kanban
-function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgingBadge, formatCurrency, isDragging }) {
+function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, onContactClick, getAgingBadge, formatCurrency, formatDate, isDragging }) {
   const aging = getAgingBadge(item);
-  // Lock cards in eviction (if af_eviction) OR in paid stage
   const isLocked = item.af_eviction || LOCKED_STAGES.includes(item.stage);
-  
-  // AppFolio URLs:
-  // Tenant page: https://appreciateinc.appfolio.com/occupancies/{occupancy_id}/selected_tenant/{tenant_id}ledger
-  // Ledger report: https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters[party_ids][]=t_{tenant_id}
-  // Note: tenant_id comes from af_lease_history, not all tenants have it
+
   const tenantUrl = item.occupancy_id
-    ? (item.tenant_id 
+    ? (item.tenant_id
         ? `https://appreciateinc.appfolio.com/occupancies/${item.occupancy_id}/selected_tenant/${item.tenant_id}ledger`
         : `https://appreciateinc.appfolio.com/occupancies/${item.occupancy_id}`)
     : null;
-  
-  
+
   return (
     <div
       draggable={!isLocked}
@@ -77,8 +107,8 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
       onDragEnd={onDragEnd}
       onClick={onClick}
       className={`bg-white rounded shadow-sm border p-2 transition-all mb-1 ${
-        isLocked 
-          ? (item.stage === 'current' ? 'border-green-300 bg-green-50' : 'border-purple-300 bg-purple-50') + ' cursor-not-allowed' 
+        isLocked
+          ? (item.stage === 'current' ? 'border-green-300 bg-green-50' : 'border-purple-300 bg-purple-50') + ' cursor-not-allowed'
           : 'border-slate-200 cursor-grab hover:shadow-md hover:border-slate-300'
       } ${isDragging ? 'opacity-50 ring-2 ring-indigo-400' : ''}`}
     >
@@ -95,9 +125,21 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
           <div className="font-bold text-slate-900 text-sm">
             {formatCurrency(item.amount_receivable)}
           </div>
-          <span className={`${aging.color} text-white text-xs px-1 py-0.5 rounded`}>
-            {aging.label}
-          </span>
+          <div className="flex items-center gap-0.5 justify-end">
+            <span className={`${aging.color} text-white text-xs px-1 py-0.5 rounded`}>
+              {aging.label}
+            </span>
+            {/* Notice type emblem */}
+            {(item.stage === 'notice' || item.stage === 'reservation_of_rights') && item.stage_data?.notice_type && (
+              <span className={`text-xs px-1 py-0.5 rounded font-semibold ${
+                item.stage_data.notice_type === '3-day'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-orange-100 text-orange-700'
+              }`}>
+                {item.stage_data.notice_type === '3-day' ? '3-Day' : '10-Day'}
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-1 mt-1">
@@ -120,6 +162,21 @@ function CollectionCard({ item, onDragStart, onDragEnd, onClick, onCall, getAgin
             Tenant
           </a>
         )}
+        {/* Contact buttons for needs_contacted cards */}
+        {item.stage === 'needs_contacted' && onContactClick && (
+          <div className="flex items-center gap-0.5 ml-auto">
+            {[1, 2, 3].map(n => (
+              <ContactButton
+                key={n}
+                number={n}
+                date={item.stage_data?.[`contact_${n}_date`]}
+                notes={item.stage_data?.[`contact_${n}_notes`]}
+                onClick={() => onContactClick(item, n)}
+                formatDate={formatDate}
+              />
+            ))}
+          </div>
+        )}
         {isLocked && (
           <span className={`text-xs ml-auto ${item.stage === 'current' ? 'text-green-600' : 'text-purple-600'}`}>🔒</span>
         )}
@@ -140,6 +197,8 @@ export default function CollectionsKanban() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [groupByProperty, setGroupByProperty] = useState(true);
   const [largeBalancesOnly, setLargeBalancesOnly] = useState(false);
+  const [contactPrompt, setContactPrompt] = useState(null); // { item, contactNumber }
+  const [contactNoteInput, setContactNoteInput] = useState('');
   const { makeCall } = useJustCall();
 
   useEffect(() => {
@@ -260,6 +319,42 @@ export default function CollectionsKanban() {
       return;
     }
     makeCall(phone, item.name || 'Unknown');
+  };
+
+  const handleContactClick = (item, contactNumber) => {
+    const dateField = `contact_${contactNumber}_date`;
+    if (item.stage_data?.[dateField]) {
+      // Already clicked - open detail modal to view notes
+      openItemDetails(item);
+      return;
+    }
+    // Open note prompt for new contact
+    setContactPrompt({ item, contactNumber });
+    setContactNoteInput('');
+  };
+
+  const saveContactNote = async (item, contactNumber, note) => {
+    try {
+      const dateField = `contact_${contactNumber}_date`;
+      const notesField = `contact_${contactNumber}_notes`;
+
+      await fetch('/api/collections', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          occupancy_id: item.occupancy_id,
+          [dateField]: new Date().toISOString(),
+          [notesField]: note || ''
+        })
+      });
+
+      setContactPrompt(null);
+      setContactNoteInput('');
+      await fetchData();
+    } catch (err) {
+      console.error('Error saving contact note:', err);
+      alert('Failed to save contact note');
+    }
   };
 
   const getAgingBadge = (item) => {
@@ -422,7 +517,7 @@ export default function CollectionsKanban() {
         </div>
 
         {/* Kanban Board */}
-        <div className="grid grid-cols-5 gap-2" style={{ minHeight: 'calc(100vh - 180px)' }}>
+        <div className="grid grid-cols-6 gap-2" style={{ minHeight: 'calc(100vh - 180px)' }}>
           {STAGES.map(stage => {
             const config = STAGE_CONFIG[stage];
             const stageItems = itemsByStage[stage];
@@ -476,8 +571,10 @@ export default function CollectionsKanban() {
                               onDragEnd={handleDragEnd}
                               onClick={() => openItemDetails(item)}
                               onCall={handleCall}
+                              onContactClick={handleContactClick}
                               getAgingBadge={getAgingBadge}
                               formatCurrency={formatCurrency}
+                              formatDate={formatDate}
                               isDragging={draggedItem?.occupancy_id === item.occupancy_id}
                             />
                           ))}
@@ -493,8 +590,10 @@ export default function CollectionsKanban() {
                         onDragEnd={handleDragEnd}
                         onClick={() => openItemDetails(item)}
                         onCall={handleCall}
+                        onContactClick={handleContactClick}
                         getAgingBadge={getAgingBadge}
                         formatCurrency={formatCurrency}
+                        formatDate={formatDate}
                         isDragging={draggedItem?.occupancy_id === item.occupancy_id}
                       />
                     ))
@@ -670,26 +769,40 @@ export default function CollectionsKanban() {
                     <div className="bg-slate-50 rounded-lg p-4 mb-4">
                       <h3 className="font-semibold text-slate-800 mb-2">Collection History</h3>
                       <div className="space-y-2 text-sm">
-                        {itemDetails.stage.contact_1_date && (
+                        {[1, 2, 3].map(n => {
+                          const date = itemDetails.stage[`contact_${n}_date`];
+                          const notes = itemDetails.stage[`contact_${n}_notes`];
+                          if (!date) return null;
+                          return (
+                            <div key={n}>
+                              <div className="flex justify-between">
+                                <span className="text-slate-600">Contact {n}:</span>
+                                <span>{formatDate(date)}</span>
+                              </div>
+                              {notes && (
+                                <div className="text-xs text-slate-500 pl-4">{notes}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {itemDetails.stage.balance_letter_entered_at && (
                           <div className="flex justify-between">
-                            <span className="text-slate-600">Contact 1:</span>
-                            <span>{formatDate(itemDetails.stage.contact_1_date)}</span>
+                            <span className="text-slate-600">Balance Letter:</span>
+                            <span>{formatDate(itemDetails.stage.balance_letter_entered_at)}</span>
                           </div>
                         )}
-                        {itemDetails.stage.contact_1_notes && (
-                          <div className="text-xs text-slate-500 pl-4">
-                            {itemDetails.stage.contact_1_notes}
-                          </div>
-                        )}
-                        {itemDetails.stage.contact_2_date && (
+                        {itemDetails.stage.notice_entered_at && (
                           <div className="flex justify-between">
-                            <span className="text-slate-600">Contact 2:</span>
-                            <span>{formatDate(itemDetails.stage.contact_2_date)}</span>
+                            <span className="text-slate-600">
+                              Notice ({itemDetails.stage.notice_type || 'N/A'}):
+                            </span>
+                            <span>{formatDate(itemDetails.stage.notice_entered_at)}</span>
                           </div>
                         )}
-                        {itemDetails.stage.contact_2_notes && (
-                          <div className="text-xs text-slate-500 pl-4">
-                            {itemDetails.stage.contact_2_notes}
+                        {itemDetails.stage.reservation_of_rights_entered_at && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Reservation of Rights:</span>
+                            <span>{formatDate(itemDetails.stage.reservation_of_rights_entered_at)}</span>
                           </div>
                         )}
                         {itemDetails.stage.eviction_started_at && (
@@ -725,6 +838,48 @@ export default function CollectionsKanban() {
 
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Note Prompt */}
+      {contactPrompt && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setContactPrompt(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-slate-800 mb-1">
+              Contact {contactPrompt.contactNumber}
+            </h3>
+            <p className="text-sm text-slate-500 mb-3">
+              {contactPrompt.item.name} - Unit {contactPrompt.item.unit}
+            </p>
+            <textarea
+              value={contactNoteInput}
+              onChange={(e) => setContactNoteInput(e.target.value)}
+              placeholder="Enter note about this contact..."
+              className="w-full border border-slate-300 rounded-lg p-2 text-sm resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => setContactPrompt(null)}
+                className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => saveContactNote(contactPrompt.item, contactPrompt.contactNumber, contactNoteInput)}
+                className="flex-1 px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>
