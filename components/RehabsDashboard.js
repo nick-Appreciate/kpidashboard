@@ -439,7 +439,7 @@ export default function RehabsDashboard() {
                     Days {getSortIcon('days')}
                   </th>
                   <th 
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-20 cursor-pointer hover:bg-blue-200"
+                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-24 cursor-pointer hover:bg-blue-200"
                     onClick={() => toggleSort('contractor')}
                   >
                     Contractor {getSortIcon('contractor')}
