@@ -132,7 +132,7 @@ export default function Sidebar({ user, onLogout }) {
     >
       {/* Logo — icon stays fixed, "Appreciate" text fades in beside it */}
       <div className="h-10 flex items-center border-b border-[var(--glass-border)] px-1.5 gap-1 overflow-hidden">
-        <div className="flex-shrink-0 flex items-center justify-center">
+        <div className="flex-shrink-0 flex items-center justify-center" style={{ width: '1.25rem', minWidth: '1.25rem' }}>
           <svg className="w-4 h-5" viewBox="0 0 163 200" fill="none">
             <path fillRule="evenodd" clipRule="evenodd" d="M81.4 0L0 38.8V161.2L81.4 200l81.4-38.8V38.8L81.4 0zm-.008 25.3L25.99 51.1v96l27.6-13v-71l27.8-12.1 27.8 12.1v71l27.6 13v-96L81.392 25.3z" fill="currentColor" />
           </svg>
