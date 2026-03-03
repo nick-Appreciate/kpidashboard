@@ -56,10 +56,10 @@ function LayoutContent({ children }) {
   return (
     <div className="min-h-screen">
       <Sidebar user={sidebarUser} onLogout={signOut} />
-      <main className="ml-12 min-h-screen relative">
+      <main className="ml-10 min-h-screen relative">
         {/* Ambient particle background — desktop only */}
         {isDesktop && (
-          <div className="fixed inset-0 ml-12 pointer-events-none -z-10">
+          <div className="fixed inset-0 ml-10 pointer-events-none -z-10">
             <Particles count={40} color="#06b6d4" speed={0.2} opacity={0.08} size={1} />
           </div>
         )}

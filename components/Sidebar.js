@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -118,9 +119,9 @@ export default function Sidebar({ user, onLogout }) {
   return (
     <aside
       className={`fixed left-0 top-0 h-full bg-surface-raised/80 backdrop-blur-[16px] border-r border-[var(--glass-border)] text-white z-50 transition-all duration-300 ease-in-out ${
-        isExpanded ? 'w-52' : 'w-12 overflow-hidden'
+        isExpanded ? 'w-40' : 'w-10 overflow-hidden'
       }`}
-      style={{ width: isExpanded ? '13rem' : '3rem' }}
+      style={{ width: isExpanded ? '10rem' : '2.5rem' }}
       onMouseEnter={() => {
         hoverTimeoutRef.current = setTimeout(() => setIsExpanded(true), 300);
       }}
@@ -130,30 +131,36 @@ export default function Sidebar({ user, onLogout }) {
         setOpenSections(new Set());
       }}
     >
-      {/* Logo — hex icon collapsed, "Appreciate" text expanded */}
-      <div className="h-12 flex items-center border-b border-[var(--glass-border)] px-2 gap-2">
-        <div className="flex-shrink-0 flex items-center justify-center w-8">
-          <svg className="w-5 h-6" viewBox="0 0 163 200" fill="none">
-            <path fillRule="evenodd" clipRule="evenodd" d="M81.4 0L0 38.8V161.2L81.4 200l81.4-38.8V38.8L81.4 0zm-.008 25.3L25.99 51.1v96l27.6-13v-71l27.8-12.1 27.8 12.1v71l27.6 13v-96L81.392 25.3z" fill="currentColor" />
-          </svg>
-        </div>
-        <span className={`text-sm font-semibold text-slate-200 whitespace-nowrap transition-opacity duration-200 ${
-          isExpanded ? 'opacity-100' : 'opacity-0'
-        }`}>
-          Appreciate
-        </span>
+      {/* Logo — hex icon collapsed, full wordmark expanded */}
+      <div className="h-10 flex items-center border-b border-[var(--glass-border)] px-1.5">
+        {isExpanded ? (
+          <Image
+            src="/logo-white.svg"
+            alt="Appreciate"
+            width={120}
+            height={20}
+            className="h-4 w-auto"
+            priority
+          />
+        ) : (
+          <div className="flex items-center justify-center w-7">
+            <svg className="w-4 h-5" viewBox="0 0 163 200" fill="none">
+              <path fillRule="evenodd" clipRule="evenodd" d="M81.4 0L0 38.8V161.2L81.4 200l81.4-38.8V38.8L81.4 0zm-.008 25.3L25.99 51.1v96l27.6-13v-71l27.8-12.1 27.8 12.1v71l27.6 13v-96L81.392 25.3z" fill="currentColor" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
-      <nav className="mt-3 px-1.5">
+      <nav className="mt-2 px-1">
         {navSections.map((section) => {
           const open = openSections.has(section.label);
           return (
-            <div key={section.label} className="mb-1">
+            <div key={section.label} className="mb-0.5">
               {/* Section header — clickable when expanded */}
               <button
                 onClick={() => isExpanded && toggleSection(section.label)}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 ${
+                className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-md transition-all duration-200 ${
                   isExpanded
                     ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200 cursor-pointer'
                     : 'cursor-default'
@@ -168,7 +175,7 @@ export default function Sidebar({ user, onLogout }) {
                 {isExpanded && (
                   <>
                     <svg
-                      className={`w-3.5 h-3.5 flex-shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+                      className={`w-3 h-3 flex-shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
                       fill="none" stroke="currentColor" viewBox="0 0 24 24"
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -190,8 +197,8 @@ export default function Sidebar({ user, onLogout }) {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center gap-2.5 px-2 py-2 rounded-lg mb-0.5 transition-all duration-200 group ${
-                        isExpanded ? 'pl-6' : ''
+                      className={`flex items-center gap-2 px-1.5 py-1.5 rounded-md mb-0.5 transition-all duration-200 group ${
+                        isExpanded ? 'pl-5' : ''
                       } ${
                         isActive
                           ? 'bg-accent/15 text-accent-light border-l-2 border-accent'
@@ -201,7 +208,7 @@ export default function Sidebar({ user, onLogout }) {
                       <div className="flex-shrink-0">
                         {item.icon}
                       </div>
-                      <span className={`text-sm font-medium whitespace-nowrap transition-opacity duration-200 ${
+                      <span className={`text-xs font-medium whitespace-nowrap transition-opacity duration-200 ${
                         isExpanded ? 'opacity-100' : 'opacity-0'
                       }`}>
                         {item.name}
@@ -216,16 +223,16 @@ export default function Sidebar({ user, onLogout }) {
       </nav>
 
       {/* Bottom section - User info and logout */}
-      <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-[var(--glass-border)]">
-        <div className="flex items-center gap-2.5 mb-2">
-          <div className="w-7 h-7 bg-accent/20 rounded-full flex items-center justify-center flex-shrink-0" style={{ minWidth: '1.75rem' }}>
-            <span className="text-accent text-xs font-medium">
+      <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-[var(--glass-border)]">
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="w-6 h-6 bg-accent/20 rounded-full flex items-center justify-center flex-shrink-0" style={{ minWidth: '1.5rem' }}>
+            <span className="text-accent text-[10px] font-medium">
               {user?.name?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || '?'}
             </span>
           </div>
-          <div className={`transition-opacity duration-200 ${isExpanded ? 'opacity-100' : 'opacity-0'}`}>
-            <p className="text-xs text-slate-200 font-medium whitespace-nowrap">{user?.name || 'User'}</p>
-            <p className="text-[10px] text-slate-500 whitespace-nowrap">{user?.email}</p>
+          <div className={`transition-opacity duration-200 overflow-hidden ${isExpanded ? 'opacity-100' : 'opacity-0'}`}>
+            <p className="text-[11px] text-slate-200 font-medium whitespace-nowrap truncate">{user?.name || 'User'}</p>
+            <p className="text-[9px] text-slate-500 whitespace-nowrap truncate">{user?.email}</p>
           </div>
         </div>
         <button
@@ -236,9 +243,9 @@ export default function Sidebar({ user, onLogout }) {
               onLogout();
             }
           }}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-500 hover:text-slate-200 hover:bg-white/5 rounded-lg transition-all duration-200 ${isExpanded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          className={`w-full flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-slate-500 hover:text-slate-200 hover:bg-white/5 rounded-md transition-all duration-200 ${isExpanded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         >
-          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           <span className="whitespace-nowrap">Sign Out</span>
