@@ -200,13 +200,17 @@ async function syncRentalApplications(): Promise<SyncResult> {
     // Use upsert to preserve historical data
     const { error } = await supabase
       .from('rental_applications')
-      .upsert(records, { 
+      .upsert(records, {
         onConflict: 'applicants,received',
-        ignoreDuplicates: false 
+        ignoreDuplicates: false
       });
-    
+
     if (error) throw new Error(JSON.stringify(error));
-    
+
+    // Backfill inquiry_source and inquiry_id from leasing_reports via name matching
+    // leasing_reports uses "Last, First" format, rental_applications uses "First M. Last"
+    await supabase.rpc('backfill_inquiry_source');
+
     return { report: 'rental_applications', success: true, rowsProcessed: records.length };
   } catch (error: any) {
     return { report: 'rental_applications', success: false, rowsProcessed: 0, error: error?.message || String(error) };
