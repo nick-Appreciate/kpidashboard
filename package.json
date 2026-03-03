@@ -12,6 +12,7 @@
     "@justcall/justcall-dialer-sdk": "^1.4.2",
     "@supabase/supabase-js": "^2.93.2",
     "chart.js": "^4.4.1",
+    "chartjs-plugin-datalabels": "^2.2.0",
     "date-fns": "^3.0.6",
     "framer-motion": "^12.34.5",
     "lucide-react": "^0.575.0",

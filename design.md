@@ -1,5 +1,11 @@
 # Appreciate Brain — Design System
 
+## General Rules
+
+- **No emojis.** Do not use emojis anywhere in the UI — no icons-as-emoji in labels, headers, buttons, status indicators, tooltips, or placeholder text. Use text labels or SVG icons instead.
+
+---
+
 ## Color Palette
 
 ### Surfaces (dark theme hierarchy)
@@ -87,6 +93,11 @@ Destructive:
 <button className="px-4 py-2 bg-red-500/15 text-red-400 rounded-lg hover:bg-red-500/25 transition-colors">
 ```
 
+### Page Headers
+```
+sticky-header    — Pinned dashboard header bar (title + filters)
+```
+
 ### Form Inputs
 ```
 dark-input       — Text inputs, textareas
@@ -135,6 +146,123 @@ Table rows:
 ```
 
 Per CLAUDE.md: **Always freeze table headers** with `sticky top-0 z-10`.
+
+### Sticky Dashboard Headers
+```
+sticky-header    — Sticky header bar (position: sticky, blurred bg, z-30)
+```
+
+All dashboard pages use a **sticky** header bar pinned to the top of the viewport when scrolling. Combines page title (left) with filter controls (right). No JavaScript padding needed — `position: sticky` stays in the document flow.
+
+**IMPORTANT:** `position: sticky` breaks if any ancestor has `overflow: hidden`, `overflow: auto`, or `overflow: clip`. The body uses only `width: 100%` without `overflow-x` restrictions for this reason.
+
+```html
+<div ref={headerRef} className="sticky-header px-6 py-2"
+     onMouseEnter={() => setHeaderHovered(true)}
+     onMouseLeave={() => setHeaderHovered(false)}>
+  <div className="max-w-7xl mx-auto">
+    <div className="flex items-center gap-4">
+      <h1 className="text-lg font-semibold text-slate-100 whitespace-nowrap">
+        Dashboard Title
+      </h1>
+      <div className="flex items-center gap-3 flex-1 justify-end flex-wrap">
+        <DarkSelect ... className="w-44" />
+        <DarkSelect ... className="w-36" />
+      </div>
+    </div>
+    {/* Stage chips — auto-collapse after scroll, expand on hover */}
+    <div className="overflow-hidden transition-all duration-200"
+         style={{ maxHeight: showStageChips ? '60px' : '0px' }}>
+      ...stage chip buttons...
+    </div>
+  </div>
+</div>
+<div className="px-6 md:px-8 pb-6 md:pb-8">
+  ...page content...
+</div>
+```
+
+**Auto-collapsing stage chips (hysteresis/peak-trough pattern):**
+- Stage chips row is fully visible on initial page load
+- Uses a **peak/trough hysteresis** to prevent jitter:
+  - When **collapsed**: tracks the furthest-down scroll position (peak). Only expands when user scrolls UP by 20px from that peak.
+  - When **expanded**: tracks the highest-up scroll position (trough). Only collapses when user scrolls DOWN by 20px from that trough.
+- Within 10px of page top: always expanded
+- Hovering over the header also expands the chips row
+- The 20px dead zone absorbs browser micro-corrections that cause jitter during slow/slight scrolling
+- Uses a `collapsedRef` to mirror React state inside the scroll handler closure (effect runs once with `[]` deps)
+
+**Conventions:**
+- Title is `text-lg font-semibold`, never larger
+- No subtitles, timestamps, or filter labels — dropdown placeholders are sufficient
+- Padding: `px-6 py-2` (compact)
+- Conditional rows (e.g. custom date inputs) use `mt-2 pt-2 border-t border-white/5`
+
+### Chart Components (Always-Mounted Pattern)
+Chart components are **always mounted** — never conditionally rendered with `{condition && <Chart />}`. Instead, pass `null` data and let the component show an internal empty state. This avoids mount/unmount animation glitches and Strict Mode timing issues.
+
+Each chart owns its own `useRef` + `useEffect` lifecycle:
+
+**Pattern:**
+```javascript
+// components/MyChart.js
+export default function MyChart({ data }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    if (!canvasRef.current || !data) return;
+    chartRef.current = new Chart(canvasRef.current.getContext('2d'), { ... });
+    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [data]);
+
+  return (
+    <div className="glass-card p-6 mb-6">
+      <canvas ref={canvasRef} style={{ display: data ? 'block' : 'none' }} />
+      {!data && <p className="text-slate-500 text-sm py-8 text-center">Select stages above to view data</p>}
+    </div>
+  );
+}
+```
+
+**Key rules:**
+- Always render the container (`glass-card`) regardless of data state
+- Use `display: none/block` on the canvas, not conditional unmounting
+- Parent passes `null` when no data is available: `<MyChart data={hasData ? realData : null} />`
+- For Chart.js charts with `renderedRef` guards, always reset `renderedRef.current = null` in the cleanup function so Strict Mode remounts can recreate the chart
+
+**Existing standalone chart components:**
+- `TimeSeriesChart.js` — Line chart for stage data over time
+- `TopPropertiesChart.js` — Horizontal bar chart for property rankings
+- `SourcesChart.js` — Line chart for lead sources (Recharts)
+- `LeadsPerUnitChart.js` — Line chart for leads per rehab unit (Recharts)
+
+**Anti-pattern (do NOT do):** Rendering `<canvas id="...">` in one component and calling `document.getElementById` from a parent effect. This creates timing issues with React 18 Strict Mode and conditional rendering.
+
+### Chart Data Rules
+- **No future dates:** Filter out future time buckets from all chart datasets. Compare bucket keys against today's date string (`YYYY-MM-DD` format) and slice to only include past/present buckets.
+- **No "Today" marker lines:** Do not draw vertical reference lines for the current date on any chart.
+- **Animation:** Use `animation: false` on Chart.js charts that suffer from Strict Mode double-animation (e.g., the leasing lifecycle funnel).
+
+### Chart Sizing Standards
+
+| Chart Type | Sizing | Notes |
+|---|---|---|
+| Line charts (time series, conversion) | `maintainAspectRatio: true, aspectRatio: 3.5` | Compact height, responsive width |
+| Horizontal bar (top properties) | `maintainAspectRatio: false`, container `height: items * 28 + 20` | Scales with data count, min 120px |
+| Horizontal bar (leasing lifecycle) | `maintainAspectRatio: false`, container `height: 180px` | Fixed 5-stage funnel |
+| Recharts (sources, leads/unit) | Default responsive wrapper | Fill available width |
+
+### Preventing Double-Render (Strict Mode)
+React 18 Strict Mode double-invokes effects and can cause double API fetches. To prevent charts from animating twice with the same data:
+```javascript
+const renderedRef = useRef(null);
+// Compare data VALUES, not object identity (two fetches return different objects with same data)
+const dataKey = data.stages.map(s => s.count).join(',');
+if (renderedRef.current === dataKey) return;
+renderedRef.current = dataKey;
+```
 
 ---
 
@@ -291,11 +419,15 @@ When converting light-themed components:
 ## Key Files
 
 ```
-app/globals.css          — CSS variables, reusable classes, dark scrollbar
-tailwind.config.js       — Custom colors, shadows, animations, Inter font
-lib/chartTheme.js        — Chart.js dark defaults, color palette, gradient fills
-components/DarkSelect.js — Custom dropdown (portal-based, dark-themed)
-components/Sidebar.js    — Collapsible sidebar with hover expand
-components/AppLayout.js  — Main layout wrapper
-design.md                — This file
+app/globals.css               — CSS variables, reusable classes, dark scrollbar, sticky-header
+tailwind.config.js            — Custom colors, shadows, animations, Inter font
+lib/chartTheme.js             — Chart.js dark defaults, color palette, gradient fills
+components/DarkSelect.js      — Custom dropdown (portal-based, dark-themed)
+components/Sidebar.js         — Collapsible sidebar with hover expand
+components/AppLayout.js       — Main layout wrapper
+components/TimeSeriesChart.js — Standalone line chart (stage data over time)
+components/TopPropertiesChart.js — Standalone horizontal bar chart (property rankings)
+components/SourcesChart.js    — Standalone stacked bar chart (lead sources)
+components/LeadsPerUnitChart.js — Standalone line chart (leads per rehab unit)
+design.md                     — This file
 ```

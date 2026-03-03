@@ -39,8 +39,6 @@ export default function SourcesChart({ stageStats }) {
     );
   };
 
-  if (!stageStats) return null;
-
   return (
     <div className="glass-card p-6 mb-6">
       <div className="mb-4">

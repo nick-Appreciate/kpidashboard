@@ -17,6 +17,7 @@ export default function OccupancyDashboard() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [occupiedOverride, setOccupiedOverride] = useState(null); // Temporary override for occupied count
+  const [pctEditing, setPctEditing] = useState(null); // Local text while editing percentage input
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -63,6 +64,7 @@ export default function OccupancyDashboard() {
   const delinquencyChartRef = useRef(null);
   const healthyLeaseChartRef = useRef(null);
   const renewalsChartRef = useRef(null);
+  const headerRef = useRef(null);
   
   // Update dates when preset changes
   useEffect(() => {
@@ -93,7 +95,8 @@ export default function OccupancyDashboard() {
       return () => clearTimeout(timer);
     }
   }, [projections, stats, loading, occupiedOverride, selectedProperty]);
-  
+
+
   // Define region mappings - KC properties, Columbia is everything else
   const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
   
@@ -419,6 +422,7 @@ export default function OccupancyDashboard() {
           ...DARK_CHART_DEFAULTS,
           responsive: true,
           maintainAspectRatio: true,
+          aspectRatio: 3.5,
           interaction: {
             mode: 'nearest',
             intersect: true
@@ -727,27 +731,156 @@ export default function OccupancyDashboard() {
     : 0;
 
   return (
-    <div className="min-h-screen p-6 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="glass-card p-6 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-semibold text-slate-100 mb-1">
-                Occupancy Dashboard
-              </h1>
-              <p className="text-slate-500 text-sm">
-                Property occupancy and lease health analytics
-                {stats?.latestSnapshotDate && (
-                  <span className="text-slate-400 ml-2">
-                    • Data as of: {new Date(stats.latestSnapshotDate).toLocaleDateString()}
-                  </span>
+    <div className="min-h-screen">
+      {/* Fixed header */}
+      <div ref={headerRef} className="sticky-header">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
+            <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">
+              Occupancy Dashboard
+            </h1>
+            {stats?.hasData && (
+              <div className="flex items-center gap-2 flex-1 justify-end flex-wrap">
+                {/* Occupancy widget — inline editable */}
+                {selectedProperty !== 'all' && (
+                  <>
+                    <div className="flex items-center gap-1 bg-surface-overlay/80 rounded-lg px-2 py-1 border border-[var(--glass-border)]">
+                      <input
+                        type="number"
+                        value={effectiveOccupied}
+                        onChange={(e) => {
+                          if (e.target.value === '') { setOccupiedOverride(0); return; }
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val) && val >= 0 && val <= summary.totalUnits) {
+                            setOccupiedOverride(val);
+                          }
+                        }}
+                        className="w-9 bg-transparent text-xs font-bold text-emerald-400 text-center border-b border-dashed border-emerald-500/30 focus:border-emerald-400 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        min="0"
+                        max={summary.totalUnits}
+                        title="Occupied units"
+                      />
+                      <span className="text-slate-500 text-xs">/</span>
+                      <input
+                        type="number"
+                        value={effectiveVacant}
+                        onChange={(e) => {
+                          if (e.target.value === '') { setOccupiedOverride(summary.totalUnits); return; }
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val) && val >= 0 && val <= summary.totalUnits) {
+                            setOccupiedOverride(summary.totalUnits - val);
+                          }
+                        }}
+                        className="w-8 bg-transparent text-xs font-bold text-rose-400 text-center border-b border-dashed border-rose-500/30 focus:border-rose-400 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        min="0"
+                        max={summary.totalUnits}
+                        title="Vacant units"
+                      />
+                      <span className="text-slate-500 text-[10px]">(</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={pctEditing !== null ? pctEditing : parseFloat(effectiveOccupancyRate)}
+                        onFocus={(e) => setPctEditing(e.target.value)}
+                        onChange={(e) => {
+                          const text = e.target.value;
+                          // Allow only digits and one decimal point
+                          if (text !== '' && !/^\d*\.?\d*$/.test(text)) return;
+                          setPctEditing(text);
+                          if (text === '' || text.endsWith('.')) return;
+                          const rate = parseFloat(text);
+                          if (!isNaN(rate) && rate >= 0 && rate <= 100) {
+                            setOccupiedOverride(Math.round((rate / 100) * summary.totalUnits));
+                          }
+                        }}
+                        onBlur={() => setPctEditing(null)}
+                        className="w-10 bg-transparent text-xs font-bold text-emerald-400 text-center border-b border-dashed border-emerald-500/30 focus:border-emerald-400 focus:outline-none"
+                        title="Occupancy rate %"
+                      />
+                      <span className="text-slate-500 text-[10px]">%)</span>
+                      {occupiedOverride !== null && (
+                        <button
+                          onClick={() => setOccupiedOverride(null)}
+                          className="text-slate-500 hover:text-accent text-[10px] ml-0.5"
+                          title="Reset to actual"
+                        >
+                          ↺
+                        </button>
+                      )}
+                    </div>
+                    {/* Notice & Eviction */}
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span className="text-amber-400 font-semibold" title="On Notice">{summary.noticeUnits}</span>
+                      <span className="text-slate-600">notice</span>
+                      <span className="text-slate-700">·</span>
+                      <span className="text-rose-400 font-semibold" title="Eviction">{summary.evictUnits}</span>
+                      <span className="text-slate-600">eviction</span>
+                    </div>
+                  </>
                 )}
-              </p>
-            </div>
+                <DarkSelect
+                  value={selectedProperty}
+                  onChange={setSelectedProperty}
+                  compact
+                  className="w-36"
+                  options={[
+                    { value: 'portfolio', label: 'Portfolio' },
+                    { value: 'all', label: 'All Properties' },
+                    { group: 'Regions', options: [
+                      { value: 'region_kansas_city', label: 'Kansas City' },
+                      { value: 'region_columbia', label: 'Columbia' },
+                    ]},
+                    { group: 'Properties', options: (stats.properties || []).map(prop => ({
+                      value: prop,
+                      label: prop,
+                    }))},
+                  ]}
+                />
+                <DarkSelect
+                  value={dateRange}
+                  onChange={setDateRange}
+                  disabled={loading}
+                  compact
+                  className="w-32"
+                  options={[
+                    { value: 'today', label: 'Today' },
+                    { value: 'last_week', label: 'Last 7 Days' },
+                    { value: 'last_month', label: 'Last 30 Days' },
+                    { value: 'last_quarter', label: 'Last 90 Days' },
+                    { value: 'last_year', label: 'Last Year' },
+                    { value: 'all_time', label: 'All Time' },
+                    { value: 'custom', label: 'Custom Range' },
+                  ]}
+                />
+              </div>
+            )}
           </div>
+          {dateRange === 'custom' && stats?.hasData && (
+            <div className="flex items-center gap-3 mt-2 pt-2 px-6 border-t border-white/5">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                disabled={loading}
+                className="dark-input px-3 py-1.5 text-sm"
+              />
+              <span className="text-slate-500 text-sm">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                disabled={loading}
+                className="dark-input px-3 py-1.5 text-sm"
+              />
+            </div>
+          )}
         </div>
-        
+      </div>
+
+      {/* Content with spacer for fixed header */}
+      <div className="px-6 md:px-8 pb-6 md:pb-8">
+        <div className="max-w-7xl mx-auto">
+
         {!stats?.hasData ? (
           <div className="glass-card p-12 text-center">
             <div className="text-6xl mb-4">📊</div>
@@ -756,153 +889,6 @@ export default function OccupancyDashboard() {
           </div>
         ) : (
           <>
-            {/* Filters */}
-            <div className="glass-card p-6 mb-6">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Filter by Property</label>
-                  <DarkSelect
-                    value={selectedProperty}
-                    onChange={setSelectedProperty}
-                    options={[
-                      { value: 'portfolio', label: 'Portfolio' },
-                      { value: 'all', label: 'All Properties' },
-                      { group: 'Regions', options: [
-                        { value: 'region_kansas_city', label: 'Kansas City' },
-                        { value: 'region_columbia', label: 'Columbia' },
-                      ]},
-                      { group: 'Properties', options: (stats.properties || []).map(prop => ({
-                        value: prop,
-                        label: prop,
-                      }))},
-                    ]}
-                  />
-                </div>
-                
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-400 mb-2">
-                    Date Range
-                  </label>
-                  <DarkSelect
-                    value={dateRange}
-                    onChange={setDateRange}
-                    disabled={loading}
-                    options={[
-                      { value: 'today', label: 'Today' },
-                      { value: 'last_week', label: 'Last 7 Days' },
-                      { value: 'last_month', label: 'Last 30 Days' },
-                      { value: 'last_quarter', label: 'Last 90 Days' },
-                      { value: 'last_year', label: 'Last Year' },
-                      { value: 'all_time', label: 'All Time' },
-                      { value: 'custom', label: 'Custom Range' },
-                    ]}
-                  />
-                </div>
-                
-                {dateRange === 'custom' && (
-                  <>
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-slate-200 mb-2">
-                        Start Date
-                      </label>
-                      <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        disabled={loading}
-                        className="w-full px-4 py-2 border-2 border-[var(--glass-border)] rounded-lg focus:border-emerald-500 focus:outline-none disabled:opacity-50"
-                      />
-                    </div>
-                    
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-slate-200 mb-2">
-                        End Date
-                      </label>
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        disabled={loading}
-                        className="w-full px-4 py-2 border-2 border-[var(--glass-border)] rounded-lg focus:border-emerald-500 focus:outline-none disabled:opacity-50"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-            
-            {/* Summary Cards - Portfolio/Single Property View */}
-            {selectedProperty !== 'all' && (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-                <div className={`glass-stat p-4 ${occupiedOverride !== null ? 'ring-2 ring-accent' : ''}`}>
-                  <div className="text-3xl font-bold text-emerald-400">{effectiveOccupancyRate}%</div>
-                  <div className="text-sm text-slate-400">Occupancy Rate</div>
-                  {occupiedOverride !== null && <div className="text-xs text-cyan-400 mt-1">Modified</div>}
-                </div>
-                <div className="glass-stat p-4">
-                  <div className="text-3xl font-bold text-slate-100">{summary.totalUnits}</div>
-                  <div className="text-sm text-slate-400">Total Units</div>
-                </div>
-                <div className={`glass-stat p-4 ${occupiedOverride !== null ? 'ring-2 ring-accent' : ''}`}>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={effectiveOccupied}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        if (!isNaN(val) && val >= 0 && val <= summary.totalUnits) {
-                          setOccupiedOverride(val);
-                        }
-                      }}
-                      className="text-3xl font-bold text-emerald-400 w-20 bg-transparent border-b-2 border-dashed border-emerald-500/30 focus:border-emerald-400 focus:outline-none text-center"
-                      min="0"
-                      max={summary.totalUnits}
-                    />
-                    {occupiedOverride !== null && (
-                      <button
-                        onClick={() => setOccupiedOverride(null)}
-                        className="text-xs text-slate-500 hover:text-red-500"
-                        title="Reset to actual value"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-sm text-slate-400">Occupied <span className="text-xs text-cyan-400">(editable)</span></div>
-                </div>
-                <div className={`glass-stat p-4 ${occupiedOverride !== null ? 'ring-2 ring-accent' : ''}`}>
-                  <div className="text-3xl font-bold text-rose-400">{effectiveVacant}</div>
-                  <div className="text-sm text-slate-400">Vacant</div>
-                  {occupiedOverride !== null && <div className="text-xs text-cyan-400 mt-1">Modified</div>}
-                </div>
-                <div className="glass-stat p-4">
-                  <div className="text-3xl font-bold text-amber-400">{summary.noticeUnits}</div>
-                  <div className="text-sm text-slate-400">On Notice</div>
-                </div>
-                <div className="glass-stat p-4">
-                  <div className="text-3xl font-bold text-rose-400">{summary.evictUnits}</div>
-                  <div className="text-sm text-slate-400">Eviction</div>
-                </div>
-              </div>
-            )}
-            
-            
-            {/* Financial Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="glass-stat p-6">
-                <div className="text-2xl font-bold text-emerald-400">${summary.totalRent?.toLocaleString()}</div>
-                <div className="text-sm text-slate-400">Total Monthly Rent</div>
-              </div>
-              <div className="glass-stat p-6">
-                <div className="text-2xl font-bold text-rose-400">${summary.totalPastDue?.toLocaleString()}</div>
-                <div className="text-sm text-slate-400">Total Past Due</div>
-              </div>
-              <div className="glass-stat p-6">
-                <div className="text-2xl font-bold text-slate-100">{summary.totalSqft?.toLocaleString()} sqft</div>
-                <div className="text-sm text-slate-400">Total Square Footage</div>
-              </div>
-            </div>
-            
             {/* Occupancy Trend - Full Width */}
             <div className="glass-card p-6 mb-6">
               <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Occupancy Trend (Historical)</h2>
@@ -1469,6 +1455,7 @@ export default function OccupancyDashboard() {
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
