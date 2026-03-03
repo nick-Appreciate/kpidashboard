@@ -401,7 +401,7 @@ export default function Dashboard() {
     
     // Property, lead type, source, and status charts work the same for single or multi-stage
     // Use a default color for aggregated data
-    const defaultColor = '#667eea';
+    const defaultColor = '#06b6d4';
     
     if (propertyChartRef.current && data.topProperties?.length > 0) {
       const ctx = propertyChartRef.current.getContext('2d');
@@ -692,26 +692,31 @@ export default function Dashboard() {
             {selectedStages.length > 0 && (
               <div className="mb-4 flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-slate-400">Viewing:</span>
-                {selectedStages.map(stageKey => (
-                  <span key={stageKey} className="px-3 py-1 rounded-full text-white text-sm font-medium" style={{
-                    backgroundColor: {
-                      'inquiries': '#667eea',
-                      'showings_scheduled': '#8b5cf6',
-                      'showings_completed': '#764ba2',
-                      'applications': '#f093fb',
-                      'leases': '#43e97b'
-                    }[stageKey]
-                  }}>
-                    {{
-                      'inquiries': 'Inquiries',
-                      'showings_scheduled': 'Showings Scheduled',
-                      'showings_completed': 'Showings Completed',
-                      'applications': 'Applications',
-                      'leases': 'Leases'
-                    }[stageKey]}
-                  </span>
-                ))}
-                <button 
+                {selectedStages.map(stageKey => {
+                  const stageColor = {
+                    'inquiries': '#06b6d4',
+                    'showings_scheduled': '#60a5fa',
+                    'showings_completed': '#8b5cf6',
+                    'applications': '#fbbf24',
+                    'leases': '#34d399'
+                  }[stageKey];
+                  return (
+                    <span key={stageKey} className="px-3 py-1 rounded-full text-sm font-medium border" style={{
+                      backgroundColor: `${stageColor}20`,
+                      borderColor: `${stageColor}40`,
+                      color: stageColor
+                    }}>
+                      {{
+                        'inquiries': 'Inquiries',
+                        'showings_scheduled': 'Showings Scheduled',
+                        'showings_completed': 'Showings Completed',
+                        'applications': 'Applications',
+                        'leases': 'Leases'
+                      }[stageKey]}
+                    </span>
+                  );
+                })}
+                <button
                   onClick={() => setSelectedStages([])}
                   className="text-xs text-slate-500 hover:text-slate-300 underline"
                 >
@@ -733,6 +738,14 @@ export default function Dashboard() {
                   'Leases': 'leases'
                 }[stage.name];
                 const isSelected = selectedStages.includes(stageKey);
+                // On-brand stage colors
+                const brandColor = {
+                  'Inquiries': '#06b6d4',
+                  'Showings Scheduled': '#60a5fa',
+                  'Showings Completed': '#8b5cf6',
+                  'Applications': '#fbbf24',
+                  'Leases': '#34d399'
+                }[stage.name] || stage.color;
                 
                 return (
                   <div key={stage.name}>
@@ -790,16 +803,20 @@ export default function Dashboard() {
                     <div className="flex items-center">
                       {/* Funnel Bar - Left Side */}
                       <div className="flex-1 flex justify-start pl-4 md:pl-8">
-                        <div 
+                        <div
                           onClick={() => handleStageClick(stage.name)}
-                          className={`py-4 px-5 text-white font-semibold rounded-xl transition-all cursor-pointer shadow-lg ${
+                          className={`py-4 px-5 text-white font-semibold rounded-xl transition-all cursor-pointer border ${
                             isSelected
-                              ? 'ring-4 ring-offset-2 ring-offset-surface-base ring-white/30 scale-[1.02]'
-                              : 'hover:scale-[1.02] hover:shadow-xl'
+                              ? 'ring-2 ring-offset-2 ring-offset-surface-base scale-[1.02]'
+                              : 'hover:scale-[1.02] hover:brightness-110'
                           }`}
-                          style={{ 
+                          style={{
                             width: `${widthPercent}%`,
-                            backgroundColor: stage.color,
+                            background: `linear-gradient(135deg, ${brandColor}cc, ${brandColor}88)`,
+                            borderColor: `${brandColor}60`,
+                            boxShadow: isSelected ? `0 0 20px ${brandColor}40` : `0 4px 12px ${brandColor}20`,
+                            ringColor: brandColor,
+                            '--tw-ring-color': brandColor,
                             minWidth: '200px'
                           }}
                         >
