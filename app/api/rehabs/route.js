@@ -137,12 +137,57 @@ export async function GET(request) {
     for (const rehab of rehabs.filter(r => r.status !== 'completed' && r.status !== 'archived')) {
       const currentVacancy = currentVacancyMap.get(`${rehab.property}|${rehab.unit}`);
       if (currentVacancy && currentVacancy.source_type !== rehab.source_type) {
+        const updateFields = {
+          source_type: currentVacancy.source_type,
+          updated_at: new Date().toISOString()
+        };
+
+        // When transitioning from eviction to vacancy, reset vacancy_start_date
+        // so the day counter starts from when the unit actually became vacant
+        if (rehab.source_type === 'eviction' && currentVacancy.source_type === 'vacancy') {
+          // Find the first Vacant snapshot after the last Evict snapshot
+          const { data: lastEvictSnapshot } = await supabase
+            .from('rent_roll_snapshots')
+            .select('snapshot_date')
+            .eq('property', rehab.property)
+            .eq('unit', rehab.unit)
+            .eq('status', 'Evict')
+            .order('snapshot_date', { ascending: false })
+            .limit(1);
+
+          if (lastEvictSnapshot?.length > 0) {
+            const { data: firstVacantSnapshot } = await supabase
+              .from('rent_roll_snapshots')
+              .select('snapshot_date')
+              .eq('property', rehab.property)
+              .eq('unit', rehab.unit)
+              .in('status', ['Vacant-Unrented', 'Vacant-Rented'])
+              .gt('snapshot_date', lastEvictSnapshot[0].snapshot_date)
+              .order('snapshot_date', { ascending: true })
+              .limit(1);
+
+            if (firstVacantSnapshot?.length > 0) {
+              updateFields.vacancy_start_date = firstVacantSnapshot[0].snapshot_date;
+            } else {
+              // No Vacant snapshot found yet, use today's date
+              updateFields.vacancy_start_date = latestSnapshotDate;
+            }
+          } else {
+            // No evict snapshot found, use today's date
+            updateFields.vacancy_start_date = latestSnapshotDate;
+          }
+
+          if (updateFields.vacancy_start_date) {
+            rehab.vacancy_start_date = updateFields.vacancy_start_date;
+            // Also update the vacancy entry so key matching stays consistent
+            currentVacancy.vacancy_start_date = updateFields.vacancy_start_date;
+            console.log(`Reset vacancy_start_date for ${rehab.property} ${rehab.unit} → ${updateFields.vacancy_start_date} (eviction → vacancy)`);
+          }
+        }
+
         await supabase
           .from('rehabs')
-          .update({
-            source_type: currentVacancy.source_type,
-            updated_at: new Date().toISOString()
-          })
+          .update(updateFields)
           .eq('id', rehab.id);
         rehab.source_type = currentVacancy.source_type;
         console.log(`Updated source_type for ${rehab.property} ${rehab.unit} → ${currentVacancy.source_type}`);
