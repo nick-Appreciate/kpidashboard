@@ -349,7 +349,7 @@ export default function RehabsDashboard() {
     <div className="min-h-screen bg-slate-100 p-4">
       <div className="max-w-full mx-auto">
         {/* Compact Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 sticky top-0 z-20">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-semibold text-slate-800">🔧 Rehabs</h1>
