@@ -118,9 +118,9 @@ export default function Sidebar({ user, onLogout }) {
   return (
     <aside
       className={`fixed left-0 top-0 h-full bg-surface-raised/80 backdrop-blur-[16px] border-r border-[var(--glass-border)] text-white z-50 transition-all duration-300 ease-in-out ${
-        isExpanded ? 'w-40' : 'w-10 overflow-hidden'
+        isExpanded ? 'w-36' : 'w-10 overflow-hidden'
       }`}
-      style={{ width: isExpanded ? '10rem' : '2.5rem' }}
+      style={{ width: isExpanded ? '9rem' : '2.5rem' }}
       onMouseEnter={() => {
         hoverTimeoutRef.current = setTimeout(() => setIsExpanded(true), 300);
       }}
@@ -131,8 +131,8 @@ export default function Sidebar({ user, onLogout }) {
       }}
     >
       {/* Logo — icon stays fixed, "Appreciate" text fades in beside it */}
-      <div className="h-10 flex items-center border-b border-[var(--glass-border)] px-1.5 gap-1.5 overflow-hidden">
-        <div className="flex-shrink-0 flex items-center justify-center w-7">
+      <div className="h-10 flex items-center border-b border-[var(--glass-border)] px-1.5 gap-1 overflow-hidden">
+        <div className="flex-shrink-0 flex items-center justify-center">
           <svg className="w-4 h-5" viewBox="0 0 163 200" fill="none">
             <path fillRule="evenodd" clipRule="evenodd" d="M81.4 0L0 38.8V161.2L81.4 200l81.4-38.8V38.8L81.4 0zm-.008 25.3L25.99 51.1v96l27.6-13v-71l27.8-12.1 27.8 12.1v71l27.6 13v-96L81.392 25.3z" fill="currentColor" />
           </svg>
