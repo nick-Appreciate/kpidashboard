@@ -6,6 +6,7 @@ import Link from 'next/link';
 import LeadsPerUnitChart from './LeadsPerUnitChart';
 import SourcesChart from './SourcesChart';
 import { DARK_CHART_DEFAULTS, STAGE_COLORS, CHART_PALETTE } from '../lib/chartTheme';
+import DarkSelect from './DarkSelect';
 
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
@@ -554,62 +555,57 @@ export default function Dashboard() {
               <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                 Property
               </label>
-              <select
+              <DarkSelect
                 value={selectedProperty}
-                onChange={(e) => setSelectedProperty(e.target.value)}
+                onChange={setSelectedProperty}
                 disabled={loading}
-                className="dark-select w-full px-3 py-2 text-sm"
-              >
-                <option value="all">All Properties</option>
-                <optgroup label="Regions">
-                  <option value="region_kansas_city">Kansas City</option>
-                  <option value="region_columbia">Columbia</option>
-                </optgroup>
-                <optgroup label="Properties">
-                  {properties.map(prop => (
-                    <option key={prop} value={prop}>
-                      {prop.substring(0, 50)}{prop.length > 50 ? '...' : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
+                options={[
+                  { value: 'all', label: 'All Properties' },
+                  { group: 'Regions', options: [
+                    { value: 'region_kansas_city', label: 'Kansas City' },
+                    { value: 'region_columbia', label: 'Columbia' },
+                  ]},
+                  { group: 'Properties', options: properties.map(prop => ({
+                    value: prop,
+                    label: prop.length > 50 ? prop.substring(0, 50) + '...' : prop,
+                  }))},
+                ]}
+              />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                 Status
               </label>
-              <select
+              <DarkSelect
                 value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
+                onChange={setSelectedStatus}
                 disabled={loading}
-                className="dark-select w-full px-3 py-2 text-sm"
-              >
-                <option value="all">All Statuses</option>
-                {statuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
+                options={[
+                  { value: 'all', label: 'All Statuses' },
+                  ...statuses.map(status => ({ value: status, label: status })),
+                ]}
+              />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                 Date Range
               </label>
-              <select
+              <DarkSelect
                 value={dateRange}
-                onChange={(e) => setDateRange(e.target.value)}
+                onChange={setDateRange}
                 disabled={loading}
-                className="dark-select w-full px-3 py-2 text-sm"
-              >
-                <option value="today">Today</option>
-                <option value="last_week">Last 7 Days</option>
-                <option value="last_month">Last 30 Days</option>
-                <option value="last_quarter">Last 90 Days</option>
-                <option value="last_year">Last Year</option>
-                <option value="all_time">All Time</option>
-                <option value="custom">Custom Range</option>
-              </select>
+                options={[
+                  { value: 'today', label: 'Today' },
+                  { value: 'last_week', label: 'Last 7 Days' },
+                  { value: 'last_month', label: 'Last 30 Days' },
+                  { value: 'last_quarter', label: 'Last 90 Days' },
+                  { value: 'last_year', label: 'Last Year' },
+                  { value: 'all_time', label: 'All Time' },
+                  { value: 'custom', label: 'Custom Range' },
+                ]}
+              />
             </div>
 
             <div>

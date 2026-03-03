@@ -90,10 +90,39 @@ Destructive:
 ### Form Inputs
 ```
 dark-input       — Text inputs, textareas
-dark-select      — Select dropdowns
+dark-select      — Native select fallback (prefer DarkSelect component)
+DarkSelect       — Custom dropdown component for all visible selects
+dark-scrollbar   — Dark-themed scrollbar for overflow containers
 ```
 
 Always add appropriate padding: `px-3 py-2` for standard, `px-2 py-1` for compact.
+
+### DarkSelect Component (`components/DarkSelect.js`)
+Custom dropdown replacing native `<select>`. Uses a React portal so the menu is never clipped by parent containers. Closes on scroll and Escape.
+
+**Props:**
+| Prop | Type | Description |
+|---|---|---|
+| `value` | `string` | Currently selected value |
+| `onChange` | `(value) => void` | Called with new value directly (not an event) |
+| `options` | `Array` | Flat or grouped options |
+| `disabled` | `boolean` | Disable interaction |
+| `className` | `string` | Additional wrapper classes |
+| `placeholder` | `string` | Shown when no value matches |
+
+**Options format:**
+```js
+// Flat options
+[{ value: 'all', label: 'All Properties' }]
+
+// Grouped options
+[
+  { value: 'all', label: 'All Properties' },
+  { group: 'Regions', options: [
+    { value: 'region_kc', label: 'Kansas City' },
+  ]},
+]
+```
 
 ### Tables
 ```
@@ -147,6 +176,24 @@ Examples:
 - Background effects (Particles, Aurora): wrap in `dynamic(() => import(...), { ssr: false })`, desktop only
 - Number animations (CountUp): trigger on viewport entry via IntersectionObserver
 - Always respect `@media (prefers-reduced-motion: reduce)`
+
+---
+
+## Brand Chart Palette
+| Name | Hex | Tailwind | Usage |
+|---|---|---|---|
+| Cyan | `#06b6d4` | `cyan-500` | Accent, Inquiries stage |
+| Blue | `#60a5fa` | `blue-400` | Showings Scheduled, info |
+| Violet | `#8b5cf6` | `violet-500` | Showings Completed, projections |
+| Amber | `#fbbf24` | `amber-400` | Applications, warnings |
+| Emerald | `#34d399` | `emerald-400` | Leases, success, positive values |
+| Rose | `#fb7185` | `rose-400` | Errors, fallout, negative values |
+| Orange | `#fb923c` | `orange-400` | Warnings alt |
+| Teal | `#2dd4bf` | `teal-400` | Secondary accent |
+| Pink | `#f472b6` | `pink-400` | Tertiary |
+| Lime | `#a3e635` | `lime-400` | Success alt |
+
+**Never use `-600` or `-700` text colors on dark backgrounds** — they are too dark to read. Always use `-400` variants.
 
 ---
 
@@ -212,3 +259,43 @@ Use inline skeleton screens matching each page's actual layout:
 ```
 
 The `.skeleton` class provides a dark shimmer animation automatically.
+
+---
+
+## Dark Theme Conversion Cheat Sheet
+
+When converting light-themed components:
+
+| Light Theme | Dark Theme |
+|---|---|
+| `bg-white rounded-xl shadow-sm border border-slate-200` | `glass-card` |
+| `bg-white rounded-xl shadow-lg` | `glass-stat` |
+| `text-slate-800` / `text-gray-800` | `text-slate-100` |
+| `text-gray-700` | `text-slate-200` |
+| `text-slate-600` / `text-gray-600` | `text-slate-400` |
+| `text-*-600` / `text-*-700` (colored numbers) | `text-*-400` |
+| `bg-indigo-600 hover:bg-indigo-700` | `btn-accent` |
+| `border-slate-200` / `border-gray-200` | `border-[var(--glass-border)]` |
+| `bg-*-50` (tinted rows) | `bg-*-500/5` |
+| `bg-*-100` (badges) | `bg-*-500/15` |
+| `bg-*-200` | `bg-*-500/20` |
+| `hover:bg-*-50` | `hover:bg-*-500/5` |
+| `divide-gray-100` | `divide-white/5` |
+| `bg-gray-50` (table headers) | `bg-surface-raised/80` |
+| `bg-slate-100` (page bg) | Remove (body handles it) |
+| `ring-2 ring-blue-400` | `ring-2 ring-accent` |
+| Native `<select>` | `<DarkSelect>` component |
+
+---
+
+## Key Files
+
+```
+app/globals.css          — CSS variables, reusable classes, dark scrollbar
+tailwind.config.js       — Custom colors, shadows, animations, Inter font
+lib/chartTheme.js        — Chart.js dark defaults, color palette, gradient fills
+components/DarkSelect.js — Custom dropdown (portal-based, dark-themed)
+components/Sidebar.js    — Collapsible sidebar with hover expand
+components/AppLayout.js  — Main layout wrapper
+design.md                — This file
+```
