@@ -66,6 +66,8 @@ function filterByRegion(records, region) {
     // Check property field first, fall back to unit field for rental_applications
     const prop = (record.property || '').toLowerCase();
     const unit = (record.unit || '').toLowerCase();
+    // If no property/unit info at all, include the record (older imports without property data)
+    if (!prop && !unit) return true;
     const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc) || unit.includes(kc));
     if (region === 'region_kansas_city') return matchesKC;
     if (region === 'region_columbia') return !matchesKC;
@@ -205,7 +207,7 @@ export async function GET(request) {
       if (currentStage === 'showings_completed') {
         query = query.eq('status', 'Completed');
       } else if (currentStage === 'leases') {
-        query = query.or('status.eq.Converted,application_status.eq.Approved');
+        query = query.or('status.eq.Converted,status.eq.Approved,application_status.eq.Approved');
       }
 
       // Apply property filter for tables that have it
@@ -214,7 +216,8 @@ export async function GET(request) {
           query = query.eq('property', property);
         } else if (tableName === 'rental_applications') {
           // rental_applications stores property in the unit field as "Property - Unit - Address"
-          query = query.like('unit', `${property} - %`);
+          // Also include records with null unit (older imports without property data)
+          query = query.or(`unit.like.${property} - %,unit.is.null`);
         }
       }
 
