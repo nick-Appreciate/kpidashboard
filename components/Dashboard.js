@@ -760,8 +760,8 @@ export default function Dashboard() {
                           <div className="text-slate-500 text-lg mr-2">→</div>
                           
                           {/* Fallout Box */}
-                          <div className="bg-rose-500/8 backdrop-blur border border-rose-500/20 rounded-lg p-3 max-w-xs">
-                            <div className="text-xs font-semibold text-rose-300 mb-2 flex items-center gap-1">
+                          <div className="bg-surface-raised/90 backdrop-blur border border-rose-500/30 rounded-lg p-3 max-w-xs shadow-lg">
+                            <div className="text-xs font-semibold text-rose-400 mb-2 flex items-center gap-1">
                               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                               </svg>
@@ -771,11 +771,11 @@ export default function Dashboard() {
                               {stage.fallout.reasons.filter(r => r.count > 0).map((reason, rIdx) => (
                                 <div key={rIdx} className="flex items-center justify-between text-xs">
                                   <div className="flex items-center gap-1.5">
-                                    <div 
-                                      className="w-2.5 h-2.5 rounded-full" 
+                                    <div
+                                      className="w-2.5 h-2.5 rounded-full"
                                       style={{ backgroundColor: reason.color }}
                                     />
-                                    <span className="text-slate-300">{reason.label}</span>
+                                    <span className="text-slate-200">{reason.label}</span>
                                   </div>
                                   <span className="font-bold ml-3" style={{ color: reason.color }}>
                                     {reason.count}
@@ -847,8 +847,8 @@ export default function Dashboard() {
                     {showFallout && idx === funnelData.stages.length - 1 && (
                       <div className="flex items-center mt-2 ml-16 md:ml-24">
                         <div className="text-slate-500 text-lg mr-2">↳</div>
-                        <div className="bg-rose-500/8 backdrop-blur border border-rose-500/20 rounded-lg p-3">
-                          <div className="text-xs font-semibold text-rose-300 mb-2 flex items-center gap-1">
+                        <div className="bg-surface-raised/90 backdrop-blur border border-rose-500/30 rounded-lg p-3 shadow-lg">
+                          <div className="text-xs font-semibold text-rose-400 mb-2 flex items-center gap-1">
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                             </svg>
@@ -858,11 +858,11 @@ export default function Dashboard() {
                             {stage.fallout.reasons.filter(r => r.count > 0).map((reason, rIdx) => (
                               <div key={rIdx} className="flex items-center justify-between text-xs">
                                 <div className="flex items-center gap-1.5">
-                                  <div 
-                                    className="w-2.5 h-2.5 rounded-full" 
+                                  <div
+                                    className="w-2.5 h-2.5 rounded-full"
                                     style={{ backgroundColor: reason.color }}
                                   />
-                                  <span className="text-slate-300">{reason.label}</span>
+                                  <span className="text-slate-200">{reason.label}</span>
                                 </div>
                                 <span className="font-bold ml-3" style={{ color: reason.color }}>
                                   {reason.count}
