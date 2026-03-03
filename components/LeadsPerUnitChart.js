@@ -16,103 +16,103 @@ const STAGE_CONFIG = {
 
 const ALL_STAGES = Object.keys(STAGE_CONFIG);
 
-export default function LeadsPerUnitChart({ property, region, startDate, endDate, selectedStages = [] }) {
-  const [stageData, setStageData] = useState(null);
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Mirror the API's bucketing logic for rehab snapshots
+function bucketForDate(dateStr, granularity) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  switch (granularity) {
+    case 'daily':
+      return dateStr;
+    case 'weekly': {
+      const date = new Date(y, m - 1, d);
+      const day = date.getDay();
+      const sun = new Date(date);
+      sun.setDate(date.getDate() - day);
+      return `${sun.getFullYear()}-${String(sun.getMonth() + 1).padStart(2, '0')}-${String(sun.getDate()).padStart(2, '0')}`;
+    }
+    case 'monthly':
+      return `${y}-${String(m).padStart(2, '0')}`;
+    case 'quarterly': {
+      const q = Math.ceil(m / 3);
+      return `${y}-Q${q}`;
+    }
+    default:
+      return dateStr;
+  }
+}
+
+export default function LeadsPerUnitChart({ stageStats, granularity = 'weekly', startDate, endDate, selectedStages = [] }) {
   const [rehabHistory, setRehabHistory] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchRehabHistory = useCallback(async () => {
     setLoading(true);
     try {
-      const stagesParam = ALL_STAGES.join(',');
-      const params = new URLSearchParams({ stages: stagesParam });
-      if (property && property !== 'all') params.set('property', property);
-      if (region) params.set('region', region);
-      if (startDate) params.set('startDate', startDate);
-      if (endDate) params.set('endDate', endDate);
-
-      // Calculate days for rehab history based on date range
       let days = 90;
       if (startDate) {
         const diffMs = new Date() - new Date(startDate);
         days = Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 7;
       }
 
-      const [stageRes, rehabRes] = await Promise.all([
-        fetch(`/api/stage-stats?${params}`),
-        fetch(`/api/rehabs/history?days=${days}`),
-      ]);
-
-      if (stageRes.ok) {
-        const data = await stageRes.json();
-        setStageData(data);
-      }
-      if (rehabRes.ok) {
-        const data = await rehabRes.json();
+      const res = await fetch(`/api/rehabs/history?days=${days}`);
+      if (res.ok) {
+        const data = await res.json();
         setRehabHistory(data.history || []);
       }
     } catch (err) {
-      console.error('Error fetching leads per unit data:', err);
+      console.error('Error fetching rehab history:', err);
     } finally {
       setLoading(false);
     }
-  }, [property, region, startDate, endDate]);
+  }, [startDate]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchRehabHistory();
+  }, [fetchRehabHistory]);
 
-  // Build daily chart data: funnel counts / completed rehab units
+  // Build chart data: funnel counts / completed rehab units, bucketed by granularity
   const chartData = useMemo(() => {
-    if (!stageData?.dailyDataByStage || !rehabHistory?.length) return [];
+    if (!stageStats?.timeSeriesDataByStage || !rehabHistory?.length) return [];
 
-    // Build a lookup of completed units by date from rehab snapshots
-    const completedByDate = {};
-    rehabHistory.forEach(snap => {
-      completedByDate[snap.snapshot_date] = snap.complete || 0;
+    const allBuckets = stageStats.allBuckets || [];
+    if (allBuckets.length === 0) return [];
+
+    // Group rehab snapshots by bucket key, take the last snapshot per bucket
+    const completedByBucket = {};
+    // Sort snapshots by date so the last one wins
+    const sortedSnaps = [...rehabHistory].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    sortedSnaps.forEach(snap => {
+      const bk = bucketForDate(snap.snapshot_date, granularity);
+      completedByBucket[bk] = snap.complete || 0;
     });
 
-    // Get daily dates from stage stats, capped at today
-    const allDates = stageData.allDates || [];
-    if (allDates.length === 0) return [];
+    return allBuckets.map(bucket => {
+      const point = { bucket: bucket.key, dateLabel: bucket.label };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+      const completedUnits = completedByBucket[bucket.key] || 0;
+      point._completedUnits = completedUnits;
 
-    return allDates
-      .filter(dateStr => dateStr <= todayStr)
-      .map(dateStr => {
-        // Format date label as M/D
-        const [y, m, d] = dateStr.split('-').map(Number);
-        const label = `${m}/${d}`;
-
-        const point = { date: dateStr, dateLabel: label };
-
-        // Get completed units for this date
-        const completedUnits = completedByDate[dateStr] || 0;
-        point._completedUnits = completedUnits;
-
-        // For each stage, calculate per-completed-unit ratio
-        ALL_STAGES.forEach(stage => {
-          const dailyData = stageData.dailyDataByStage[stage]?.data;
-          // Find the entry matching this date
-          const entry = dailyData?.find(d => d.date === dateStr);
-          const count = entry?.count || 0;
-          point[`${stage}_count`] = count;
-          point[stage] = completedUnits > 0
-            ? Math.round((count / completedUnits) * 100) / 100
-            : 0;
-        });
-
-        return point;
+      ALL_STAGES.forEach(stage => {
+        const stageData = stageStats.timeSeriesDataByStage[stage];
+        const entry = stageData?.data?.find(d => d.bucket === bucket.key);
+        const count = entry?.count || 0;
+        point[`${stage}_count`] = count;
+        point[stage] = completedUnits > 0
+          ? Math.round((count / completedUnits) * 100) / 100
+          : 0;
       });
-  }, [stageData, rehabHistory]);
+
+      return point;
+    });
+  }, [stageStats, rehabHistory, granularity]);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     const point = payload[0]?.payload;
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-        <p className="font-medium text-gray-700 mb-1">{point?.date}</p>
+        <p className="font-medium text-gray-700 mb-1">{point?.dateLabel}</p>
         {point?._completedUnits !== undefined && (
           <p className="text-gray-500 mb-1">Completed Units: {point._completedUnits}</p>
         )}
@@ -132,7 +132,6 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
     );
   };
 
-  // Filter to only show stages selected in the dashboard funnel
   const visibleStages = ALL_STAGES.filter(s => selectedStages.includes(s));
 
   return (
@@ -140,7 +139,7 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
       <div className="flex flex-col gap-3 mb-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">Leads per Completed Rehab Unit</h2>
-          <p className="text-sm text-gray-500">Daily funnel metrics divided by completed rehab units</p>
+          <p className="text-sm text-gray-500">Funnel metrics divided by completed rehab units</p>
         </div>
       </div>
 
@@ -194,7 +193,7 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
 
       {chartData.length > 0 && visibleStages.length > 0 && (
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Showing {chartData.length} day{chartData.length !== 1 ? 's' : ''} of data
+          Showing {chartData.length} {granularity === 'daily' ? 'day' : granularity === 'weekly' ? 'week' : granularity === 'monthly' ? 'month' : 'quarter'}{chartData.length !== 1 ? 's' : ''} of data
         </p>
       )}
     </div>

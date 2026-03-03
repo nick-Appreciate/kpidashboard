@@ -34,10 +34,10 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [selectedStages, setSelectedStages] = useState([]); // array for multi-select
   const [stageStats, setStageStats] = useState(null);
-  
+  const [granularity, setGranularity] = useState('weekly');
+
   // Chart refs
-  const weeklyChartRef = useRef(null);
-  const dailyChartRef = useRef(null);
+  const timeSeriesChartRef = useRef(null);
   const conversionChartRef = useRef(null);
   const propertyChartRef = useRef(null);
   const unitTypeChartRef = useRef(null);
@@ -81,13 +81,15 @@ export default function Dashboard() {
     }
   };
   
-  // Update dates when preset changes
+  // Update dates and auto-set granularity when preset changes
   useEffect(() => {
     const range = getDateRangeFromPreset(dateRange);
     if (range) {
       setStartDate(range.start);
       setEndDate(range.end);
     }
+    const defaultGranularity = { today: 'daily', last_week: 'daily', last_month: 'weekly', last_quarter: 'weekly', last_year: 'monthly', all_time: 'monthly' };
+    if (defaultGranularity[dateRange]) setGranularity(defaultGranularity[dateRange]);
   }, [dateRange]);
   
   // Fetch data
@@ -115,7 +117,8 @@ export default function Dashboard() {
         }
         if (startDate) params.append('startDate', startDate);
         if (endDate) params.append('endDate', endDate);
-        
+        params.append('granularity', granularity);
+
         const res = await fetch(`/api/stage-stats?${params}`);
         const data = await res.json();
         setStageStats(data);
@@ -123,9 +126,9 @@ export default function Dashboard() {
         console.error('Error fetching stage data:', err);
       }
     };
-    
+
     fetchStageData();
-  }, [selectedStages, selectedProperty, startDate, endDate]);
+  }, [selectedStages, selectedProperty, startDate, endDate, granularity]);
   
   const handleStageClick = (stageName) => {
     // Map stage names to API stage values
@@ -221,7 +224,7 @@ export default function Dashboard() {
     updateChartsWithData(stageStats, getStageDisplayNames());
     
     return () => {
-      [weeklyChartRef, dailyChartRef, propertyChartRef, conversionChartRef].forEach(ref => {
+      [timeSeriesChartRef, propertyChartRef, conversionChartRef].forEach(ref => {
         if (ref.current?.chart) {
           ref.current.chart.destroy();
         }
@@ -230,32 +233,21 @@ export default function Dashboard() {
   }, [stageStats, selectedStages]);
   
   const updateChartsWithData = (data, stageName) => {
-    // Check if we have multi-stage data (new format) or single stage data (old format)
-    const isMultiStage = data.dailyDataByStage && Object.keys(data.dailyDataByStage).length > 0;
-    
-    if (isMultiStage) {
-      // Multi-stage: create separate datasets for each stage
+    // Unified bucketed data format
+    const hasBucketData = data.timeSeriesDataByStage && Object.keys(data.timeSeriesDataByStage).length > 0;
+
+    if (hasBucketData) {
       const stages = data.stages || [];
+      const bucketLabels = (data.allBuckets || []).map(b => b.label);
 
-      // Compute "Today" line position for charts (only when future data exists)
-      let todayDailyIndex = -1;
-      let todayWeeklyIndex = -1;
-
-      if (data.hasFutureData) {
+      // Compute "Today" line position (only when future data exists)
+      let todayBucketIndex = -1;
+      if (data.hasFutureData && data.allBuckets?.length > 0) {
         const now = new Date();
         const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        todayDailyIndex = data.allDates ? data.allDates.indexOf(todayStr) : -1;
-
-        // For weekly: find which week contains today based on chart end date
-        if (data.allDates?.length > 0 && data.allWeeks?.length > 0) {
-          const lastDateStr = data.allDates[data.allDates.length - 1];
-          const [ly, lm, ld] = lastDateStr.split('-').map(Number);
-          const lastDate = new Date(ly, lm - 1, ld);
-          const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          const daysDiff = Math.round((lastDate - todayDate) / (24 * 60 * 60 * 1000));
-          const weeksFromEnd = Math.floor(daysDiff / 7);
-          todayWeeklyIndex = data.allWeeks.length - 1 - weeksFromEnd;
-          if (todayWeeklyIndex < 0 || todayWeeklyIndex >= data.allWeeks.length) todayWeeklyIndex = -1;
+        // Find the bucket that contains today
+        for (let i = 0; i < data.allBuckets.length; i++) {
+          if (data.allBuckets[i].key >= todayStr) { todayBucketIndex = i; break; }
         }
       }
 
@@ -286,17 +278,16 @@ export default function Dashboard() {
         }
       };
 
-      // Weekly chart with multiple lines
-      if (weeklyChartRef.current && data.allWeeks?.length > 0) {
-        const ctx = weeklyChartRef.current.getContext('2d');
-        if (weeklyChartRef.current.chart) weeklyChartRef.current.chart.destroy();
-        
-        // Build datasets for each stage
+      // Time series chart (line)
+      if (timeSeriesChartRef.current && bucketLabels.length > 0) {
+        const ctx = timeSeriesChartRef.current.getContext('2d');
+        if (timeSeriesChartRef.current.chart) timeSeriesChartRef.current.chart.destroy();
+
         const datasets = stages.map(stage => {
-          const stageData = data.weeklyDataByStage[stage];
+          const stageData = data.timeSeriesDataByStage[stage];
           return {
             label: stageData.label,
-            data: stageData.data.map(w => w.count),
+            data: stageData.data.map(d => d.count),
             borderColor: stageData.color,
             backgroundColor: `${stageData.color}40`,
             fill: false,
@@ -305,25 +296,21 @@ export default function Dashboard() {
             pointHoverRadius: 6
           };
         });
-        
-        // Store details for tooltips (indexed by stage then by week index)
-        const weeklyDetailsByStage = {};
+
+        const detailsByStage = {};
         stages.forEach(stage => {
-          weeklyDetailsByStage[stage] = data.weeklyDataByStage[stage].data.map(w => w.details || []);
+          detailsByStage[stage] = data.timeSeriesDataByStage[stage].data.map(d => d.details || []);
         });
-        
-        weeklyChartRef.current.chart = new Chart(ctx, {
+
+        timeSeriesChartRef.current.chart = new Chart(ctx, {
           type: 'line',
-          data: {
-            labels: data.allWeeks, // Already formatted as "M/D-M/D" rolling periods
-            datasets
-          },
+          data: { labels: bucketLabels, datasets },
           plugins: [todayLinePlugin],
           options: {
             responsive: true,
             maintainAspectRatio: true,
             plugins: {
-              todayLine: { index: todayWeeklyIndex },
+              todayLine: { index: todayBucketIndex },
               legend: { display: true, position: 'top' },
               tooltip: {
                 callbacks: {
@@ -331,110 +318,35 @@ export default function Dashboard() {
                     const idx = context[0].dataIndex;
                     const datasetIndex = context[0].datasetIndex;
                     const stage = stages[datasetIndex];
-                    const details = weeklyDetailsByStage[stage]?.[idx] || [];
+                    const details = detailsByStage[stage]?.[idx] || [];
                     if (details.length === 0) return '';
-
                     const lines = details.slice(0, 10).map(d => {
                       const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
                       return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
                     });
-                    if (details.length > 10) {
-                      lines.push(`... and ${details.length - 10} more`);
-                    }
+                    if (details.length > 10) lines.push(`... and ${details.length - 10} more`);
                     return lines;
                   }
                 }
               }
             },
-            scales: { 
-              y: { beginAtZero: true, ticks: { stepSize: 1 } },
-              x: { 
-                ticks: { maxRotation: 45, minRotation: 45 },
-                title: { display: true, text: 'Week (Start - End)' }
-              }
-            }
-          }
-        });
-      }
-      
-      // Daily chart with grouped bars
-      if (dailyChartRef.current && data.allDates?.length > 0) {
-        const ctx = dailyChartRef.current.getContext('2d');
-        if (dailyChartRef.current.chart) dailyChartRef.current.chart.destroy();
-        
-        // Build datasets for each stage
-        const datasets = stages.map(stage => {
-          const stageData = data.dailyDataByStage[stage];
-          return {
-            label: stageData.label,
-            data: stageData.data.map(d => d.count),
-            backgroundColor: stageData.color,
-            borderColor: stageData.color,
-            borderWidth: 1
-          };
-        });
-        
-        // Store details for tooltips
-        const dailyDetailsByStage = {};
-        stages.forEach(stage => {
-          dailyDetailsByStage[stage] = data.dailyDataByStage[stage].data.map(d => d.details || []);
-        });
-        
-        dailyChartRef.current.chart = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: data.allDates.map(d => {
-              const [year, month, day] = d.split('-').map(Number);
-              return `${month}/${day}`;
-            }),
-            datasets
-          },
-          plugins: [todayLinePlugin],
-          options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-              todayLine: { index: todayDailyIndex },
-              legend: { display: true, position: 'top' },
-              tooltip: {
-                callbacks: {
-                  afterBody: function(context) {
-                    const idx = context[0].dataIndex;
-                    const datasetIndex = context[0].datasetIndex;
-                    const stage = stages[datasetIndex];
-                    const details = dailyDetailsByStage[stage]?.[idx] || [];
-                    if (details.length === 0) return '';
-
-                    const lines = details.slice(0, 10).map(d => {
-                      const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
-                      return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
-                    });
-                    if (details.length > 10) {
-                      lines.push(`... and ${details.length - 10} more`);
-                    }
-                    return lines;
-                  }
-                }
-              }
-            },
-            scales: { 
+            scales: {
               y: { beginAtZero: true, ticks: { stepSize: 1 } },
               x: { ticks: { maxRotation: 45, minRotation: 45 } }
             }
           }
         });
       }
-      
-      // Weekly Conversion percentage chart (line chart showing % over time)
-      if (conversionChartRef.current && data.weeklyConversionByStage && data.allWeeks?.length > 0) {
+
+      // Conversion percentage chart
+      if (conversionChartRef.current && data.conversionByStage && bucketLabels.length > 0) {
         const ctx = conversionChartRef.current.getContext('2d');
         if (conversionChartRef.current.chart) conversionChartRef.current.chart.destroy();
-        
-        // Build datasets for each stage (excluding inquiries since it's always 100%)
+
         const conversionDatasets = stages
           .filter(stage => stage !== 'inquiries')
           .map(stage => {
-            const stageData = data.weeklyConversionByStage[stage];
+            const stageData = data.conversionByStage[stage];
             return {
               label: stageData.label,
               data: stageData.data.map(d => d.percentage),
@@ -446,25 +358,22 @@ export default function Dashboard() {
               pointHoverRadius: 6
             };
           });
-        
+
         conversionChartRef.current.chart = new Chart(ctx, {
           type: 'line',
-          data: {
-            labels: data.allWeeks, // Already formatted as "M/D-M/D" rolling periods
-            datasets: conversionDatasets
-          },
+          data: { labels: bucketLabels, datasets: conversionDatasets },
           plugins: [todayLinePlugin],
           options: {
             responsive: true,
             maintainAspectRatio: true,
             plugins: {
-              todayLine: { index: todayWeeklyIndex },
+              todayLine: { index: todayBucketIndex },
               legend: { display: true, position: 'top' },
               tooltip: {
                 callbacks: {
                   label: function(context) {
                     const stage = stages.filter(s => s !== 'inquiries')[context.datasetIndex];
-                    const convData = data.weeklyConversionByStage[stage]?.data[context.dataIndex];
+                    const convData = data.conversionByStage[stage]?.data[context.dataIndex];
                     if (convData) {
                       return `${context.dataset.label}: ${convData.percentage}% (${convData.count}/${convData.baseline} ${convData.baselineLabel || 'previous stage'})`;
                     }
@@ -473,19 +382,14 @@ export default function Dashboard() {
                 }
               }
             },
-            scales: { 
-              y: { 
-                beginAtZero: true, 
+            scales: {
+              y: {
+                beginAtZero: true,
                 max: 100,
-                ticks: { 
-                  callback: function(value) { return value + '%'; }
-                },
+                ticks: { callback: function(value) { return value + '%'; } },
                 title: { display: true, text: 'Conversion Rate (%)' }
               },
-              x: { 
-                ticks: { maxRotation: 45, minRotation: 45 },
-                title: { display: true, text: 'Week' }
-              }
+              x: { ticks: { maxRotation: 45, minRotation: 45 } }
             }
           }
         });
@@ -526,69 +430,6 @@ export default function Dashboard() {
   };
 
   const updateCharts = () => {
-    if (weeklyChartRef.current && stats.weeklyData?.length > 0) {
-      const ctx = weeklyChartRef.current.getContext('2d');
-      if (weeklyChartRef.current.chart) weeklyChartRef.current.chart.destroy();
-      
-      weeklyChartRef.current.chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: stats.weeklyData.map(w => w.week), // Already formatted as "M/D-M/D" rolling periods
-          datasets: [{
-            label: 'Weekly Inquiries',
-            data: stats.weeklyData.map(w => w.count),
-            borderColor: '#667eea',
-            backgroundColor: 'rgba(102, 126, 234, 0.1)',
-            fill: true,
-            tension: 0.4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { display: false } },
-          scales: { 
-            y: { beginAtZero: true, ticks: { stepSize: 1 } },
-            x: { 
-              ticks: { maxRotation: 45, minRotation: 45 },
-              title: { display: true, text: 'Week (Start - End)' }
-            }
-          }
-        }
-      });
-    }
-    
-    if (dailyChartRef.current && stats.dailyData?.length > 0) {
-      const ctx = dailyChartRef.current.getContext('2d');
-      if (dailyChartRef.current.chart) dailyChartRef.current.chart.destroy();
-      
-      dailyChartRef.current.chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: stats.dailyData.map(d => {
-            const [year, month, day] = d.inquiry_date.split('-').map(Number);
-            return `${month}/${day}`;
-          }),
-          datasets: [{
-            label: 'Daily Inquiries',
-            data: stats.dailyData.map(d => d.count),
-            backgroundColor: '#43e97b',
-            borderColor: '#38d170',
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { display: false } },
-          scales: { 
-            y: { beginAtZero: true, ticks: { stepSize: 1 } },
-            x: { ticks: { maxRotation: 45, minRotation: 45 } }
-          }
-        }
-      });
-    }
-    
     if (propertyChartRef.current && stats.topProperties?.length > 0) {
       const ctx = propertyChartRef.current.getContext('2d');
       if (propertyChartRef.current.chart) propertyChartRef.current.chart.destroy();
@@ -755,6 +596,27 @@ export default function Dashboard() {
                 <option value="all_time">All Time</option>
                 <option value="custom">Custom Range</option>
               </select>
+            </div>
+
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-slate-600 mb-2">
+                Granularity
+              </label>
+              <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+                {['daily', 'weekly', 'monthly', 'quarterly'].map(g => (
+                  <button
+                    key={g}
+                    onClick={() => setGranularity(g)}
+                    className={`flex-1 px-3 py-2 text-sm font-medium transition ${
+                      granularity === g
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {g.charAt(0).toUpperCase() + g.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
             
             {dateRange === 'custom' && (
@@ -1024,23 +886,17 @@ export default function Dashboard() {
         {/* Charts Section - Only visible when stages are selected */}
         {selectedStages.length > 0 && stageStats && (
           <>
-            {/* Daily Chart - Full Width */}
+            {/* Time Series Chart - Full Width */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Daily {getStageDisplayNames()}</h2>
-              <canvas ref={dailyChartRef}></canvas>
+              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">{getStageDisplayNames()} Over Time</h2>
+              <canvas ref={timeSeriesChartRef}></canvas>
             </div>
-            
-            {/* Weekly Chart - Full Width */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">{getStageDisplayNames()} Over Time (Weekly)</h2>
-              <canvas ref={weeklyChartRef}></canvas>
-            </div>
-            
+
             {/* Conversion Rate Chart - Full Width */}
             {selectedStages.some(s => s !== 'inquiries') && (
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Weekly Conversion Rate (% of Previous Stage)</h2>
-                <p className="text-sm text-gray-500 mb-4">Shows what percentage converted from the previous funnel stage each week</p>
+                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Conversion Rate (% of Previous Stage)</h2>
+                <p className="text-sm text-gray-500 mb-4">Shows what percentage converted from the previous funnel stage each period</p>
                 <canvas ref={conversionChartRef}></canvas>
               </div>
             )}
@@ -1050,8 +906,8 @@ export default function Dashboard() {
 
             {/* Leads per Completed Rehab Unit Chart */}
             <LeadsPerUnitChart
-              property={selectedProperty?.startsWith('region_') ? null : selectedProperty}
-              region={selectedProperty?.startsWith('region_') ? selectedProperty : null}
+              stageStats={stageStats}
+              granularity={granularity}
               startDate={startDate}
               endDate={endDate}
               selectedStages={selectedStages}

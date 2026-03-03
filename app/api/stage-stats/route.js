@@ -3,6 +3,60 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+// --- Granularity bucketing helpers ---
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function bucketDate(dateStr, granularity) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  switch (granularity) {
+    case 'daily':
+      return { key: dateStr, label: `${m}/${d}` };
+    case 'weekly': {
+      // Calendar week starting Sunday
+      const date = new Date(y, m - 1, d);
+      const day = date.getDay(); // 0=Sun
+      const sun = new Date(date);
+      sun.setDate(date.getDate() - day);
+      const sk = `${sun.getFullYear()}-${String(sun.getMonth() + 1).padStart(2, '0')}-${String(sun.getDate()).padStart(2, '0')}`;
+      return { key: sk, label: `${sun.getMonth() + 1}/${sun.getDate()}` };
+    }
+    case 'monthly':
+      return { key: `${y}-${String(m).padStart(2, '0')}`, label: `${MONTH_ABBR[m - 1]} '${String(y).slice(2)}` };
+    case 'quarterly': {
+      const q = Math.ceil(m / 3);
+      return { key: `${y}-Q${q}`, label: `Q${q} '${String(y).slice(2)}` };
+    }
+    default:
+      return { key: dateStr, label: `${m}/${d}` };
+  }
+}
+
+function generateAllBuckets(startDateStr, endDateStr, granularity) {
+  if (!startDateStr || !endDateStr) return [];
+  const seen = new Set();
+  const buckets = [];
+  const start = parseDateStr(startDateStr);
+  const end = parseDateStr(endDateStr);
+
+  const cur = new Date(start);
+  while (cur <= end) {
+    const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+    const b = bucketDate(ds, granularity);
+    if (!seen.has(b.key)) {
+      seen.add(b.key);
+      buckets.push(b);
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return buckets;
+}
+
+function parseDateStr(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 // Region definitions - matches occupancy dashboard
 const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
 
@@ -28,6 +82,7 @@ export async function GET(request) {
     const region = searchParams.get('region');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const granularity = searchParams.get('granularity') || 'weekly';
 
     // Support both single stage and multi-select
     const selectedStages = stagesParam ? stagesParam.split(',') : (stage ? [stage] : []);
@@ -190,7 +245,7 @@ export async function GET(request) {
 
     // Process data separately for each stage
     // Pass both selectedStages (for display) and all fetched stages (for conversion calculation)
-    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, effectiveEndDate, [...stagesToFetch]);
+    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, effectiveEndDate, [...stagesToFetch], granularity);
     result.hasFutureData = hasFutureData;
 
     return NextResponse.json(result);
@@ -370,24 +425,7 @@ function processStageData(records, stage, dateField) {
   };
 }
 
-function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}, startDate = null, endDate = null, allFetchedStages = []) {
-  if (!records || records.length === 0) {
-    return {
-      total: 0,
-      stages: [],
-      dailyDataByStage: {},
-      weeklyDataByStage: {},
-      weeklyConversionByStage: {},
-      allDates: [],
-      allWeeks: [],
-      weeklyInquiryCounts: weeklyInquiryCounts,
-      topProperties: [],
-      statusDistribution: [],
-      sourceDistribution: [],
-      leadTypeDistribution: []
-    };
-  }
-
+function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weeklyInquiryCounts = {}, startDate = null, endDate = null, allFetchedStages = [], granularity = 'weekly') {
   const stageColors = {
     'inquiries': '#667eea',
     'showings_scheduled': '#8b5cf6',
@@ -404,36 +442,27 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     'leases': 'Leases'
   };
 
-  // Get date field based on record's stage
+  const emptyResult = {
+    total: 0, stages: [], granularity,
+    allBuckets: [], timeSeriesDataByStage: {}, conversionByStage: {}, dataBySource: { sources: [], data: [] },
+    topProperties: [], statusDistribution: [], sourceDistribution: [], leadTypeDistribution: []
+  };
+
+  if (!records || records.length === 0) return emptyResult;
+
   const getDateValue = (record) => {
-    if (record._dateField) {
-      return record[record._dateField];
-    }
+    if (record._dateField) return record[record._dateField];
     return record.inquiry_received || record.showing_time || record.received;
   };
 
-  // Use filter dates for the chart range, not data min/max
-  // This ensures charts always show the full selected date range
+  const toDateStr = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  // Determine chart date range
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
-  // Parse filter dates or use defaults
-  // Use local date parsing to avoid timezone issues (YYYY-MM-DD -> local midnight)
-  let chartStartDate = null;
-  let chartEndDate = today;
-  
-  if (startDate) {
-    const [year, month, day] = startDate.split('-').map(Number);
-    chartStartDate = new Date(year, month - 1, day);
-  }
-  if (endDate) {
-    const [year, month, day] = endDate.split('-').map(Number);
-    chartEndDate = new Date(year, month - 1, day);
-  }
-  
-  // Allow future dates so scheduled showings are visible on charts
-  
-  // If no startDate provided, calculate from data
+  let chartStartDate = startDate ? parseDateStr(startDate) : null;
+  let chartEndDate = endDate ? parseDateStr(endDate) : today;
+
   if (!chartStartDate) {
     records.forEach(record => {
       const dateVal = getDateValue(record);
@@ -444,59 +473,25 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
       }
     });
   }
-  
-  // Default to 30 days ago if still no start date
   if (!chartStartDate) {
     chartStartDate = new Date(today);
     chartStartDate.setDate(chartStartDate.getDate() - 30);
   }
 
-  // Generate all dates in range from startDate to endDate (today)
-  const allDates = [];
-  
-  if (chartStartDate && chartEndDate) {
-    const currentDate = new Date(chartStartDate);
-    chartEndDate.setHours(23, 59, 59, 999);
-    while (currentDate <= chartEndDate) {
-      const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-      allDates.push(dateStr);
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-  }
+  // Generate all buckets for the selected granularity
+  const startStr = toDateStr(chartStartDate);
+  const endStr = toDateStr(chartEndDate);
+  const allBuckets = generateAllBuckets(startStr, endStr, granularity);
+  const bucketKeySet = new Set(allBuckets.map(b => b.key));
 
-  // Generate rolling 7-day periods (from chartEndDate going back)
-  // Each period is labeled by its end date (most recent day in the period)
-  // Anchored at chartEndDate to include future dates for scheduled showings
-  const chartEndWithTime = new Date(chartEndDate.getFullYear(), chartEndDate.getMonth(), chartEndDate.getDate(), 23, 59, 59, 999);
-  const allWeeks = [];
-  const rollingWeekRanges = []; // Store {start, end} for each rolling week
-
-  // Calculate how many weeks back we need to go based on filter date range
-  const weeksBack = chartStartDate ? Math.ceil((chartEndWithTime - chartStartDate) / (7 * 24 * 60 * 60 * 1000)) + 1 : 8;
-  const maxWeeks = Math.min(weeksBack, 12); // Cap at 12 weeks
-
-  for (let i = 0; i < maxWeeks; i++) {
-    const endDate = new Date(chartEndWithTime.getTime() - (i * 7 * 24 * 60 * 60 * 1000));
-    const startDate = new Date(endDate.getTime() - (6 * 24 * 60 * 60 * 1000));
-    startDate.setHours(0, 0, 0, 0);
-
-    const weekLabel = `${startDate.getMonth() + 1}/${startDate.getDate()}-${endDate.getMonth() + 1}/${endDate.getDate()}`;
-    allWeeks.unshift(weekLabel); // Add to beginning so oldest is first
-    rollingWeekRanges.unshift({ start: new Date(startDate), end: new Date(endDate), label: weekLabel });
-  }
-
-  // Process data for each stage separately
-  // Process ALL fetched stages (including previous stages needed for conversion)
-  const dailyDataByStage = {};
-  const weeklyDataByStage = {};
+  // Process data for each stage
+  const timeSeriesDataByStage = {};
   const stageTotals = {};
-  
-  // Use allFetchedStages if provided, otherwise fall back to stages
   const stagesToProcess = allFetchedStages.length > 0 ? allFetchedStages : stages;
 
   stagesToProcess.forEach(stage => {
     let stageRecords = records.filter(r => r._stage === stage);
-    
+
     // For leases stage, deduplicate by unit - keep only most recent per unit
     if (stage === 'leases') {
       const unitMap = new Map();
@@ -510,35 +505,34 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
       });
       stageRecords = Array.from(unitMap.values()).map(v => v.record);
     }
-    
+
     stageTotals[stage] = stageRecords.length;
 
-    // Daily counts for this stage
-    const dailyCounts = {};
-    const dailyDetails = {};
-    // For leases, track unique units per day
-    const dailyUnits = {};
-    
+    // Bucket counts and details
+    const bucketCounts = {};
+    const bucketDetails = {};
+    const bucketUnits = {}; // For leases dedup per bucket
+
     stageRecords.forEach(record => {
       const dateVal = getDateValue(record);
       if (dateVal) {
         const date = new Date(dateVal);
-        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        
-        // For leases, deduplicate by unit per day
+        const dateStr = toDateStr(date);
+        const b = bucketDate(dateStr, granularity);
+
+        // For leases, deduplicate by unit per bucket
         if (stage === 'leases') {
           const unit = record.unit || 'Unknown';
-          if (!dailyUnits[dateStr]) dailyUnits[dateStr] = new Set();
-          if (dailyUnits[dateStr].has(unit)) return; // Skip duplicate unit on same day
-          dailyUnits[dateStr].add(unit);
+          if (!bucketUnits[b.key]) bucketUnits[b.key] = new Set();
+          if (bucketUnits[b.key].has(unit)) return;
+          bucketUnits[b.key].add(unit);
         }
-        
-        dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
-        
-        if (!dailyDetails[dateStr]) dailyDetails[dateStr] = [];
+
+        bucketCounts[b.key] = (bucketCounts[b.key] || 0) + 1;
+
+        if (!bucketDetails[b.key]) bucketDetails[b.key] = [];
         const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
         const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
-        // For rental_applications, unit field contains "Property - Unit - Address"
         let property = record.property || '';
         let unit = record.showing_unit || '';
         if (!property && record.unit && record.unit.includes(' - ')) {
@@ -546,77 +540,18 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
           property = parts[0];
           unit = parts[1] || '';
         }
-        dailyDetails[dateStr].push({ name, id, property, unit });
+        bucketDetails[b.key].push({ name, id, property, unit });
       }
     });
 
-    // Fill in all dates with counts (0 for missing)
-    dailyDataByStage[stage] = {
+    timeSeriesDataByStage[stage] = {
       label: stageNames[stage],
       color: stageColors[stage],
-      data: allDates.map(dateStr => ({
-        date: dateStr,
-        count: dailyCounts[dateStr] || 0,
-        details: dailyDetails[dateStr] || []
-      }))
-    };
-
-    // Weekly counts for this stage using rolling 7-day periods
-    const weeklyCounts = {};
-    const weeklyDetails = {};
-    // For leases, track unique units per week
-    const weeklyUnits = {};
-    
-    // Initialize counts for each rolling week
-    rollingWeekRanges.forEach(range => {
-      weeklyCounts[range.label] = 0;
-      weeklyDetails[range.label] = [];
-      if (stage === 'leases') weeklyUnits[range.label] = new Set();
-    });
-    
-    stageRecords.forEach(record => {
-      const dateVal = getDateValue(record);
-      if (dateVal) {
-        const date = new Date(dateVal);
-        
-        // Find which rolling week this date falls into
-        for (const range of rollingWeekRanges) {
-          if (date >= range.start && date <= range.end) {
-            // For leases, deduplicate by unit per week
-            if (stage === 'leases') {
-              const unit = record.unit || 'Unknown';
-              if (weeklyUnits[range.label].has(unit)) break; // Skip duplicate unit in same week
-              weeklyUnits[range.label].add(unit);
-            }
-            
-            weeklyCounts[range.label] = (weeklyCounts[range.label] || 0) + 1;
-            
-            if (!weeklyDetails[range.label]) weeklyDetails[range.label] = [];
-            const name = record._resolvedName || record.name || record.guest_card_name || record.applicants || 'Unknown';
-            const id = record.id || record.inquiry_id || record.showing_id || record.rental_application_id || '';
-            // For rental_applications, unit field contains "Property - Unit - Address"
-            let property = record.property || '';
-            let unit = record.showing_unit || '';
-            if (!property && record.unit && record.unit.includes(' - ')) {
-              const parts = record.unit.split(' - ');
-              property = parts[0];
-              unit = parts[1] || '';
-            }
-            weeklyDetails[range.label].push({ name, id, property, unit });
-            break; // Each record only belongs to one week
-          }
-        }
-      }
-    });
-
-    // Fill in all weeks with counts (0 for missing)
-    weeklyDataByStage[stage] = {
-      label: stageNames[stage],
-      color: stageColors[stage],
-      data: allWeeks.map(weekLabel => ({
-        week: weekLabel,
-        count: weeklyCounts[weekLabel] || 0,
-        details: weeklyDetails[weekLabel] || []
+      data: allBuckets.map(b => ({
+        bucket: b.key,
+        label: b.label,
+        count: bucketCounts[b.key] || 0,
+        details: bucketDetails[b.key] || []
       }))
     };
   });
@@ -628,9 +563,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
   const leadTypeCounts = {};
 
   records.forEach(record => {
-    if (record.property) {
-      propertyCounts[record.property] = (propertyCounts[record.property] || 0) + 1;
-    }
+    if (record.property) propertyCounts[record.property] = (propertyCounts[record.property] || 0) + 1;
     const status = record.status || record.application_status || 'Unknown';
     statusCounts[status] = (statusCounts[status] || 0) + 1;
     const source = record.inquiry_source || record.source || record.lead_source || 'Unknown';
@@ -641,81 +574,67 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
 
   const uniqueProperties = new Set(records.map(r => r.property).filter(Boolean));
 
-  // Define the funnel order for calculating conversion from previous stage
+  // Calculate conversion percentages per bucket
   const funnelOrder = ['inquiries', 'showings_scheduled', 'showings_completed', 'applications', 'leases'];
-  
-  // Calculate rolling weekly inquiry counts for conversion baseline
-  const rollingWeeklyInquiryCounts = {};
+
+  // Bucket inquiry counts for conversion baseline
   const rawInquiryDates = weeklyInquiryCounts._rawDates || [];
-  rollingWeekRanges.forEach(range => {
-    rollingWeeklyInquiryCounts[range.label] = rawInquiryDates.filter(
-      date => date >= range.start && date <= range.end
-    ).length;
+  const inquiryBucketCounts = {};
+  rawInquiryDates.forEach(date => {
+    const dateStr = toDateStr(date);
+    const b = bucketDate(dateStr, granularity);
+    inquiryBucketCounts[b.key] = (inquiryBucketCounts[b.key] || 0) + 1;
   });
-  
-  // Calculate weekly conversion percentages for each stage (as % of previous stage)
-  // Only calculate for selected stages, but use weeklyDataByStage which has all fetched stages
-  const weeklyConversionByStage = {};
+
+  const conversionByStage = {};
   stages.forEach(stage => {
     const stageIndex = funnelOrder.indexOf(stage);
     const previousStage = stageIndex > 0 ? funnelOrder[stageIndex - 1] : null;
-    
+
     if (stage === 'inquiries') {
-      // Inquiries is the first stage, always 100%
-      weeklyConversionByStage[stage] = {
+      conversionByStage[stage] = {
         label: stageNames[stage],
         color: stageColors[stage],
-        data: allWeeks.map(weekLabel => ({
-          week: weekLabel,
+        data: allBuckets.map(b => ({
+          bucket: b.key, label: b.label,
           percentage: 100,
-          count: rollingWeeklyInquiryCounts[weekLabel] || 0,
-          baseline: rollingWeeklyInquiryCounts[weekLabel] || 0,
+          count: inquiryBucketCounts[b.key] || 0,
+          baseline: inquiryBucketCounts[b.key] || 0,
           baselineLabel: 'Inquiries'
         }))
       };
     } else {
-      const stageData = weeklyDataByStage[stage];
-      
-      // Get the previous stage's weekly data for baseline
-      // weeklyDataByStage now contains all fetched stages (including previous stages)
-      let getPreviousStageCount;
-      let baselineLabel;
-      
+      const stageData = timeSeriesDataByStage[stage];
+      let getPrevCount, baselineLabel;
+
       if (previousStage === 'inquiries') {
-        getPreviousStageCount = (weekLabel) => rollingWeeklyInquiryCounts[weekLabel] || 0;
+        getPrevCount = (bucketKey) => inquiryBucketCounts[bucketKey] || 0;
         baselineLabel = 'Inquiries';
-      } else if (weeklyDataByStage[previousStage]) {
-        // Previous stage data is available (either selected or fetched for conversion)
-        getPreviousStageCount = (weekLabel, idx) => weeklyDataByStage[previousStage].data[idx]?.count || 0;
+      } else if (timeSeriesDataByStage[previousStage]) {
+        const prevDataMap = {};
+        timeSeriesDataByStage[previousStage].data.forEach(d => { prevDataMap[d.bucket] = d.count; });
+        getPrevCount = (bucketKey) => prevDataMap[bucketKey] || 0;
         baselineLabel = stageNames[previousStage];
       } else {
-        // Fallback to inquiries only if we truly can't get the previous stage
-        getPreviousStageCount = (weekLabel) => rollingWeeklyInquiryCounts[weekLabel] || 0;
+        getPrevCount = (bucketKey) => inquiryBucketCounts[bucketKey] || 0;
         baselineLabel = 'Inquiries';
       }
-      
-      weeklyConversionByStage[stage] = {
+
+      conversionByStage[stage] = {
         label: `${stageNames[stage]} (from ${baselineLabel})`,
         color: stageColors[stage],
-        data: allWeeks.map((weekLabel, idx) => {
-          const stageCount = stageData.data[idx]?.count || 0;
-          const previousCount = getPreviousStageCount(weekLabel, idx);
+        data: allBuckets.map(b => {
+          const stageCount = stageData.data.find(d => d.bucket === b.key)?.count || 0;
+          const previousCount = getPrevCount(b.key);
           const percentage = previousCount > 0 ? Math.round((stageCount / previousCount) * 100) : 0;
-          return {
-            week: weekLabel,
-            percentage,
-            count: stageCount,
-            baseline: previousCount,
-            baselineLabel: baselineLabel
-          };
+          return { bucket: b.key, label: b.label, percentage, count: stageCount, baseline: previousCount, baselineLabel };
         })
       };
     }
   });
 
-  // Build daily data by source (across all selected stages)
-  // Track counts per source per date
-  const sourceByDate = {}; // { date: { source: count } }
+  // Build data by source bucketed by granularity
+  const sourceByBucket = {};
   const sourceGrandTotals = {};
 
   records.forEach(record => {
@@ -723,28 +642,26 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     const dateVal = getDateValue(record);
     if (!dateVal) return;
     const date = new Date(dateVal);
-    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    // Prefer inquiry_source (from original inquiry) for applications/leases
-    const source = record.inquiry_source || record.inquiry_source || record.source || record.lead_source || 'Unknown';
+    const dateStr = toDateStr(date);
+    const b = bucketDate(dateStr, granularity);
+    const source = record.inquiry_source || record.source || record.lead_source || 'Unknown';
 
-    if (!sourceByDate[dateStr]) sourceByDate[dateStr] = {};
-    sourceByDate[dateStr][source] = (sourceByDate[dateStr][source] || 0) + 1;
+    if (!sourceByBucket[b.key]) sourceByBucket[b.key] = {};
+    sourceByBucket[b.key][source] = (sourceByBucket[b.key][source] || 0) + 1;
     sourceGrandTotals[source] = (sourceGrandTotals[source] || 0) + 1;
   });
 
-  // Get top sources by total count
   const topSourceNames = Object.entries(sourceGrandTotals)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([source]) => source);
 
-  const dailyDataBySource = {
+  const dataBySource = {
     sources: topSourceNames,
-    dates: allDates,
-    data: allDates.map(dateStr => {
-      const point = { date: dateStr };
+    data: allBuckets.map(b => {
+      const point = { bucket: b.key, label: b.label };
       topSourceNames.forEach(source => {
-        point[source] = sourceByDate[dateStr]?.[source] || 0;
+        point[source] = sourceByBucket[b.key]?.[source] || 0;
       });
       return point;
     })
@@ -755,13 +672,11 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     stageTotals,
     propertyCount: uniqueProperties.size,
     stages,
-    allDates,
-    allWeeks,
-    dailyDataByStage,
-    weeklyDataByStage,
-    weeklyConversionByStage,
-    weeklyInquiryCounts,
-    dailyDataBySource,
+    granularity,
+    allBuckets,
+    timeSeriesDataByStage,
+    conversionByStage,
+    dataBySource,
     topProperties: Object.entries(propertyCounts)
       .map(([property, count]) => ({ property, count }))
       .sort((a, b) => b.count - a.count)

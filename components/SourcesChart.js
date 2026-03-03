@@ -13,19 +13,12 @@ const SOURCE_COLORS = [
 
 export default function SourcesChart({ stageStats }) {
   const { chartData, sources } = useMemo(() => {
-    if (!stageStats?.dailyDataBySource) return { chartData: [], sources: [] };
+    if (!stageStats?.dataBySource) return { chartData: [], sources: [] };
 
-    const { sources: srcNames, data } = stageStats.dailyDataBySource;
+    const { sources: srcNames, data } = stageStats.dataBySource;
     if (!srcNames?.length || !data?.length) return { chartData: [], sources: [] };
 
-    const todayStr = new Date().toISOString().split('T')[0];
-
-    const filtered = data
-      .filter(d => d.date <= todayStr)
-      .map(d => {
-        const [y, m, day] = d.date.split('-').map(Number);
-        return { ...d, dateLabel: `${m}/${day}` };
-      });
+    const filtered = data.map(d => ({ ...d, dateLabel: d.label }));
 
     return { chartData: filtered, sources: srcNames };
   }, [stageStats]);
@@ -37,7 +30,7 @@ export default function SourcesChart({ stageStats }) {
     const sorted = [...payload].sort((a, b) => (b.value || 0) - (a.value || 0));
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs max-h-64 overflow-y-auto">
-        <p className="font-medium text-gray-700 mb-1">{point?.date}</p>
+        <p className="font-medium text-gray-700 mb-1">{point?.label || point?.bucket}</p>
         {sorted.map((entry, i) => (
           entry.value > 0 && (
             <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
@@ -56,7 +49,7 @@ export default function SourcesChart({ stageStats }) {
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-slate-800">Sources</h2>
-        <p className="text-sm text-gray-500">Daily lead sources across selected funnel stages</p>
+        <p className="text-sm text-gray-500">Lead sources across selected funnel stages</p>
       </div>
 
       {chartData.length === 0 || sources.length === 0 ? (
