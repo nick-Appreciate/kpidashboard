@@ -5,13 +5,14 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
+import { STAGE_COLORS } from '../lib/chartTheme';
 
 const STAGE_CONFIG = {
-  inquiries: { label: 'Inquiries', color: '#667eea' },
-  showings_scheduled: { label: 'Showings Scheduled', color: '#8b5cf6' },
-  showings_completed: { label: 'Showings Completed', color: '#764ba2' },
-  applications: { label: 'Applications', color: '#f093fb' },
-  leases: { label: 'Leases', color: '#43e97b' },
+  inquiries:          { label: 'Inquiries',          color: STAGE_COLORS.inquiries },
+  showings_scheduled: { label: 'Showings Scheduled', color: STAGE_COLORS.showings_scheduled },
+  showings_completed: { label: 'Showings Completed', color: STAGE_COLORS.showings_completed },
+  applications:       { label: 'Applications',       color: STAGE_COLORS.applications },
+  leases:             { label: 'Leases',             color: STAGE_COLORS.leases },
 };
 
 const ALL_STAGES = Object.keys(STAGE_CONFIG);

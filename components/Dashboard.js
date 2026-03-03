@@ -5,7 +5,7 @@ import Chart from 'chart.js/auto';
 import Link from 'next/link';
 import LeadsPerUnitChart from './LeadsPerUnitChart';
 import SourcesChart from './SourcesChart';
-import { DARK_CHART_DEFAULTS } from '../lib/chartTheme';
+import { DARK_CHART_DEFAULTS, STAGE_COLORS, CHART_PALETTE } from '../lib/chartTheme';
 
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
@@ -285,15 +285,17 @@ export default function Dashboard() {
 
         const datasets = stages.map(stage => {
           const stageData = data.timeSeriesDataByStage[stage];
+          const color = STAGE_COLORS[stage] || stageData.color;
           return {
             label: stageData.label,
             data: stageData.data.map(d => d.count),
-            borderColor: stageData.color,
-            backgroundColor: `${stageData.color}40`,
+            borderColor: color,
+            backgroundColor: `${color}40`,
             fill: false,
             tension: 0.4,
-            pointRadius: 4,
-            pointHoverRadius: 6
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            borderWidth: 2,
           };
         });
 
@@ -348,15 +350,17 @@ export default function Dashboard() {
           .filter(stage => stage !== 'inquiries')
           .map(stage => {
             const stageData = data.conversionByStage[stage];
+            const color = STAGE_COLORS[stage] || stageData.color;
             return {
               label: stageData.label,
               data: stageData.data.map(d => d.percentage),
-              borderColor: stageData.color,
-              backgroundColor: `${stageData.color}20`,
+              borderColor: color,
+              backgroundColor: `${color}20`,
               fill: false,
               tension: 0.4,
-              pointRadius: 4,
-              pointHoverRadius: 6
+              pointRadius: 3,
+              pointHoverRadius: 5,
+              borderWidth: 2,
             };
           });
 
@@ -543,18 +547,18 @@ export default function Dashboard() {
           </div>
         </div>
         
-        {/* Controls */}
-        <div className="glass-card p-6 mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">
-                Filter by Property
+        {/* Filters */}
+        <div className="glass-card p-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                Property
               </label>
               <select
                 value={selectedProperty}
                 onChange={(e) => setSelectedProperty(e.target.value)}
                 disabled={loading}
-                className="dark-select w-full"
+                className="dark-select w-full px-3 py-2 text-sm"
               >
                 <option value="all">All Properties</option>
                 <optgroup label="Regions">
@@ -570,16 +574,16 @@ export default function Dashboard() {
                 </optgroup>
               </select>
             </div>
-            
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">
-                Filter by Status
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                Status
               </label>
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
                 disabled={loading}
-                className="dark-select w-full"
+                className="dark-select w-full px-3 py-2 text-sm"
               >
                 <option value="all">All Statuses</option>
                 {statuses.map(status => (
@@ -587,18 +591,16 @@ export default function Dashboard() {
                 ))}
               </select>
             </div>
-          </div>
-          
-          <div className="flex flex-col md:flex-row gap-4 mt-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                 Date Range
               </label>
               <select
                 value={dateRange}
                 onChange={(e) => setDateRange(e.target.value)}
                 disabled={loading}
-                className="dark-select w-full"
+                className="dark-select w-full px-3 py-2 text-sm"
               >
                 <option value="today">Today</option>
                 <option value="last_week">Last 7 Days</option>
@@ -610,16 +612,16 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
                 Granularity
               </label>
-              <div className="flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
+              <div className="flex rounded-lg border border-[var(--glass-border)] overflow-hidden h-[38px]">
                 {['daily', 'weekly', 'monthly', 'quarterly'].map(g => (
                   <button
                     key={g}
                     onClick={() => setGranularity(g)}
-                    className={`flex-1 px-3 py-2 text-sm font-medium transition ${
+                    className={`flex-1 px-2 text-xs font-medium transition ${
                       granularity === g
                         ? 'bg-accent text-surface-base'
                         : 'bg-white/5 text-slate-400 hover:bg-white/10'
@@ -630,38 +632,39 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            
-            {dateRange === 'custom' && (
-              <>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-400 mb-2">
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    disabled={loading}
-                    className="dark-select w-full"
-                  />
-                </div>
-                
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-400 mb-2">
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    disabled={loading}
-                    className="dark-select w-full"
-                  />
-                </div>
-              </>
-            )}
-            
-            <div className="flex items-end gap-2">
+          </div>
+
+          {dateRange === 'custom' && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  disabled={loading}
+                  className="dark-input w-full px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  disabled={loading}
+                  className="dark-input w-full px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          )}
+
+          {(selectedProperty !== 'all' || selectedStatus !== 'all' || dateRange !== 'last_month' || granularity !== 'weekly') && (
+            <div className="mt-3 pt-3 border-t border-[var(--glass-border)]">
               <button
                 onClick={() => {
                   setSelectedProperty('all');
@@ -672,12 +675,12 @@ export default function Dashboard() {
                   setStageStats(null);
                 }}
                 disabled={loading}
-                className="px-6 py-2 bg-white/10 text-slate-300 rounded-lg hover:bg-white/15 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs text-slate-500 hover:text-accent transition"
               >
-                Clear
+                Reset all filters
               </button>
             </div>
-          </div>
+          )}
         </div>
         
         {/* Leasing Lifecycle Funnel */}
@@ -693,13 +696,7 @@ export default function Dashboard() {
               <div className="mb-4 flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-slate-400">Viewing:</span>
                 {selectedStages.map(stageKey => {
-                  const stageColor = {
-                    'inquiries': '#06b6d4',
-                    'showings_scheduled': '#60a5fa',
-                    'showings_completed': '#8b5cf6',
-                    'applications': '#fbbf24',
-                    'leases': '#34d399'
-                  }[stageKey];
+                  const stageColor = STAGE_COLORS[stageKey];
                   return (
                     <span key={stageKey} className="px-3 py-1 rounded-full text-sm font-medium border" style={{
                       backgroundColor: `${stageColor}20`,
@@ -738,14 +735,15 @@ export default function Dashboard() {
                   'Leases': 'leases'
                 }[stage.name];
                 const isSelected = selectedStages.includes(stageKey);
-                // On-brand stage colors
-                const brandColor = {
-                  'Inquiries': '#06b6d4',
-                  'Showings Scheduled': '#60a5fa',
-                  'Showings Completed': '#8b5cf6',
-                  'Applications': '#fbbf24',
-                  'Leases': '#34d399'
-                }[stage.name] || stage.color;
+                // On-brand stage colors from shared palette
+                const stageKey2 = {
+                  'Inquiries': 'inquiries',
+                  'Showings Scheduled': 'showings_scheduled',
+                  'Showings Completed': 'showings_completed',
+                  'Applications': 'applications',
+                  'Leases': 'leases'
+                }[stage.name];
+                const brandColor = STAGE_COLORS[stageKey2] || stage.color;
                 
                 return (
                   <div key={stage.name}>
@@ -762,8 +760,8 @@ export default function Dashboard() {
                           <div className="text-slate-500 text-lg mr-2">→</div>
                           
                           {/* Fallout Box */}
-                          <div className="bg-red-500/10 border-l-4 border-red-500/30 rounded-r-lg p-3 max-w-xs">
-                            <div className="text-xs font-semibold text-red-300 mb-2 flex items-center gap-1">
+                          <div className="bg-rose-500/8 backdrop-blur border border-rose-500/20 rounded-lg p-3 max-w-xs">
+                            <div className="text-xs font-semibold text-rose-300 mb-2 flex items-center gap-1">
                               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                               </svg>
@@ -849,8 +847,8 @@ export default function Dashboard() {
                     {showFallout && idx === funnelData.stages.length - 1 && (
                       <div className="flex items-center mt-2 ml-16 md:ml-24">
                         <div className="text-slate-500 text-lg mr-2">↳</div>
-                        <div className="bg-red-500/10 border-l-4 border-red-500/30 rounded-r-lg p-3">
-                          <div className="text-xs font-semibold text-red-300 mb-2 flex items-center gap-1">
+                        <div className="bg-rose-500/8 backdrop-blur border border-rose-500/20 rounded-lg p-3">
+                          <div className="text-xs font-semibold text-rose-300 mb-2 flex items-center gap-1">
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                             </svg>

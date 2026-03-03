@@ -5,11 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-
-const SOURCE_COLORS = [
-  '#667eea', '#f093fb', '#43e97b', '#4facfe', '#764ba2',
-  '#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#54a0ff'
-];
+import { CHART_PALETTE } from '../lib/chartTheme';
 
 export default function SourcesChart({ stageStats }) {
   const { chartData, sources } = useMemo(() => {
@@ -81,7 +77,7 @@ export default function SourcesChart({ stageStats }) {
                   type="monotone"
                   dataKey={source}
                   name={source}
-                  stroke={SOURCE_COLORS[idx % SOURCE_COLORS.length]}
+                  stroke={CHART_PALETTE[idx % CHART_PALETTE.length]}
                   strokeWidth={2}
                   dot={{ r: 2 }}
                   activeDot={{ r: 4 }}
