@@ -810,11 +810,11 @@ export default function OccupancyDashboard() {
                     </div>
                     {/* Notice & Eviction */}
                     <div className="flex items-center gap-1.5 text-xs">
-                      <span className="text-amber-400 font-semibold" title="On Notice">{summary.noticeUnits}</span>
-                      <span className="text-slate-600">notice</span>
-                      <span className="text-slate-700">·</span>
-                      <span className="text-rose-400 font-semibold" title="Eviction">{summary.evictUnits}</span>
-                      <span className="text-slate-600">eviction</span>
+                      <span className="text-accent font-semibold" title="On Notice">{summary.noticeUnits}</span>
+                      <span className="text-slate-500">notice</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-white font-semibold" title="Eviction">{summary.evictUnits}</span>
+                      <span className="text-slate-500">eviction</span>
                     </div>
                   </>
                 )}

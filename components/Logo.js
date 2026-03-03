@@ -22,7 +22,7 @@ export function LogoLoader({ text = 'Loading...' }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4">
       <div className="animate-pulse">
-        <Logo variant="white" className="w-16 h-auto" />
+        <Logo variant="white" className="w-32 h-auto" />
       </div>
       {text && <p className="text-slate-400 text-sm">{text}</p>}
     </div>
