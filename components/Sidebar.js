@@ -96,10 +96,8 @@ export default function Sidebar({ user, onLogout }) {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-full bg-slate-900 text-white z-50 transition-all duration-300 ease-in-out ${
-        isExpanded ? 'w-64' : 'w-16 overflow-hidden'
-      }`}
-      style={{ width: isExpanded ? '16rem' : '4rem' }}
+      className="fixed left-0 top-0 h-full bg-slate-900 text-white z-50 overflow-hidden"
+      style={{ width: isExpanded ? '16rem' : '4rem', transition: 'width 300ms ease-in-out' }}
       onMouseEnter={() => {
         hoverTimeoutRef.current = setTimeout(() => setIsExpanded(true), 300);
       }}
@@ -117,12 +115,14 @@ export default function Sidebar({ user, onLogout }) {
       <nav className="mt-4 px-2">
         {navSections.map((section) => (
           <div key={section.label} className="mb-4">
-            <div className={`px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap transition-opacity duration-200 ${
-              isExpanded ? 'opacity-100' : 'opacity-0'
+            <div className={`px-3 mb-1 text-xs font-semibold uppercase tracking-wider whitespace-nowrap transition-all duration-300 ${
+              isExpanded ? 'opacity-100 text-slate-500 h-4' : 'opacity-0 h-0 overflow-hidden'
             }`}>
               {section.label}
             </div>
-            {!isExpanded && <div className="border-t border-slate-700 mx-3 mb-2" />}
+            <div className={`mx-3 mb-2 border-t border-slate-700 transition-opacity duration-300 ${
+              isExpanded ? 'opacity-0 h-0' : 'opacity-100'
+            }`} />
             {section.items.map((item) => {
               const isActive = pathname === item.href;
               return (
