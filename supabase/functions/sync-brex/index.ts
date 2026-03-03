@@ -6,8 +6,8 @@ const brexApiToken = Deno.env.get('BREX_API_KEY')!;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Only import transactions from February 2025 onwards
-const EARLIEST_DATE = '2025-02-01';
+// Only import transactions from February 2026 onwards
+const EARLIEST_DATE = '2026-02-01';
 const MAX_PAGES = 10;
 
 // --- Vendor name normalization (mirrors parse-invoice-pdf logic + card descriptor cleanup) ---
