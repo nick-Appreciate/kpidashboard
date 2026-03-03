@@ -421,19 +421,19 @@ export default function RehabsDashboard() {
                     Unit {getSortIcon('unit')}
                   </th>
                   <th 
-                    className="px-1 py-2 text-left font-semibold border-r border-blue-200 w-24 cursor-pointer hover:bg-blue-200"
+                    className="px-1 py-2 text-left font-semibold border-r border-blue-200 w-20 cursor-pointer hover:bg-blue-200"
                     onClick={() => toggleSort('property')}
                   >
                     Property {getSortIcon('property')}
                   </th>
-                  <th 
+                  <th
                     className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-16 cursor-pointer hover:bg-blue-200"
                     onClick={() => toggleSort('occupancy')}
                   >
                     Occ {getSortIcon('occupancy')}
                   </th>
-                  <th 
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-12 cursor-pointer hover:bg-blue-200"
+                  <th
+                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-14 cursor-pointer hover:bg-blue-200"
                     onClick={() => toggleSort('days')}
                   >
                     Days {getSortIcon('days')}
