@@ -138,7 +138,7 @@ export default function Sidebar({ user, onLogout }) {
           </svg>
         </div>
         <span className={`text-sm font-semibold text-slate-200 whitespace-nowrap transition-opacity duration-200 ${
-          isExpanded ? 'opacity-100' : 'opacity-0'
+          isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'
         }`}>
           Appreciate
         </span>
@@ -202,7 +202,7 @@ export default function Sidebar({ user, onLogout }) {
                         {item.icon}
                       </div>
                       <span className={`text-xs font-medium whitespace-nowrap transition-opacity duration-200 ${
-                        isExpanded ? 'opacity-100' : 'opacity-0'
+                        isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'
                       }`}>
                         {item.name}
                       </span>
@@ -223,7 +223,7 @@ export default function Sidebar({ user, onLogout }) {
               {user?.name?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || '?'}
             </span>
           </div>
-          <div className={`transition-opacity duration-200 overflow-hidden ${isExpanded ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`transition-opacity duration-200 overflow-hidden ${isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'}`}>
             <p className="text-[11px] text-slate-200 font-medium whitespace-nowrap truncate">{user?.name || 'User'}</p>
             <p className="text-[9px] text-slate-500 whitespace-nowrap truncate">{user?.email}</p>
           </div>

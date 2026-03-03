@@ -111,10 +111,10 @@ export default function LeadsPerUnitChart({ stageStats, granularity = 'weekly', 
     if (!active || !payload?.length) return null;
     const point = payload[0]?.payload;
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-        <p className="font-medium text-gray-700 mb-1">{point?.dateLabel}</p>
+      <div className="bg-surface-overlay/95 backdrop-blur border border-[var(--glass-border)] rounded-lg shadow-lg px-3 py-2 text-xs">
+        <p className="font-medium text-slate-200 mb-1">{point?.dateLabel}</p>
         {point?._completedUnits !== undefined && (
-          <p className="text-gray-500 mb-1">Completed Units: {point._completedUnits}</p>
+          <p className="text-slate-400 mb-1">Completed Units: {point._completedUnits}</p>
         )}
         {payload.map((entry, i) => {
           const stage = entry.dataKey;
@@ -135,45 +135,45 @@ export default function LeadsPerUnitChart({ stageStats, granularity = 'weekly', 
   const visibleStages = ALL_STAGES.filter(s => selectedStages.includes(s));
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+    <div className="glass-card p-6 mb-6">
       <div className="flex flex-col gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800">Leads per Completed Rehab Unit</h2>
-          <p className="text-sm text-gray-500">Funnel metrics divided by completed rehab units</p>
+          <h2 className="text-lg font-semibold text-slate-100">Leads per Completed Rehab Unit</h2>
+          <p className="text-sm text-slate-400">Funnel metrics divided by completed rehab units</p>
         </div>
       </div>
 
       {loading && chartData.length === 0 ? (
-        <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+        <div className="h-64 flex items-center justify-center text-slate-500 text-sm">
           Loading data...
         </div>
       ) : chartData.length === 0 ? (
-        <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+        <div className="h-64 flex items-center justify-center text-slate-500 text-sm">
           No data available. Ensure rehab snapshots are being tracked.
         </div>
       ) : visibleStages.length === 0 ? (
-        <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+        <div className="h-64 flex items-center justify-center text-slate-500 text-sm">
           Select stages above to view leads per unit data.
         </div>
       ) : (
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
               <XAxis
                 dataKey="dateLabel"
-                tick={{ fontSize: 11 }}
-                stroke="#9ca3af"
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                stroke="#64748b"
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fontSize: 11 }}
-                stroke="#9ca3af"
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                stroke="#64748b"
                 width={50}
                 tickFormatter={(v) => v.toFixed(1)}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
               {visibleStages.map(stage => (
                 <Line
                   key={stage}
@@ -192,7 +192,7 @@ export default function LeadsPerUnitChart({ stageStats, granularity = 'weekly', 
       )}
 
       {chartData.length > 0 && visibleStages.length > 0 && (
-        <p className="text-xs text-gray-500 mt-2 text-center">
+        <p className="text-xs text-slate-500 mt-2 text-center">
           Showing {chartData.length} {granularity === 'daily' ? 'day' : granularity === 'weekly' ? 'week' : granularity === 'monthly' ? 'month' : 'quarter'}{chartData.length !== 1 ? 's' : ''} of data
         </p>
       )}

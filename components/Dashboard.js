@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import Link from 'next/link';
-import { LogoLoader } from './Logo';
 import LeadsPerUnitChart from './LeadsPerUnitChart';
 import SourcesChart from './SourcesChart';
+import { DARK_CHART_DEFAULTS } from '../lib/chartTheme';
 
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
@@ -307,12 +307,13 @@ export default function Dashboard() {
           data: { labels: bucketLabels, datasets },
           plugins: [todayLinePlugin],
           options: {
-            responsive: true,
-            maintainAspectRatio: true,
+            ...DARK_CHART_DEFAULTS,
             plugins: {
+              ...DARK_CHART_DEFAULTS.plugins,
               todayLine: { index: todayBucketIndex },
-              legend: { display: true, position: 'top' },
+              legend: { ...DARK_CHART_DEFAULTS.plugins.legend, display: true, position: 'top' },
               tooltip: {
+                ...DARK_CHART_DEFAULTS.plugins.tooltip,
                 callbacks: {
                   afterBody: function(context) {
                     const idx = context[0].dataIndex;
@@ -331,8 +332,8 @@ export default function Dashboard() {
               }
             },
             scales: {
-              y: { beginAtZero: true, ticks: { stepSize: 1 } },
-              x: { ticks: { maxRotation: 45, minRotation: 45 } }
+              y: { ...DARK_CHART_DEFAULTS.scales.y, beginAtZero: true, ticks: { ...DARK_CHART_DEFAULTS.scales.y.ticks, stepSize: 1 } },
+              x: { ...DARK_CHART_DEFAULTS.scales.x, ticks: { ...DARK_CHART_DEFAULTS.scales.x.ticks, maxRotation: 45, minRotation: 45 } }
             }
           }
         });
@@ -364,12 +365,13 @@ export default function Dashboard() {
           data: { labels: bucketLabels, datasets: conversionDatasets },
           plugins: [todayLinePlugin],
           options: {
-            responsive: true,
-            maintainAspectRatio: true,
+            ...DARK_CHART_DEFAULTS,
             plugins: {
+              ...DARK_CHART_DEFAULTS.plugins,
               todayLine: { index: todayBucketIndex },
-              legend: { display: true, position: 'top' },
+              legend: { ...DARK_CHART_DEFAULTS.plugins.legend, display: true, position: 'top' },
               tooltip: {
+                ...DARK_CHART_DEFAULTS.plugins.tooltip,
                 callbacks: {
                   label: function(context) {
                     const stage = stages.filter(s => s !== 'inquiries')[context.datasetIndex];
@@ -384,12 +386,13 @@ export default function Dashboard() {
             },
             scales: {
               y: {
+                ...DARK_CHART_DEFAULTS.scales.y,
                 beginAtZero: true,
                 max: 100,
-                ticks: { callback: function(value) { return value + '%'; } },
-                title: { display: true, text: 'Conversion Rate (%)' }
+                ticks: { ...DARK_CHART_DEFAULTS.scales.y.ticks, callback: function(value) { return value + '%'; } },
+                title: { display: true, text: 'Conversion Rate (%)', color: '#94a3b8' }
               },
-              x: { ticks: { maxRotation: 45, minRotation: 45 } }
+              x: { ...DARK_CHART_DEFAULTS.scales.x, ticks: { ...DARK_CHART_DEFAULTS.scales.x.ticks, maxRotation: 45, minRotation: 45 } }
             }
           }
         });
@@ -414,26 +417,28 @@ export default function Dashboard() {
           datasets: [{
             label: stageName || 'Count',
             data: data.topProperties.map(p => p.count),
-            backgroundColor: defaultColor
+            backgroundColor: '#06b6d4'
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: true,
+          ...DARK_CHART_DEFAULTS,
           indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+          plugins: { ...DARK_CHART_DEFAULTS.plugins, legend: { display: false } },
+          scales: {
+            x: { ...DARK_CHART_DEFAULTS.scales.x, beginAtZero: true, ticks: { ...DARK_CHART_DEFAULTS.scales.x.ticks, stepSize: 1 } },
+            y: DARK_CHART_DEFAULTS.scales.y
+          }
         }
       });
     }
-    
+
   };
 
   const updateCharts = () => {
     if (propertyChartRef.current && stats.topProperties?.length > 0) {
       const ctx = propertyChartRef.current.getContext('2d');
       if (propertyChartRef.current.chart) propertyChartRef.current.chart.destroy();
-      
+
       propertyChartRef.current.chart = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -444,23 +449,25 @@ export default function Dashboard() {
           datasets: [{
             label: 'Inquiries',
             data: stats.topProperties.map(p => p.count),
-            backgroundColor: '#48dbfb'
+            backgroundColor: '#06b6d4'
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: true,
+          ...DARK_CHART_DEFAULTS,
           indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+          plugins: { ...DARK_CHART_DEFAULTS.plugins, legend: { display: false } },
+          scales: {
+            x: { ...DARK_CHART_DEFAULTS.scales.x, beginAtZero: true, ticks: { ...DARK_CHART_DEFAULTS.scales.x.ticks, stepSize: 1 } },
+            y: DARK_CHART_DEFAULTS.scales.y
+          }
         }
       });
     }
-    
+
     if (unitTypeChartRef.current && stats.unitTypeDistribution?.length > 0) {
       const ctx = unitTypeChartRef.current.getContext('2d');
       if (unitTypeChartRef.current.chart) unitTypeChartRef.current.chart.destroy();
-      
+
       unitTypeChartRef.current.chart = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -468,15 +475,17 @@ export default function Dashboard() {
           datasets: [{
             label: 'Inquiries',
             data: stats.unitTypeDistribution.map(u => u.count),
-            backgroundColor: '#48dbfb'
+            backgroundColor: '#06b6d4'
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: true,
+          ...DARK_CHART_DEFAULTS,
           indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+          plugins: { ...DARK_CHART_DEFAULTS.plugins, legend: { display: false } },
+          scales: {
+            x: { ...DARK_CHART_DEFAULTS.scales.x, beginAtZero: true, ticks: { ...DARK_CHART_DEFAULTS.scales.x.ticks, stepSize: 1 } },
+            y: DARK_CHART_DEFAULTS.scales.y
+          }
         }
       });
     }
@@ -484,20 +493,23 @@ export default function Dashboard() {
   
   if (loading && !stats) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <LogoLoader size={64} text="Loading dashboard..." />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="glass-card p-8 flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+          <p className="text-slate-400 text-sm">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
   
   if (error && !stats) {
     return (
-      <div className="min-h-screen bg-slate-100 p-6 md:p-8 flex items-center justify-center">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 max-w-md">
-          <p className="text-red-600 mb-4">{error}</p>
-          <button 
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <div className="glass-card p-8 max-w-md">
+          <p className="text-red-400 mb-4">{error}</p>
+          <button
             onClick={fetchData}
-            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition"
+            className="w-full btn-accent py-2 px-4"
           >
             Retry
           </button>
@@ -510,19 +522,19 @@ export default function Dashboard() {
   const avgPerProperty = stats?.propertyCount > 0 ? (stats.total / stats.propertyCount).toFixed(1) : 0;
   
   return (
-    <div className="min-h-screen bg-slate-100 p-6 md:p-8">
+    <div className="min-h-screen p-6 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div className="glass-card p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-2xl md:text-3xl font-semibold text-slate-800 mb-1">
+              <h1 className="text-2xl md:text-3xl font-semibold text-slate-100 mb-1">
                 Leasing Dashboard
               </h1>
-              <p className="text-slate-500 text-sm">
+              <p className="text-slate-400 text-sm">
                 Real-time property inquiry analytics
                 {lastUpdated && (
-                  <span className="text-slate-400 ml-2">
+                  <span className="text-slate-500 ml-2">
                     • Last sync: {lastUpdated.toLocaleDateString()} {lastUpdated.toLocaleTimeString()}
                   </span>
                 )}
@@ -532,17 +544,17 @@ export default function Dashboard() {
         </div>
         
         {/* Controls */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div className="glass-card p-6 mb-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-600 mb-2">
+              <label className="block text-sm font-medium text-slate-400 mb-2">
                 Filter by Property
               </label>
               <select
                 value={selectedProperty}
                 onChange={(e) => setSelectedProperty(e.target.value)}
                 disabled={loading}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
+                className="dark-select w-full"
               >
                 <option value="all">All Properties</option>
                 <optgroup label="Regions">
@@ -560,14 +572,14 @@ export default function Dashboard() {
             </div>
             
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-600 mb-2">
+              <label className="block text-sm font-medium text-slate-400 mb-2">
                 Filter by Status
               </label>
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
                 disabled={loading}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
+                className="dark-select w-full"
               >
                 <option value="all">All Statuses</option>
                 {statuses.map(status => (
@@ -579,14 +591,14 @@ export default function Dashboard() {
           
           <div className="flex flex-col md:flex-row gap-4 mt-4">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-600 mb-2">
+              <label className="block text-sm font-medium text-slate-400 mb-2">
                 Date Range
               </label>
               <select
                 value={dateRange}
                 onChange={(e) => setDateRange(e.target.value)}
                 disabled={loading}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
+                className="dark-select w-full"
               >
                 <option value="today">Today</option>
                 <option value="last_week">Last 7 Days</option>
@@ -599,18 +611,18 @@ export default function Dashboard() {
             </div>
 
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-600 mb-2">
+              <label className="block text-sm font-medium text-slate-400 mb-2">
                 Granularity
               </label>
-              <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              <div className="flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
                 {['daily', 'weekly', 'monthly', 'quarterly'].map(g => (
                   <button
                     key={g}
                     onClick={() => setGranularity(g)}
                     className={`flex-1 px-3 py-2 text-sm font-medium transition ${
                       granularity === g
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-white text-slate-600 hover:bg-slate-50'
+                        ? 'bg-accent text-surface-base'
+                        : 'bg-white/5 text-slate-400 hover:bg-white/10'
                     }`}
                   >
                     {g.charAt(0).toUpperCase() + g.slice(1)}
@@ -622,7 +634,7 @@ export default function Dashboard() {
             {dateRange === 'custom' && (
               <>
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-600 mb-2">
+                  <label className="block text-sm font-medium text-slate-400 mb-2">
                     Start Date
                   </label>
                   <input
@@ -630,12 +642,12 @@ export default function Dashboard() {
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     disabled={loading}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
+                    className="dark-select w-full"
                   />
                 </div>
                 
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-600 mb-2">
+                  <label className="block text-sm font-medium text-slate-400 mb-2">
                     End Date
                   </label>
                   <input
@@ -643,7 +655,7 @@ export default function Dashboard() {
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     disabled={loading}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50 bg-white"
+                    className="dark-select w-full"
                   />
                 </div>
               </>
@@ -660,7 +672,7 @@ export default function Dashboard() {
                   setStageStats(null);
                 }}
                 disabled={loading}
-                className="px-6 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-white/10 text-slate-300 rounded-lg hover:bg-white/15 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Clear
               </button>
@@ -670,16 +682,16 @@ export default function Dashboard() {
         
         {/* Leasing Lifecycle Funnel */}
         {funnelData && funnelData.stages && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-            <h2 className="text-lg font-semibold text-slate-800 mb-2 pb-2 border-b border-slate-200">
+          <div className="glass-card p-6 mb-6">
+            <h2 className="text-lg font-semibold text-slate-100 mb-2 pb-2 border-b border-[var(--glass-border)]">
               Leasing Lifecycle Funnel
             </h2>
-            <p className="text-slate-500 text-sm mb-4">
+            <p className="text-slate-400 text-sm mb-4">
               Click on any stage to view detailed analytics for that stage
             </p>
             {selectedStages.length > 0 && (
               <div className="mb-4 flex items-center gap-2 flex-wrap">
-                <span className="text-sm text-gray-600">Viewing:</span>
+                <span className="text-sm text-slate-400">Viewing:</span>
                 {selectedStages.map(stageKey => (
                   <span key={stageKey} className="px-3 py-1 rounded-full text-white text-sm font-medium" style={{
                     backgroundColor: {
@@ -701,7 +713,7 @@ export default function Dashboard() {
                 ))}
                 <button 
                   onClick={() => setSelectedStages([])}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline"
+                  className="text-xs text-slate-500 hover:text-slate-300 underline"
                 >
                   Clear all
                 </button>
@@ -729,16 +741,16 @@ export default function Dashboard() {
                       <div className="flex items-stretch my-1">
                         {/* Connector Line */}
                         <div className="w-16 md:w-24 flex justify-center">
-                          <div className="w-0.5 bg-gray-300 h-full min-h-[60px]"></div>
+                          <div className="w-0.5 bg-slate-600 h-full min-h-[60px]"></div>
                         </div>
                         
                         {/* Arrow pointing to fallout */}
                         <div className="flex items-center">
-                          <div className="text-gray-400 text-lg mr-2">→</div>
+                          <div className="text-slate-500 text-lg mr-2">→</div>
                           
                           {/* Fallout Box */}
-                          <div className="bg-red-50 border-l-4 border-red-400 rounded-r-lg p-3 shadow-sm max-w-xs">
-                            <div className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
+                          <div className="bg-red-500/10 border-l-4 border-red-500/30 rounded-r-lg p-3 max-w-xs">
+                            <div className="text-xs font-semibold text-red-300 mb-2 flex items-center gap-1">
                               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                               </svg>
@@ -752,7 +764,7 @@ export default function Dashboard() {
                                       className="w-2.5 h-2.5 rounded-full" 
                                       style={{ backgroundColor: reason.color }}
                                     />
-                                    <span className="text-gray-700">{reason.label}</span>
+                                    <span className="text-slate-300">{reason.label}</span>
                                   </div>
                                   <span className="font-bold ml-3" style={{ color: reason.color }}>
                                     {reason.count}
@@ -769,7 +781,7 @@ export default function Dashboard() {
                     {(!showFallout && idx > 0) && (
                       <div className="flex my-2">
                         <div className="w-16 md:w-24 flex justify-center">
-                          <div className="text-gray-400 text-2xl">↓</div>
+                          <div className="text-slate-500 text-2xl">↓</div>
                         </div>
                       </div>
                     )}
@@ -781,8 +793,8 @@ export default function Dashboard() {
                         <div 
                           onClick={() => handleStageClick(stage.name)}
                           className={`py-4 px-5 text-white font-semibold rounded-xl transition-all cursor-pointer shadow-lg ${
-                            isSelected 
-                              ? 'ring-4 ring-offset-2 ring-gray-400 scale-[1.02]' 
+                            isSelected
+                              ? 'ring-4 ring-offset-2 ring-offset-surface-base ring-white/30 scale-[1.02]'
                               : 'hover:scale-[1.02] hover:shadow-xl'
                           }`}
                           style={{ 
@@ -819,9 +831,9 @@ export default function Dashboard() {
                     {/* Final stage fallout (Denied) - shown AFTER the Leases stage */}
                     {showFallout && idx === funnelData.stages.length - 1 && (
                       <div className="flex items-center mt-2 ml-16 md:ml-24">
-                        <div className="text-gray-400 text-lg mr-2">↳</div>
-                        <div className="bg-red-50 border-l-4 border-red-400 rounded-r-lg p-3 shadow-sm">
-                          <div className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
+                        <div className="text-slate-500 text-lg mr-2">↳</div>
+                        <div className="bg-red-500/10 border-l-4 border-red-500/30 rounded-r-lg p-3">
+                          <div className="text-xs font-semibold text-red-300 mb-2 flex items-center gap-1">
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                             </svg>
@@ -835,7 +847,7 @@ export default function Dashboard() {
                                     className="w-2.5 h-2.5 rounded-full" 
                                     style={{ backgroundColor: reason.color }}
                                   />
-                                  <span className="text-gray-700">{reason.label}</span>
+                                  <span className="text-slate-300">{reason.label}</span>
                                 </div>
                                 <span className="font-bold ml-3" style={{ color: reason.color }}>
                                   {reason.count}
@@ -853,38 +865,38 @@ export default function Dashboard() {
             
             {/* Funnel Stats Grid */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t">
-              <div className="text-center p-4 bg-indigo-50 rounded-xl">
-                <p className="text-2xl md:text-3xl font-bold text-indigo-600">{funnelData.summary.overallConversion}%</p>
-                <p className="text-xs md:text-sm text-gray-600 mt-1">Overall Conversion</p>
-                <p className="text-xs text-gray-400">Inquiry → Lease</p>
+              <div className="text-center p-4 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
+                <p className="text-2xl md:text-3xl font-bold text-indigo-400">{funnelData.summary.overallConversion}%</p>
+                <p className="text-xs md:text-sm text-slate-300 mt-1">Overall Conversion</p>
+                <p className="text-xs text-slate-500">Inquiry → Lease</p>
               </div>
-              <div className="text-center p-4 bg-violet-50 rounded-xl">
-                <p className="text-2xl md:text-3xl font-bold text-violet-600">
+              <div className="text-center p-4 bg-violet-500/10 rounded-xl border border-violet-500/20">
+                <p className="text-2xl md:text-3xl font-bold text-violet-400">
                   {funnelData.stages[1]?.conversionFromPrevious || 0}%
                 </p>
-                <p className="text-xs md:text-sm text-gray-600 mt-1">Scheduling Rate</p>
-                <p className="text-xs text-gray-400">Inquiry → Scheduled</p>
+                <p className="text-xs md:text-sm text-slate-300 mt-1">Scheduling Rate</p>
+                <p className="text-xs text-slate-500">Inquiry → Scheduled</p>
               </div>
-              <div className="text-center p-4 bg-purple-50 rounded-xl">
-                <p className="text-2xl md:text-3xl font-bold text-purple-600">
+              <div className="text-center p-4 bg-purple-500/10 rounded-xl border border-purple-500/20">
+                <p className="text-2xl md:text-3xl font-bold text-purple-400">
                   {funnelData.summary.showingCompletionRate || 0}%
                 </p>
-                <p className="text-xs md:text-sm text-gray-600 mt-1">Completion Rate</p>
-                <p className="text-xs text-gray-400">Scheduled → Completed</p>
+                <p className="text-xs md:text-sm text-slate-300 mt-1">Completion Rate</p>
+                <p className="text-xs text-slate-500">Scheduled → Completed</p>
               </div>
-              <div className="text-center p-4 bg-pink-50 rounded-xl">
-                <p className="text-2xl md:text-3xl font-bold text-pink-600">
+              <div className="text-center p-4 bg-pink-500/10 rounded-xl border border-pink-500/20">
+                <p className="text-2xl md:text-3xl font-bold text-pink-400">
                   {funnelData.stages[3]?.conversionFromPrevious || 0}%
                 </p>
-                <p className="text-xs md:text-sm text-gray-600 mt-1">Application Rate</p>
-                <p className="text-xs text-gray-400">Completed → Applied</p>
+                <p className="text-xs md:text-sm text-slate-300 mt-1">Application Rate</p>
+                <p className="text-xs text-slate-500">Completed → Applied</p>
               </div>
-              <div className="text-center p-4 bg-green-50 rounded-xl">
-                <p className="text-2xl md:text-3xl font-bold text-green-600">
+              <div className="text-center p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                <p className="text-2xl md:text-3xl font-bold text-emerald-400">
                   {funnelData.summary.applicationApprovalRate || 0}%
                 </p>
-                <p className="text-xs md:text-sm text-gray-600 mt-1">Approval Rate</p>
-                <p className="text-xs text-gray-400">Applied → Approved</p>
+                <p className="text-xs md:text-sm text-slate-300 mt-1">Approval Rate</p>
+                <p className="text-xs text-slate-500">Applied → Approved</p>
               </div>
             </div>
           </div>
@@ -894,16 +906,16 @@ export default function Dashboard() {
         {selectedStages.length > 0 && stageStats && (
           <>
             {/* Time Series Chart - Full Width */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">{getStageDisplayNames()} Over Time</h2>
+            <div className="glass-card p-6 mb-6">
+              <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">{getStageDisplayNames()} Over Time</h2>
               <canvas ref={timeSeriesChartRef}></canvas>
             </div>
 
             {/* Conversion Rate Chart - Full Width */}
             {selectedStages.some(s => s !== 'inquiries') && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Conversion Rate (% of Previous Stage)</h2>
-                <p className="text-sm text-gray-500 mb-4">Shows what percentage converted from the previous funnel stage each period</p>
+              <div className="glass-card p-6 mb-6">
+                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Conversion Rate (% of Previous Stage)</h2>
+                <p className="text-sm text-slate-400 mb-4">Shows what percentage converted from the previous funnel stage each period</p>
                 <canvas ref={conversionChartRef}></canvas>
               </div>
             )}
@@ -922,8 +934,8 @@ export default function Dashboard() {
 
             {/* Top Properties */}
             {stageStats?.topProperties?.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Top Properties</h2>
+              <div className="glass-card p-6 mb-6">
+                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Top Properties</h2>
                 <canvas ref={propertyChartRef}></canvas>
               </div>
             )}
@@ -932,14 +944,14 @@ export default function Dashboard() {
 
         {/* Prompt to select a stage when none selected */}
         {selectedStages.length === 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 mb-6 text-center">
-            <div className="text-gray-400 mb-4">
+          <div className="glass-card p-8 mb-6 text-center">
+            <div className="text-slate-500 mb-4">
               <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">Select Funnel Stages</h3>
-            <p className="text-gray-500">Click on any stage in the funnel above to view detailed analytics. You can select multiple stages to compare data.</p>
+            <h3 className="text-xl font-semibold text-slate-200 mb-2">Select Funnel Stages</h3>
+            <p className="text-slate-400">Click on any stage in the funnel above to view detailed analytics. You can select multiple stages to compare data.</p>
           </div>
         )}
       </div>
