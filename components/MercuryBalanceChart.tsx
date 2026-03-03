@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
@@ -73,7 +73,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [showAccountPicker, setShowAccountPicker] = useState(false);
 
-  const fetchBalances = async () => {
+  const fetchBalances = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/mercury/balances?days=${timeRange}`);
@@ -86,26 +86,25 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange]);
 
   useEffect(() => {
     fetchBalances();
     const interval = setInterval(fetchBalances, 60_000);
     return () => clearInterval(interval);
-  }, [timeRange, refreshKey]);
+  }, [fetchBalances, refreshKey]);
 
-  // Derive unique accounts (exclude pre-computed "Total Cash" from CSV)
+  // Derive unique accounts — exclude "Total Cash" (used only for total view)
   const accounts = useMemo(() => {
     const accountMap = new Map<string, string>();
     balances.forEach(b => {
-      if (b.account_name !== 'Total Cash') {
-        accountMap.set(b.account_id, b.account_name);
-      }
+      if (b.account_name === 'Total Cash') return;
+      accountMap.set(b.account_id, b.account_name);
     });
     return Array.from(accountMap.entries()).map(([id, name]) => ({ id, name }));
   }, [balances]);
 
-  // Filter to accounts with non-zero balance on the most recent date
+  // Only show accounts with non-zero balance on their most recent date
   const activeAccounts = useMemo(() => {
     const latestBalance = new Map<string, number>();
     const latestDate = new Map<string, string>();
@@ -125,41 +124,39 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     });
   }, [accounts, balances]);
 
-  // Auto-select only active (non-zero) accounts when data first loads
+  // Auto-select only active accounts on first load
   useEffect(() => {
     if (activeAccounts.length > 0 && selectedAccounts.size === 0) {
       setSelectedAccounts(new Set(activeAccounts.map(a => a.id)));
     }
-  }, [activeAccounts]);
+  }, [activeAccounts, selectedAccounts.size]);
 
-  // Set of active account IDs for fast lookup
-  const activeAccountIds = useMemo(() => {
-    return new Set(activeAccounts.map(a => a.id));
-  }, [activeAccounts]);
+  const activeAccountIds = useMemo(
+    () => new Set(activeAccounts.map(a => a.id)),
+    [activeAccounts]
+  );
 
-  // Build chart data based on view mode
+  // Build chart data
   const chartData = useMemo(() => {
     const byDate = new Map<string, Record<string, any>>();
 
-    // Only include non-"Total Cash" rows from active accounts
-    const filtered = balances.filter(b =>
-      b.account_name !== 'Total Cash' && activeAccountIds.has(b.account_id)
-    );
-
     if (viewMode === 'total') {
-      // Single "Total" line — sum of active accounts per date
-      filtered.forEach(b => {
-        if (!byDate.has(b.snapshot_date)) {
-          byDate.set(b.snapshot_date, { date: b.snapshot_date, Total: 0 });
-        }
-        byDate.get(b.snapshot_date)!.Total += Number(b.current_balance);
+      // Use the "Total Cash" row directly — it's the authoritative Mercury total
+      balances.forEach(b => {
+        if (b.account_name !== 'Total Cash') return;
+        byDate.set(b.snapshot_date, {
+          date: b.snapshot_date,
+          'Total Cash': Number(b.current_balance),
+        });
       });
     } else {
-      // Individual account lines — only selected accounts, skip $0 values
-      filtered.forEach(b => {
+      // Individual account lines — only active + selected, skip $0
+      balances.forEach(b => {
+        if (b.account_name === 'Total Cash') return;
+        if (!activeAccountIds.has(b.account_id)) return;
         if (!selectedAccounts.has(b.account_id)) return;
         const bal = Number(b.current_balance);
-        if (bal === 0) return; // skip zero-balance data points
+        if (bal === 0) return;
         if (!byDate.has(b.snapshot_date)) {
           byDate.set(b.snapshot_date, { date: b.snapshot_date });
         }
@@ -172,9 +169,10 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     );
   }, [balances, viewMode, selectedAccounts, activeAccountIds]);
 
-  const visibleAccounts = useMemo(() => {
-    return activeAccounts.filter(a => selectedAccounts.has(a.id));
-  }, [activeAccounts, selectedAccounts]);
+  const visibleAccounts = useMemo(
+    () => activeAccounts.filter(a => selectedAccounts.has(a.id)),
+    [activeAccounts, selectedAccounts]
+  );
 
   const toggleAccount = (accountId: string) => {
     setSelectedAccounts(prev => {
@@ -186,10 +184,6 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
       }
       return next;
     });
-  };
-
-  const selectAllAccounts = () => {
-    setSelectedAccounts(new Set(accounts.map(a => a.id)));
   };
 
   const selectActiveOnly = () => {
@@ -214,9 +208,30 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
   const formatTooltipCurrency = (value: number) =>
     `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  // Custom tooltip — only shows non-zero entries
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    const nonZero = payload.filter((p: any) => p.value !== 0 && p.value !== undefined && p.value !== null);
+    if (!nonZero.length) return null;
+    const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    });
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+        <p className="font-medium text-gray-700 mb-1">{dateLabel}</p>
+        {nonZero.map((entry: any, i: number) => (
+          <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
+            <span>{entry.name}</span>
+            <span className="font-medium">{formatTooltipCurrency(Number(entry.value))}</span>
+          </p>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-      {/* Header with view mode toggle and time range selector */}
+      {/* Header */}
       <div className="flex flex-col gap-3 mb-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800">Account Balances</h3>
@@ -237,7 +252,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
           </div>
         </div>
 
-        {/* View mode toggle + account picker */}
+        {/* View toggle + account picker */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-md border border-gray-200 overflow-hidden">
@@ -249,7 +264,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
                     : 'bg-white text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                Total
+                Total Cash
               </button>
               <button
                 onClick={() => setViewMode('individual')}
@@ -328,7 +343,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
         </div>
       </div>
 
-      {/* Close account picker when clicking elsewhere */}
+      {/* Close picker overlay */}
       {showAccountPicker && (
         <div
           className="fixed inset-0 z-40"
@@ -364,35 +379,15 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
                 stroke="#9ca3af"
                 width={85}
               />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  const nonZero = payload.filter(p => p.value !== 0 && p.value !== undefined);
-                  if (!nonZero.length) return null;
-                  const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
-                    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-                  });
-                  return (
-                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-                      <p className="font-medium text-gray-700 mb-1">{dateLabel}</p>
-                      {nonZero.map((entry, i) => (
-                        <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
-                          <span>{entry.name}</span>
-                          <span className="font-medium">{formatTooltipCurrency(Number(entry.value))}</span>
-                        </p>
-                      ))}
-                    </div>
-                  );
-                }}
-              />
+              <Tooltip content={<CustomTooltip />} />
               {viewMode === 'individual' && <Legend wrapperStyle={{ fontSize: 11 }} />}
 
               {viewMode === 'total' ? (
                 <Line
                   type="monotone"
-                  dataKey="Total"
-                  name="Total"
-                  stroke="#3b82f6"
+                  dataKey="Total Cash"
+                  name="Total Cash"
+                  stroke="#22c55e"
                   strokeWidth={2.5}
                   dot={chartData.length < 100 ? { r: 2 } : false}
                   activeDot={{ r: 5 }}
@@ -419,7 +414,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
       {chartData.length > 0 && (
         <p className="text-xs text-gray-500 mt-2 text-center">
           Showing {chartData.length} day{chartData.length !== 1 ? 's' : ''} of balance data
-          {viewMode === 'total' ? ' (all accounts combined)' : ` (${visibleAccounts.length} account${visibleAccounts.length !== 1 ? 's' : ''})`}
+          {viewMode === 'individual' && ` (${visibleAccounts.length} account${visibleAccounts.length !== 1 ? 's' : ''})`}
         </p>
       )}
     </div>
