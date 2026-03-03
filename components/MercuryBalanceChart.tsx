@@ -46,6 +46,9 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
 
   useEffect(() => {
     fetchBalances();
+    // Auto-refresh every 60 seconds to pick up hourly sync data
+    const interval = setInterval(fetchBalances, 60_000);
+    return () => clearInterval(interval);
   }, [timeRange, refreshKey]);
 
   // Derive unique accounts and pivot data for Recharts
