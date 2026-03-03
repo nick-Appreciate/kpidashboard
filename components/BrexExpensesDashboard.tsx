@@ -30,9 +30,8 @@ interface BrexExpense {
   bill_amount: number | null;
   bill_invoice_date: string | null;
   bill_invoice_number: string | null;
-  bill_af_status: string | null;
-  bill_af_property_name: string | null;
-  bill_af_gl_account_name: string | null;
+  bill_status: string | null;
+  bill_payment_status: string | null;
 }
 
 type SortOption = "unmatched_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
@@ -91,11 +90,12 @@ export default function BrexExpensesDashboard() {
     setSyncing(true);
     try {
       const response = await fetch("/api/admin/brex/sync", { method: "POST" });
-      if (!response.ok) throw new Error("Sync failed");
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Sync failed");
       await fetchExpenses(true);
     } catch (error) {
       console.error("Sync error:", error);
-      alert("Failed to sync Brex expenses");
+      alert(`Sync error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     setSyncing(false);
   };
@@ -180,7 +180,7 @@ export default function BrexExpensesDashboard() {
       setExpenses((prev) =>
         prev.map((e) =>
           e.id === expenseId
-            ? { ...e, match_status: "unmatched" as const, match_confidence: null, matched_bill_id: null, matched_at: null, matched_by: null, bill_vendor_name: null, bill_amount: null, bill_invoice_date: null, bill_invoice_number: null, bill_af_status: null, bill_af_property_name: null, bill_af_gl_account_name: null }
+            ? { ...e, match_status: "unmatched" as const, match_confidence: null, matched_bill_id: null, matched_at: null, matched_by: null, bill_vendor_name: null, bill_amount: null, bill_invoice_date: null, bill_invoice_number: null, bill_status: null, bill_payment_status: null }
             : e
         )
       );
@@ -457,24 +457,18 @@ export default function BrexExpensesDashboard() {
                                 <p className="font-mono text-sm text-slate-700">{expense.bill_invoice_number}</p>
                               </div>
                             )}
-                            {expense.bill_af_status && (
+                            {expense.bill_status && (
                               <div>
-                                <span className="text-xs text-slate-400">AF Status</span>
+                                <span className="text-xs text-slate-400">Status</span>
+                                <p className="font-semibold text-sm text-slate-700">{expense.bill_status}</p>
+                              </div>
+                            )}
+                            {expense.bill_payment_status && (
+                              <div>
+                                <span className="text-xs text-slate-400">Payment</span>
                                 <p className={`font-semibold text-sm ${
-                                  expense.bill_af_status === "Paid" ? "text-green-700" : "text-yellow-700"
-                                }`}>{expense.bill_af_status}</p>
-                              </div>
-                            )}
-                            {expense.bill_af_property_name && (
-                              <div>
-                                <span className="text-xs text-slate-400">Property</span>
-                                <p className="font-medium text-sm text-slate-700">{expense.bill_af_property_name}</p>
-                              </div>
-                            )}
-                            {expense.bill_af_gl_account_name && (
-                              <div className="col-span-2">
-                                <span className="text-xs text-slate-400">GL Account</span>
-                                <p className="font-medium text-sm text-slate-700">{expense.bill_af_gl_account_name}</p>
+                                  expense.bill_payment_status === "Paid" ? "text-green-700" : "text-yellow-700"
+                                }`}>{expense.bill_payment_status}</p>
                               </div>
                             )}
                           </div>
