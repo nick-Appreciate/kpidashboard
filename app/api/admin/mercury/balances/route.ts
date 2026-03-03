@@ -10,21 +10,45 @@ export async function GET(request: Request) {
     const now = new Date();
     const today = now.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
-    let query = supabase
-      .from('mercury_daily_balances')
-      .select('*')
-      .order('snapshot_date', { ascending: true });
-
-    // If not "all", filter by date range
+    // Build date filter
+    let startDateStr: string | null = null;
     if (daysParam !== 'all') {
       const days = parseInt(daysParam, 10);
       const startDate = new Date(today);
       startDate.setDate(startDate.getDate() - days);
-      const startDateStr = startDate.toISOString().split('T')[0];
-      query = query.gte('snapshot_date', startDateStr);
+      startDateStr = startDate.toISOString().split('T')[0];
     }
 
-    const { data, error } = await query;
+    // Fetch all rows — paginate past Supabase 1000-row default limit
+    let allData: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      let query = supabase
+        .from('mercury_daily_balances')
+        .select('*')
+        .order('snapshot_date', { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (startDateStr) {
+        query = query.gte('snapshot_date', startDateStr);
+      }
+
+      const { data, error: pageError } = await query;
+
+      if (pageError) {
+        return NextResponse.json({ error: pageError.message }, { status: 500 });
+      }
+
+      allData = allData.concat(data || []);
+      hasMore = (data?.length || 0) === pageSize;
+      from += pageSize;
+    }
+
+    const data = allData;
+    const error = null;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
