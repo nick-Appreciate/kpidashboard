@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Logo from './Logo';
@@ -104,16 +104,6 @@ export default function Sidebar({ user, onLogout }) {
     }] : [])
   ];
 
-  // Auto-expand section that contains the active page
-  const activeSectionLabel = useMemo(() => {
-    for (const section of navSections) {
-      if (section.items.some(item => pathname === item.href)) {
-        return section.label;
-      }
-    }
-    return null;
-  }, [pathname, navSections]);
-
   const toggleSection = (label) => {
     setOpenSections(prev => {
       const next = new Set(prev);
@@ -126,10 +116,6 @@ export default function Sidebar({ user, onLogout }) {
     });
   };
 
-  const isSectionOpen = (label) => {
-    return openSections.has(label) || activeSectionLabel === label;
-  };
-
   return (
     <aside
       className="fixed left-0 top-0 h-full bg-slate-900 text-white z-50 overflow-hidden"
@@ -140,6 +126,7 @@ export default function Sidebar({ user, onLogout }) {
       onMouseLeave={() => {
         clearTimeout(hoverTimeoutRef.current);
         setIsExpanded(false);
+        setOpenSections(new Set());
       }}
     >
       {/* Logo */}
@@ -150,7 +137,7 @@ export default function Sidebar({ user, onLogout }) {
       {/* Navigation */}
       <nav className="mt-4 px-2">
         {navSections.map((section) => {
-          const open = isSectionOpen(section.label);
+          const open = openSections.has(section.label);
           return (
             <div key={section.label} className="mb-2">
               {/* Section header — clickable when expanded */}
@@ -183,9 +170,9 @@ export default function Sidebar({ user, onLogout }) {
                 )}
               </button>
 
-              {/* Section items */}
+              {/* Section items — only visible when sidebar expanded AND section open */}
               <div className={`overflow-hidden transition-all duration-200 ${
-                !isExpanded || open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                isExpanded && open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
               }`}>
                 {section.items.map((item) => {
                   const isActive = pathname === item.href;
