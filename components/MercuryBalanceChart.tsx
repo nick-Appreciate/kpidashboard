@@ -65,7 +65,7 @@ function shortName(name: string): string {
   return map[name] || name;
 }
 
-export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: number }) {
+export default function MercuryBalanceChart() {
   const [timeRange, setTimeRange] = useState('all');
   const [balances, setBalances] = useState<BalanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,7 +92,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     fetchBalances();
     const interval = setInterval(fetchBalances, 60_000);
     return () => clearInterval(interval);
-  }, [fetchBalances, refreshKey]);
+  }, [fetchBalances]);
 
   // Derive unique accounts — exclude "Total Cash" (used only for total view)
   const accounts = useMemo(() => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Logo from './Logo';
@@ -9,6 +9,7 @@ export default function Sidebar({ user, onLogout }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const pathname = usePathname();
   const hoverTimeoutRef = useRef(null);
+  const [openSections, setOpenSections] = useState(new Set());
 
   const isAdmin = user?.role === 'admin';
 
@@ -98,19 +99,36 @@ export default function Sidebar({ user, onLogout }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
             </svg>
           )
-        },
-        {
-          name: 'Mercury Banking',
-          href: '/admin/mercury',
-          icon: (
-            <svg className="w-6 h-6" style={{ width: '1.5rem', height: '1.5rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-            </svg>
-          )
         }
       ]
     }] : [])
   ];
+
+  // Auto-expand section that contains the active page
+  const activeSectionLabel = useMemo(() => {
+    for (const section of navSections) {
+      if (section.items.some(item => pathname === item.href)) {
+        return section.label;
+      }
+    }
+    return null;
+  }, [pathname, navSections]);
+
+  const toggleSection = (label) => {
+    setOpenSections(prev => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
+  };
+
+  const isSectionOpen = (label) => {
+    return openSections.has(label) || activeSectionLabel === label;
+  };
 
   return (
     <aside
@@ -131,41 +149,73 @@ export default function Sidebar({ user, onLogout }) {
 
       {/* Navigation */}
       <nav className="mt-4 px-2">
-        {navSections.map((section) => (
-          <div key={section.label} className="mb-4">
-            <div className={`px-3 mb-1 text-xs font-semibold uppercase tracking-wider whitespace-nowrap transition-all duration-300 ${
-              isExpanded ? 'opacity-100 text-slate-500 h-4' : 'opacity-0 h-0 overflow-hidden'
-            }`}>
-              {section.label}
-            </div>
-            <div className={`mx-3 mb-2 border-t border-slate-700 transition-opacity duration-300 ${
-              isExpanded ? 'opacity-0 h-0' : 'opacity-100'
-            }`} />
-            {section.items.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 transition-all duration-200 group ${
-                    isActive
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  }`}
-                >
-                  <div className="flex-shrink-0">
-                    {item.icon}
+        {navSections.map((section) => {
+          const open = isSectionOpen(section.label);
+          return (
+            <div key={section.label} className="mb-2">
+              {/* Section header — clickable when expanded */}
+              <button
+                onClick={() => isExpanded && toggleSection(section.label)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+                  isExpanded
+                    ? 'text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer'
+                    : 'cursor-default'
+                }`}
+              >
+                {/* Section icon (first item's icon) when collapsed */}
+                {!isExpanded && (
+                  <div className="flex-shrink-0 text-slate-500">
+                    {section.items[0].icon}
                   </div>
-                  <span className={`font-medium whitespace-nowrap transition-opacity duration-200 ${
-                    isExpanded ? 'opacity-100' : 'opacity-0'
-                  }`}>
-                    {item.name}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+                )}
+                {isExpanded && (
+                  <>
+                    <svg
+                      className={`w-4 h-4 flex-shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span className="text-xs font-semibold uppercase tracking-wider whitespace-nowrap">
+                      {section.label}
+                    </span>
+                  </>
+                )}
+              </button>
+
+              {/* Section items */}
+              <div className={`overflow-hidden transition-all duration-200 ${
+                !isExpanded || open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+              }`}>
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1 transition-all duration-200 group ${
+                        isExpanded ? 'pl-7' : ''
+                      } ${
+                        isActive
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex-shrink-0">
+                        {item.icon}
+                      </div>
+                      <span className={`font-medium whitespace-nowrap transition-opacity duration-200 ${
+                        isExpanded ? 'opacity-100' : 'opacity-0'
+                      }`}>
+                        {item.name}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </nav>
 
       {/* Bottom section - User info and logout */}

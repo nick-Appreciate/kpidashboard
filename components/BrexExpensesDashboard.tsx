@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, RefreshCw, Check, XCircle, X } from "lucide-react";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, Check, XCircle, X } from "lucide-react";
 import { LogoLoader } from "./Logo";
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "next/navigation";
@@ -48,7 +48,6 @@ export default function BrexExpensesDashboard() {
   const [filter, setFilter] = useState<FilterOption>("all");
   const [archiveModal, setArchiveModal] = useState<{ expense: BrexExpense; note: string } | null>(null);
   const [actionId, setActionId] = useState<number | null>(null);
-  const [syncing, setSyncing] = useState(false);
 
   // Admin guard
   useEffect(() => {
@@ -85,20 +84,6 @@ export default function BrexExpensesDashboard() {
       return () => clearInterval(interval);
     }
   }, [appUser]);
-
-  const triggerSync = async () => {
-    setSyncing(true);
-    try {
-      const response = await fetch("/api/admin/brex/sync", { method: "POST" });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || "Sync failed");
-      await fetchExpenses(true);
-    } catch (error) {
-      console.error("Sync error:", error);
-      alert(`Sync error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-    setSyncing(false);
-  };
 
   const archiveCorporate = async (expenseId: number, note: string) => {
     setActionId(expenseId);
@@ -253,14 +238,6 @@ export default function BrexExpensesDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={triggerSync}
-                disabled={syncing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-                {syncing ? "Syncing..." : "Sync"}
-              </button>
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortOption)}
