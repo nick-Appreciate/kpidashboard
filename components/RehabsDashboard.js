@@ -412,7 +412,7 @@ export default function RehabsDashboard() {
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-blue-100 text-blue-900 text-xs">
                   <th 
                     className="px-1 py-2 text-left font-semibold border-r border-blue-200 w-16 cursor-pointer hover:bg-blue-200"
