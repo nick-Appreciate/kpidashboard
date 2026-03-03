@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import dynamic from 'next/dynamic';
 import Logo from '../../components/Logo';
+import AnimatedText from '../../components/reactbits/AnimatedText';
+
+const Aurora = dynamic(() => import('../../components/reactbits/Aurora'), { ssr: false });
 
 // Create a standalone Supabase client for login page
 const supabase = createClient(
@@ -42,21 +46,30 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-8 w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Ambient aurora background */}
+      <div className="fixed inset-0 -z-10">
+        <Aurora color1="#06b6d4" color2="#8b5cf6" color3="#06b6d4" speed={0.8} opacity={0.2} />
+      </div>
+
+      <div className="glass-card p-8 w-full max-w-md animate-fade-in-up opacity-0">
         <div className="flex justify-center mb-8">
-          <Logo className="h-16 w-auto" />
+          <Logo variant="white" className="h-16 w-auto" />
         </div>
-        
-        <h1 className="text-2xl font-semibold text-slate-800 text-center mb-2">
-          Welcome Back
-        </h1>
-        <p className="text-slate-500 text-center mb-8">
+
+        <AnimatedText
+          text="Welcome Back"
+          tag="h1"
+          className="text-2xl font-semibold text-slate-100 text-center mb-2"
+          delay={60}
+          animateBy="words"
+        />
+        <p className="text-slate-400 text-center mb-8 animate-fade-in opacity-0 stagger-2">
           Sign in with your Appreciate account
         </p>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm mb-4">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-300 text-sm mb-4">
             {error}
           </div>
         )}
@@ -64,7 +77,7 @@ export default function LoginPage() {
         <button
           onClick={handleGoogleLogin}
           disabled={loading}
-          className="w-full py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition disabled:opacity-50 font-medium flex items-center justify-center gap-3"
+          className="w-full py-3 bg-surface-overlay border border-[var(--glass-border)] text-slate-200 rounded-lg hover:bg-surface-overlay/80 hover:border-[var(--glass-border-hover)] transition-all duration-200 disabled:opacity-50 font-medium flex items-center justify-center gap-3 active:scale-[0.98]"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -79,7 +92,7 @@ export default function LoginPage() {
           Only @appreciate.io emails are allowed
         </p>
 
-        <p className="text-xs text-slate-400 text-center mt-8">
+        <p className="text-xs text-slate-600 text-center mt-8">
           Contact an administrator if you need access
         </p>
       </div>

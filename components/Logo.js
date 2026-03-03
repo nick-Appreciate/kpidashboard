@@ -3,10 +3,11 @@
 import Image from 'next/image';
 
 export default function Logo({ className = '', variant = 'dark' }) {
-  const src = variant === 'white' ? '/logo-white.svg' : '/logo.png';
-  
+  // In dark theme, default to white variant
+  const src = variant === 'white' || variant === 'dark' ? '/logo-white.svg' : '/logo.png';
+
   return (
-    <Image 
+    <Image
       src={src}
       alt="Appreciate"
       width={100}
@@ -20,10 +21,10 @@ export default function Logo({ className = '', variant = 'dark' }) {
 export function LogoLoader({ text = 'Loading...' }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4">
-      <div className="animate-bounce">
-        <Logo variant="dark" className="w-16 h-auto" />
+      <div className="animate-pulse">
+        <Logo variant="white" className="w-16 h-auto" />
       </div>
-      {text && <p className="text-slate-600 text-sm">{text}</p>}
+      {text && <p className="text-slate-400 text-sm">{text}</p>}
     </div>
   );
 }

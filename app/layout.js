@@ -1,5 +1,12 @@
+import { Inter } from 'next/font/google';
 import './globals.css';
 import AppLayout from '../components/AppLayout';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
 
 export const metadata = {
   title: 'Appreciate Dashboard',
@@ -18,8 +25,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" className={inter.variable}>
+      <body className={inter.className}>
         <AppLayout>{children}</AppLayout>
       </body>
     </html>
