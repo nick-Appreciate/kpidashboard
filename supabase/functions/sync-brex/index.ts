@@ -2,9 +2,13 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const brexApiToken = Deno.env.get('BREX_API_TOKEN')!;
+const brexApiToken = Deno.env.get('BREX_API_KEY')!;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Only import transactions from February 2025 onwards
+const EARLIEST_DATE = '2025-02-01';
+const MAX_PAGES = 10;
 
 // --- Vendor name normalization (mirrors parse-invoice-pdf logic + card descriptor cleanup) ---
 function normalizeVendorName(name: string): string {
@@ -22,37 +26,26 @@ function normalizeVendorName(name: string): string {
   return n;
 }
 
-// --- Brex API fetch with cursor pagination ---
-async function fetchBrexTransactions(startDate?: string): Promise<unknown[]> {
-  const baseUrl = 'https://platform.brexapis.com/v2/transactions/card/primary';
-  let allTransactions: unknown[] = [];
-  let cursor: string | null = null;
-
-  do {
-    const params = new URLSearchParams();
-    if (cursor) params.set('cursor', cursor);
-    if (startDate) params.set('posted_at_start', startDate + 'T00:00:00Z');
-    params.set('limit', '100');
-
-    const url = `${baseUrl}?${params.toString()}`;
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${brexApiToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Brex API error ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    allTransactions = allTransactions.concat(data.items || []);
-    cursor = data.next_cursor || null;
-  } while (cursor);
-
-  return allTransactions;
+// --- Transform a single Brex transaction into a DB record ---
+function transformTransaction(txn: any) {
+  return {
+    brex_id: txn.id,
+    card_id: txn.card_id || null,
+    amount: Math.abs(txn.amount?.amount ? txn.amount.amount / 100 : 0),
+    currency: txn.amount?.currency || 'USD',
+    merchant_raw_descriptor: txn.merchant?.raw_descriptor || null,
+    merchant_name: txn.merchant?.name || txn.merchant?.raw_descriptor || 'Unknown',
+    merchant_mcc: txn.merchant?.mcc || null,
+    initiated_at: txn.initiated_at_date || null,
+    posted_at: txn.posted_at_date || null,
+    transaction_type: txn.type || null,
+    memo: txn.memo || null,
+    receipt_ids: txn.receipts?.map((r: any) => r.id) || null,
+    vendor_name_normalized: normalizeVendorName(
+      txn.merchant?.name || txn.merchant?.raw_descriptor || ''
+    ),
+    synced_at: new Date().toISOString(),
+  };
 }
 
 // --- Matching logic ---
@@ -110,12 +103,10 @@ async function runMatching(): Promise<{ highConfidence: number; lowConfidence: n
         bestMatch = { billId: bill.id, confidence: 'high' };
         break; // Can't do better than this
       } else if (exactVendor && !dateClose) {
-        // Exact vendor but no date match — low confidence
         if (!bestMatch || bestMatch.confidence !== 'high') {
           bestMatch = { billId: bill.id, confidence: 'low' };
         }
       } else if (fuzzyVendor) {
-        // Fuzzy vendor — low confidence regardless of date
         if (!bestMatch) {
           bestMatch = { billId: bill.id, confidence: 'low' };
         }
@@ -152,69 +143,97 @@ Deno.serve(async (_req: Request) => {
       .eq('id', 1)
       .single();
 
-    const startDate = cursorRow?.last_posted_date
-      ? cursorRow.last_posted_date
-      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Use cursor's last_posted_date if available, otherwise start from EARLIEST_DATE
+    const startDate = cursorRow?.last_posted_date || EARLIEST_DATE;
 
-    // 2. Fetch from Brex API
-    const transactions = await fetchBrexTransactions(startDate);
+    console.log(`Starting sync from date: ${startDate}`);
 
-    // 3. Transform and upsert
-    const records = transactions.map((txn: any) => ({
-      brex_id: txn.id,
-      card_id: txn.card_id || null,
-      amount: Math.abs(txn.amount?.amount ? txn.amount.amount / 100 : 0),
-      currency: txn.amount?.currency || 'USD',
-      merchant_raw_descriptor: txn.merchant?.raw_descriptor || null,
-      merchant_name: txn.merchant?.name || txn.merchant?.raw_descriptor || 'Unknown',
-      merchant_mcc: txn.merchant?.mcc || null,
-      initiated_at: txn.initiated_at_date || null,
-      posted_at: txn.posted_at_date || null,
-      transaction_type: txn.type || null,
-      memo: txn.memo || null,
-      receipt_ids: txn.receipts?.map((r: any) => r.id) || null,
-      vendor_name_normalized: normalizeVendorName(
-        txn.merchant?.name || txn.merchant?.raw_descriptor || ''
-      ),
-      synced_at: new Date().toISOString(),
-    }));
-
-    // Upsert in batches (brex_id unique constraint)
-    const batchSize = 50;
+    // 2. Fetch from Brex API page-by-page and upsert as we go
+    const baseUrl = 'https://platform.brexapis.com/v2/transactions/card/primary';
+    let cursor: string | null = cursorRow?.last_cursor || null;
+    let totalFetched = 0;
     let totalUpserted = 0;
-    for (let i = 0; i < records.length; i += batchSize) {
-      const batch = records.slice(i, i + batchSize);
-      const { error } = await supabase
-        .from('brex_expenses')
-        .upsert(batch, { onConflict: 'brex_id', ignoreDuplicates: false });
-      if (error) throw new Error(`Upsert error: ${JSON.stringify(error)}`);
-      totalUpserted += batch.length;
-    }
+    let pageCount = 0;
+    let latestPostedDate: string | null = null;
 
-    // 4. Update cursor
-    const latestPostedDate = records
-      .map((r: any) => r.posted_at)
-      .filter(Boolean)
-      .sort()
-      .pop();
+    do {
+      const params = new URLSearchParams();
+      if (cursor) params.set('cursor', cursor);
+      params.set('posted_at_start', `${startDate}T00:00:00Z`);
+      params.set('limit', '100');
 
-    await supabase
-      .from('brex_sync_cursor')
-      .update({
-        last_synced_at: new Date().toISOString(),
-        last_posted_date: latestPostedDate || cursorRow?.last_posted_date,
-        total_synced: (cursorRow?.total_synced || 0) + totalUpserted,
-      })
-      .eq('id', 1);
+      const url = `${baseUrl}?${params.toString()}`;
+      console.log(`Fetching page ${pageCount + 1}: ${url}`);
 
-    // 5. Run matching
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${brexApiToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Brex API error ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const items = data.items || [];
+      totalFetched += items.length;
+      pageCount++;
+
+      console.log(`Page ${pageCount}: got ${items.length} transactions`);
+
+      if (items.length > 0) {
+        // Transform and upsert this page
+        const records = items.map(transformTransaction);
+
+        // Track latest posted date
+        for (const r of records) {
+          if (r.posted_at && (!latestPostedDate || r.posted_at > latestPostedDate)) {
+            latestPostedDate = r.posted_at;
+          }
+        }
+
+        // Upsert in batches of 50
+        const batchSize = 50;
+        for (let i = 0; i < records.length; i += batchSize) {
+          const batch = records.slice(i, i + batchSize);
+          const { error } = await supabase
+            .from('brex_expenses')
+            .upsert(batch, { onConflict: 'brex_id', ignoreDuplicates: false });
+          if (error) throw new Error(`Upsert error: ${JSON.stringify(error)}`);
+          totalUpserted += batch.length;
+        }
+      }
+
+      cursor = data.next_cursor || null;
+
+      // Save cursor after each page so we can resume if we time out
+      await supabase
+        .from('brex_sync_cursor')
+        .update({
+          last_synced_at: new Date().toISOString(),
+          last_cursor: cursor,
+          last_posted_date: latestPostedDate || cursorRow?.last_posted_date,
+          total_synced: (cursorRow?.total_synced || 0) + totalUpserted,
+        })
+        .eq('id', 1);
+
+    } while (cursor && pageCount < MAX_PAGES);
+
+    console.log(`Sync complete: ${totalFetched} fetched, ${totalUpserted} upserted across ${pageCount} pages`);
+
+    // 3. Run matching
     const matchResults = await runMatching();
 
     return new Response(JSON.stringify({
       success: true,
       syncedAt: new Date().toISOString(),
-      transactionsFetched: transactions.length,
+      transactionsFetched: totalFetched,
       recordsUpserted: totalUpserted,
+      pagesProcessed: pageCount,
+      hasMore: !!cursor,
       matching: matchResults,
     }), {
       status: 200,
