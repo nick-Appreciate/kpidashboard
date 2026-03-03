@@ -5,6 +5,7 @@ import Chart from 'chart.js/auto';
 import Link from 'next/link';
 import { LogoLoader } from './Logo';
 import LeadsPerUnitChart from './LeadsPerUnitChart';
+import SourcesChart from './SourcesChart';
 
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
@@ -35,15 +36,11 @@ export default function Dashboard() {
   const [stageStats, setStageStats] = useState(null);
   
   // Chart refs
-  const statusChartRef = useRef(null);
   const weeklyChartRef = useRef(null);
   const dailyChartRef = useRef(null);
   const conversionChartRef = useRef(null);
   const propertyChartRef = useRef(null);
-  const leadTypeChartRef = useRef(null);
-  const sourceChartRef = useRef(null);
   const unitTypeChartRef = useRef(null);
-  const sourceWeeklyChartRef = useRef(null);
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -224,7 +221,7 @@ export default function Dashboard() {
     updateChartsWithData(stageStats, getStageDisplayNames());
     
     return () => {
-      [weeklyChartRef, dailyChartRef, propertyChartRef, leadTypeChartRef, sourceChartRef, statusChartRef, sourceWeeklyChartRef, conversionChartRef].forEach(ref => {
+      [weeklyChartRef, dailyChartRef, propertyChartRef, conversionChartRef].forEach(ref => {
         if (ref.current?.chart) {
           ref.current.chart.destroy();
         }
@@ -526,134 +523,6 @@ export default function Dashboard() {
       });
     }
     
-    if (leadTypeChartRef.current && data.leadTypeDistribution?.length > 0) {
-      const ctx = leadTypeChartRef.current.getContext('2d');
-      if (leadTypeChartRef.current.chart) leadTypeChartRef.current.chart.destroy();
-      
-      leadTypeChartRef.current.chart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-          labels: data.leadTypeDistribution.map(l => l.lead_type),
-          datasets: [{
-            data: data.leadTypeDistribution.map(l => l.count),
-            backgroundColor: ['#667eea', '#43e97b', '#f093fb', '#4facfe', '#764ba2', '#ff6b6b']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { position: 'bottom' } }
-        }
-      });
-    }
-    
-    if (sourceChartRef.current && data.sourceDistribution?.length > 0) {
-      const ctx = sourceChartRef.current.getContext('2d');
-      if (sourceChartRef.current.chart) sourceChartRef.current.chart.destroy();
-      
-      sourceChartRef.current.chart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-          labels: data.sourceDistribution.map(s => s.source || 'Unknown'),
-          datasets: [{
-            data: data.sourceDistribution.map(s => s.count),
-            backgroundColor: ['#f093fb', '#4facfe', '#43e97b', '#667eea', '#764ba2', '#ff6b6b', '#feca57', '#48dbfb']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { position: 'bottom' } }
-        }
-      });
-    }
-    
-    // Weekly By Source line chart - shows lead sources over time
-    if (sourceWeeklyChartRef.current && data.weeklyBySource && Object.keys(data.weeklyBySource).length > 0) {
-      const ctx = sourceWeeklyChartRef.current.getContext('2d');
-      if (sourceWeeklyChartRef.current.chart) sourceWeeklyChartRef.current.chart.destroy();
-      
-      const weeklyData = data.weeklyBySource;
-      const weeks = Object.keys(weeklyData).sort();
-      
-      // Get all unique sources across all weeks
-      const allSources = new Set();
-      weeks.forEach(week => {
-        Object.keys(weeklyData[week]).forEach(source => allSources.add(source));
-      });
-      
-      // Take top 8 sources by total count
-      const sourceTotals = {};
-      allSources.forEach(source => {
-        sourceTotals[source] = weeks.reduce((sum, week) => sum + (weeklyData[week][source] || 0), 0);
-      });
-      const topSources = Object.entries(sourceTotals)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8)
-        .map(([source]) => source);
-      
-      const colors = ['#f093fb', '#4facfe', '#43e97b', '#667eea', '#764ba2', '#ff6b6b', '#feca57', '#48dbfb'];
-      
-      const datasets = topSources.map((source, idx) => ({
-        label: source || 'Unknown',
-        data: weeks.map(week => weeklyData[week][source] || 0),
-        borderColor: colors[idx % colors.length],
-        backgroundColor: `${colors[idx % colors.length]}40`,
-        fill: false,
-        tension: 0.4,
-        pointRadius: 3,
-        pointHoverRadius: 5
-      }));
-      
-      // Format week labels as M/D
-      const weekLabels = weeks.map(w => {
-        const [year, month, day] = w.split('-').map(Number);
-        return `${month}/${day}`;
-      });
-      
-      sourceWeeklyChartRef.current.chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: weekLabels,
-          datasets
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { 
-            legend: { display: true, position: 'bottom' }
-          },
-          scales: { 
-            y: { beginAtZero: true, ticks: { stepSize: 1 } },
-            x: { 
-              ticks: { maxRotation: 45, minRotation: 45 },
-              title: { display: true, text: 'Week Starting' }
-            }
-          }
-        }
-      });
-    }
-    
-    if (statusChartRef.current && data.statusDistribution?.length > 0) {
-      const ctx = statusChartRef.current.getContext('2d');
-      if (statusChartRef.current.chart) statusChartRef.current.chart.destroy();
-      
-      statusChartRef.current.chart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: data.statusDistribution.map(s => s.status),
-          datasets: [{
-            data: data.statusDistribution.map(s => s.count),
-            backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b', '#ff6b6b', '#feca57']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { position: 'bottom' } }
-        }
-      });
-    }
   };
 
   const updateCharts = () => {
@@ -743,48 +612,6 @@ export default function Dashboard() {
           indexAxis: 'y',
           plugins: { legend: { display: false } },
           scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
-        }
-      });
-    }
-    
-    if (leadTypeChartRef.current && stats.leadTypeDistribution?.length > 0) {
-      const ctx = leadTypeChartRef.current.getContext('2d');
-      if (leadTypeChartRef.current.chart) leadTypeChartRef.current.chart.destroy();
-      
-      leadTypeChartRef.current.chart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-          labels: stats.leadTypeDistribution.map(l => l.lead_type),
-          datasets: [{
-            data: stats.leadTypeDistribution.map(l => l.count),
-            backgroundColor: ['#667eea', '#43e97b', '#f093fb', '#4facfe']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { position: 'bottom' } }
-        }
-      });
-    }
-    
-    if (sourceChartRef.current && stats.sourceDistribution?.length > 0) {
-      const ctx = sourceChartRef.current.getContext('2d');
-      if (sourceChartRef.current.chart) sourceChartRef.current.chart.destroy();
-      
-      sourceChartRef.current.chart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-          labels: stats.sourceDistribution.map(s => s.source || 'Unknown'),
-          datasets: [{
-            data: stats.sourceDistribution.map(s => s.count),
-            backgroundColor: ['#f093fb', '#4facfe', '#43e97b', '#667eea', '#764ba2', '#ff6b6b', '#feca57', '#48dbfb']
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { position: 'bottom' } }
         }
       });
     }
@@ -1218,44 +1045,28 @@ export default function Dashboard() {
               </div>
             )}
             
-            {/* Weekly By Source Line Chart - Full Width */}
-            {stageStats?.weeklyBySource && Object.keys(stageStats.weeklyBySource).length > 0 && (
+            {/* Sources Line Chart - Full Width */}
+            <SourcesChart stageStats={stageStats} />
+
+            {/* Leads per Completed Rehab Unit Chart */}
+            <LeadsPerUnitChart
+              property={selectedProperty?.startsWith('region_') ? null : selectedProperty}
+              region={selectedProperty?.startsWith('region_') ? selectedProperty : null}
+              startDate={startDate}
+              endDate={endDate}
+              selectedStages={selectedStages}
+            />
+
+            {/* Top Properties */}
+            {stageStats?.topProperties?.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Weekly By Source</h2>
-                <p className="text-sm text-gray-500 mb-4">Shows weekly counts by lead source for selected stages</p>
-                <canvas ref={sourceWeeklyChartRef}></canvas>
+                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Top Properties</h2>
+                <canvas ref={propertyChartRef}></canvas>
               </div>
             )}
-            
-            {/* Charts Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Status Distribution</h2>
-                <canvas ref={statusChartRef}></canvas>
-              </div>
-              
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Sources</h2>
-                <canvas ref={sourceChartRef}></canvas>
-              </div>
-              
-              {stageStats?.topProperties?.length > 0 && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                  <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Top Properties</h2>
-                  <canvas ref={propertyChartRef}></canvas>
-                </div>
-              )}
-              
-              {stageStats?.leadTypeDistribution?.length > 0 && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                  <h2 className="text-lg font-semibold text-slate-800 mb-4 pb-2 border-b border-slate-200">Types</h2>
-                  <canvas ref={leadTypeChartRef}></canvas>
-                </div>
-              )}
-            </div>
           </>
         )}
-        
+
         {/* Prompt to select a stage when none selected */}
         {selectedStages.length === 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 mb-6 text-center">
@@ -1268,14 +1079,6 @@ export default function Dashboard() {
             <p className="text-gray-500">Click on any stage in the funnel above to view detailed analytics. You can select multiple stages to compare data.</p>
           </div>
         )}
-
-        {/* Leads per Completed Rehab Unit Chart */}
-        <LeadsPerUnitChart
-          property={selectedProperty?.startsWith('region_') ? null : selectedProperty}
-          region={selectedProperty?.startsWith('region_') ? selectedProperty : null}
-          startDate={startDate}
-          endDate={endDate}
-        />
       </div>
     </div>
   );

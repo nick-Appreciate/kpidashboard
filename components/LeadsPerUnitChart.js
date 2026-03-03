@@ -16,11 +16,10 @@ const STAGE_CONFIG = {
 
 const ALL_STAGES = Object.keys(STAGE_CONFIG);
 
-export default function LeadsPerUnitChart({ property, region, startDate, endDate }) {
+export default function LeadsPerUnitChart({ property, region, startDate, endDate, selectedStages = [] }) {
   const [stageData, setStageData] = useState(null);
   const [rehabHistory, setRehabHistory] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [selectedStages, setSelectedStages] = useState(new Set(['inquiries', 'showings_completed', 'applications', 'leases']));
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -63,9 +62,9 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
     fetchData();
   }, [fetchData]);
 
-  // Build weekly chart data: funnel counts / completed rehab units
+  // Build daily chart data: funnel counts / completed rehab units
   const chartData = useMemo(() => {
-    if (!stageData?.weeklyDataByStage || !rehabHistory?.length) return [];
+    if (!stageData?.dailyDataByStage || !rehabHistory?.length) return [];
 
     // Build a lookup of completed units by date from rehab snapshots
     const completedByDate = {};
@@ -73,78 +72,47 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
       completedByDate[snap.snapshot_date] = snap.complete || 0;
     });
 
-    // Get weekly data from stage stats
-    const weeks = stageData.allWeeks || [];
-    if (weeks.length === 0) return [];
+    // Get daily dates from stage stats, capped at today
+    const allDates = stageData.allDates || [];
+    if (allDates.length === 0) return [];
 
-    return weeks.map((weekLabel, idx) => {
-      const point = { week: weekLabel };
+    const todayStr = new Date().toISOString().split('T')[0];
 
-      // Parse the week range (e.g., "2/24-3/2") to find matching rehab snapshots
-      // Average the completed units over the week range
-      const parts = weekLabel.split('-');
-      if (parts.length === 2) {
-        const now = new Date();
-        const year = now.getFullYear();
+    return allDates
+      .filter(dateStr => dateStr <= todayStr)
+      .map(dateStr => {
+        // Format date label as M/D
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const label = `${m}/${d}`;
 
-        // Parse start and end of week
-        const [sm, sd] = parts[0].split('/').map(Number);
-        const [em, ed] = parts[1].split('/').map(Number);
+        const point = { date: dateStr, dateLabel: label };
 
-        // Handle year boundary
-        const startYear = sm > em ? year - 1 : year;
-        const weekStart = new Date(startYear, sm - 1, sd);
-        const weekEnd = new Date(year, em - 1, ed);
-
-        // Find all rehab snapshots within this week range
-        let totalCompleted = 0;
-        let snapCount = 0;
-        const current = new Date(weekStart);
-        while (current <= weekEnd) {
-          const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-          if (completedByDate[dateStr] !== undefined) {
-            totalCompleted += completedByDate[dateStr];
-            snapCount++;
-          }
-          current.setDate(current.getDate() + 1);
-        }
-
-        const avgCompleted = snapCount > 0 ? totalCompleted / snapCount : 0;
-        point._completedUnits = Math.round(avgCompleted * 10) / 10;
+        // Get completed units for this date
+        const completedUnits = completedByDate[dateStr] || 0;
+        point._completedUnits = completedUnits;
 
         // For each stage, calculate per-completed-unit ratio
         ALL_STAGES.forEach(stage => {
-          const weeklyData = stageData.weeklyDataByStage[stage]?.data?.[idx];
-          const count = weeklyData?.count || 0;
+          const dailyData = stageData.dailyDataByStage[stage]?.data;
+          // Find the entry matching this date
+          const entry = dailyData?.find(d => d.date === dateStr);
+          const count = entry?.count || 0;
           point[`${stage}_count`] = count;
-          point[stage] = avgCompleted > 0
-            ? Math.round((count / avgCompleted) * 100) / 100
+          point[stage] = completedUnits > 0
+            ? Math.round((count / completedUnits) * 100) / 100
             : 0;
         });
-      }
 
-      return point;
-    });
+        return point;
+      });
   }, [stageData, rehabHistory]);
-
-  const toggleStage = (stage) => {
-    setSelectedStages(prev => {
-      const next = new Set(prev);
-      if (next.has(stage)) {
-        next.delete(stage);
-      } else {
-        next.add(stage);
-      }
-      return next;
-    });
-  };
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     const point = payload[0]?.payload;
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-        <p className="font-medium text-gray-700 mb-1">Week of {label}</p>
+        <p className="font-medium text-gray-700 mb-1">{point?.date}</p>
         {point?._completedUnits !== undefined && (
           <p className="text-gray-500 mb-1">Completed Units: {point._completedUnits}</p>
         )}
@@ -164,34 +132,15 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
     );
   };
 
+  // Filter to only show stages selected in the dashboard funnel
+  const visibleStages = ALL_STAGES.filter(s => selectedStages.includes(s));
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
       <div className="flex flex-col gap-3 mb-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">Leads per Completed Rehab Unit</h2>
-          <p className="text-sm text-gray-500">Weekly funnel metrics divided by average completed rehab units</p>
-        </div>
-
-        {/* Stage toggles */}
-        <div className="flex flex-wrap gap-1.5">
-          {ALL_STAGES.map(stage => {
-            const config = STAGE_CONFIG[stage];
-            const isSelected = selectedStages.has(stage);
-            return (
-              <button
-                key={stage}
-                onClick={() => toggleStage(stage)}
-                className="px-3 py-1 text-xs font-medium rounded-md transition-colors border"
-                style={{
-                  backgroundColor: isSelected ? config.color + '20' : 'transparent',
-                  borderColor: isSelected ? config.color : '#e2e8f0',
-                  color: isSelected ? config.color : '#94a3b8',
-                }}
-              >
-                {config.label}
-              </button>
-            );
-          })}
+          <p className="text-sm text-gray-500">Daily funnel metrics divided by completed rehab units</p>
         </div>
       </div>
 
@@ -203,15 +152,20 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
         <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
           No data available. Ensure rehab snapshots are being tracked.
         </div>
+      ) : visibleStages.length === 0 ? (
+        <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+          Select stages above to view leads per unit data.
+        </div>
       ) : (
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
-                dataKey="week"
+                dataKey="dateLabel"
                 tick={{ fontSize: 11 }}
                 stroke="#9ca3af"
+                interval="preserveStartEnd"
               />
               <YAxis
                 tick={{ fontSize: 11 }}
@@ -221,7 +175,7 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              {ALL_STAGES.filter(s => selectedStages.has(s)).map(stage => (
+              {visibleStages.map(stage => (
                 <Line
                   key={stage}
                   type="monotone"
@@ -229,8 +183,8 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
                   name={`${STAGE_CONFIG[stage].label} / Unit`}
                   stroke={STAGE_CONFIG[stage].color}
                   strokeWidth={2}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
+                  dot={{ r: 2 }}
+                  activeDot={{ r: 4 }}
                 />
               ))}
             </LineChart>
@@ -238,9 +192,9 @@ export default function LeadsPerUnitChart({ property, region, startDate, endDate
         </div>
       )}
 
-      {chartData.length > 0 && (
+      {chartData.length > 0 && visibleStages.length > 0 && (
         <p className="text-xs text-gray-500 mt-2 text-center">
-          Showing {chartData.length} week{chartData.length !== 1 ? 's' : ''} of data
+          Showing {chartData.length} day{chartData.length !== 1 ? 's' : ''} of data
         </p>
       )}
     </div>

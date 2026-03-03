@@ -335,7 +335,7 @@ function processStageData(records, stage, dateField) {
   // Source distribution
   const sourceCounts = {};
   records.forEach(record => {
-    const source = record.source || record.lead_source || 'Unknown';
+    const source = record.inquiry_source || record.source || record.lead_source || 'Unknown';
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
   });
 
@@ -633,7 +633,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     }
     const status = record.status || record.application_status || 'Unknown';
     statusCounts[status] = (statusCounts[status] || 0) + 1;
-    const source = record.source || record.lead_source || 'Unknown';
+    const source = record.inquiry_source || record.source || record.lead_source || 'Unknown';
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     const leadType = record.lead_type || record.type || 'Unknown';
     leadTypeCounts[leadType] = (leadTypeCounts[leadType] || 0) + 1;
@@ -713,6 +713,43 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     }
   });
 
+  // Build daily data by source (across all selected stages)
+  // Track counts per source per date
+  const sourceByDate = {}; // { date: { source: count } }
+  const sourceGrandTotals = {};
+
+  records.forEach(record => {
+    if (!stages.includes(record._stage)) return;
+    const dateVal = getDateValue(record);
+    if (!dateVal) return;
+    const date = new Date(dateVal);
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    // Prefer inquiry_source (from original inquiry) for applications/leases
+    const source = record.inquiry_source || record.inquiry_source || record.source || record.lead_source || 'Unknown';
+
+    if (!sourceByDate[dateStr]) sourceByDate[dateStr] = {};
+    sourceByDate[dateStr][source] = (sourceByDate[dateStr][source] || 0) + 1;
+    sourceGrandTotals[source] = (sourceGrandTotals[source] || 0) + 1;
+  });
+
+  // Get top sources by total count
+  const topSourceNames = Object.entries(sourceGrandTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([source]) => source);
+
+  const dailyDataBySource = {
+    sources: topSourceNames,
+    dates: allDates,
+    data: allDates.map(dateStr => {
+      const point = { date: dateStr };
+      topSourceNames.forEach(source => {
+        point[source] = sourceByDate[dateStr]?.[source] || 0;
+      });
+      return point;
+    })
+  };
+
   return {
     total: records.length,
     stageTotals,
@@ -724,6 +761,7 @@ function processStageDataByStage(records, stages, dailyInquiryCounts = {}, weekl
     weeklyDataByStage,
     weeklyConversionByStage,
     weeklyInquiryCounts,
+    dailyDataBySource,
     topProperties: Object.entries(propertyCounts)
       .map(([property, count]) => ({ property, count }))
       .sort((a, b) => b.count - a.count)
