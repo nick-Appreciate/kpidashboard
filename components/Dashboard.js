@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import Link from 'next/link';
 import { LogoLoader } from './Logo';
+import LeadsPerUnitChart from './LeadsPerUnitChart';
 
 export default function Dashboard() {
   const [inquiries, setInquiries] = useState([]);
@@ -1267,6 +1268,14 @@ export default function Dashboard() {
             <p className="text-gray-500">Click on any stage in the funnel above to view detailed analytics. You can select multiple stages to compare data.</p>
           </div>
         )}
+
+        {/* Leads per Completed Rehab Unit Chart */}
+        <LeadsPerUnitChart
+          property={selectedProperty?.startsWith('region_') ? null : selectedProperty}
+          region={selectedProperty?.startsWith('region_') ? selectedProperty : null}
+          startDate={startDate}
+          endDate={endDate}
+        />
       </div>
     </div>
   );
