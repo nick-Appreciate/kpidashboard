@@ -66,7 +66,7 @@ function shortName(name: string): string {
 }
 
 export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: number }) {
-  const [timeRange, setTimeRange] = useState('30');
+  const [timeRange, setTimeRange] = useState('all');
   const [balances, setBalances] = useState<BalanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('total');
@@ -105,13 +105,6 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     return Array.from(accountMap.entries()).map(([id, name]) => ({ id, name }));
   }, [balances]);
 
-  // Auto-select all accounts when data first loads
-  useEffect(() => {
-    if (accounts.length > 0 && selectedAccounts.size === 0) {
-      setSelectedAccounts(new Set(accounts.map(a => a.id)));
-    }
-  }, [accounts]);
-
   // Filter out accounts that are always 0 in the current data range
   const activeAccounts = useMemo(() => {
     const accountTotals = new Map<string, number>();
@@ -123,6 +116,13 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     });
     return accounts.filter(a => (accountTotals.get(a.id) || 0) > 0);
   }, [accounts, balances]);
+
+  // Auto-select only active (non-zero) accounts when data first loads
+  useEffect(() => {
+    if (activeAccounts.length > 0 && selectedAccounts.size === 0) {
+      setSelectedAccounts(new Set(activeAccounts.map(a => a.id)));
+    }
+  }, [activeAccounts]);
 
   // Build chart data based on view mode
   const chartData = useMemo(() => {
@@ -156,8 +156,8 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
   }, [balances, viewMode, selectedAccounts]);
 
   const visibleAccounts = useMemo(() => {
-    return accounts.filter(a => selectedAccounts.has(a.id));
-  }, [accounts, selectedAccounts]);
+    return activeAccounts.filter(a => selectedAccounts.has(a.id));
+  }, [activeAccounts, selectedAccounts]);
 
   const toggleAccount = (accountId: string) => {
     setSelectedAccounts(prev => {
@@ -253,7 +253,7 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
                   className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
                 >
                   <span>
-                    {selectedAccounts.size === accounts.length
+                    {selectedAccounts.size === activeAccounts.length
                       ? 'All accounts'
                       : `${selectedAccounts.size} account${selectedAccounts.size !== 1 ? 's' : ''}`}
                   </span>
@@ -266,17 +266,10 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
                   <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
                     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100">
                       <button
-                        onClick={selectAllAccounts}
-                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                      >
-                        All
-                      </button>
-                      <span className="text-gray-300">|</span>
-                      <button
                         onClick={selectActiveOnly}
                         className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
                       >
-                        Active only
+                        All
                       </button>
                       <span className="text-gray-300">|</span>
                       <button
@@ -286,32 +279,26 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
                         None
                       </button>
                     </div>
-                    {accounts.map((acct, i) => {
-                      const isActive = activeAccounts.some(a => a.id === acct.id);
-                      return (
-                        <label
-                          key={acct.id}
-                          className={`flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer ${
-                            !isActive ? 'opacity-50' : ''
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedAccounts.has(acct.id)}
-                            onChange={() => toggleAccount(acct.id)}
-                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                          />
-                          <span
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: getAccountColor(acct.name, i) }}
-                          />
-                          <span className="text-xs text-gray-700 truncate">
-                            {shortName(acct.name)}
-                            {!isActive && ' (inactive)'}
-                          </span>
-                        </label>
-                      );
-                    })}
+                    {activeAccounts.map((acct, i) => (
+                      <label
+                        key={acct.id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedAccounts.has(acct.id)}
+                          onChange={() => toggleAccount(acct.id)}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: getAccountColor(acct.name, i) }}
+                        />
+                        <span className="text-xs text-gray-700 truncate">
+                          {shortName(acct.name)}
+                        </span>
+                      </label>
+                    ))}
                   </div>
                 )}
               </div>
