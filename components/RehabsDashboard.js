@@ -346,10 +346,10 @@ export default function RehabsDashboard() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4">
-      <div className="max-w-full mx-auto">
+    <div className="h-screen bg-slate-100 p-4 flex flex-col">
+      <div className="max-w-full mx-auto flex flex-col flex-1 min-h-0 w-full">
         {/* Compact Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-semibold text-slate-800">🔧 Rehabs</h1>
@@ -409,8 +409,8 @@ export default function RehabsDashboard() {
         </div>
 
         {/* Spreadsheet Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex-1 min-h-0">
+          <div className="overflow-auto h-full">
             <table className="w-full text-sm border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-blue-100 text-blue-900 text-xs">
