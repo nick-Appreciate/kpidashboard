@@ -105,16 +105,24 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     return Array.from(accountMap.entries()).map(([id, name]) => ({ id, name }));
   }, [balances]);
 
-  // Filter out accounts that are always 0 in the current data range
+  // Filter to accounts with non-zero balance on the most recent date
   const activeAccounts = useMemo(() => {
-    const accountTotals = new Map<string, number>();
+    const latestBalance = new Map<string, number>();
+    const latestDate = new Map<string, string>();
+
     balances.forEach(b => {
-      if (b.account_name !== 'Total Cash') {
-        const current = accountTotals.get(b.account_id) || 0;
-        accountTotals.set(b.account_id, current + Math.abs(Number(b.current_balance)));
+      if (b.account_name === 'Total Cash') return;
+      const existing = latestDate.get(b.account_id);
+      if (!existing || b.snapshot_date > existing) {
+        latestDate.set(b.account_id, b.snapshot_date);
+        latestBalance.set(b.account_id, Number(b.current_balance));
       }
     });
-    return accounts.filter(a => (accountTotals.get(a.id) || 0) > 0);
+
+    return accounts.filter(a => {
+      const bal = latestBalance.get(a.id);
+      return bal !== undefined && bal !== 0;
+    });
   }, [accounts, balances]);
 
   // Auto-select only active (non-zero) accounts when data first loads
@@ -124,15 +132,22 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
     }
   }, [activeAccounts]);
 
+  // Set of active account IDs for fast lookup
+  const activeAccountIds = useMemo(() => {
+    return new Set(activeAccounts.map(a => a.id));
+  }, [activeAccounts]);
+
   // Build chart data based on view mode
   const chartData = useMemo(() => {
     const byDate = new Map<string, Record<string, any>>();
 
-    // Only include non-"Total Cash" rows
-    const filtered = balances.filter(b => b.account_name !== 'Total Cash');
+    // Only include non-"Total Cash" rows from active accounts
+    const filtered = balances.filter(b =>
+      b.account_name !== 'Total Cash' && activeAccountIds.has(b.account_id)
+    );
 
     if (viewMode === 'total') {
-      // Single "Total" line — sum of all accounts per date
+      // Single "Total" line — sum of active accounts per date
       filtered.forEach(b => {
         if (!byDate.has(b.snapshot_date)) {
           byDate.set(b.snapshot_date, { date: b.snapshot_date, Total: 0 });
@@ -140,20 +155,22 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
         byDate.get(b.snapshot_date)!.Total += Number(b.current_balance);
       });
     } else {
-      // Individual account lines — only selected accounts
+      // Individual account lines — only selected accounts, skip $0 values
       filtered.forEach(b => {
         if (!selectedAccounts.has(b.account_id)) return;
+        const bal = Number(b.current_balance);
+        if (bal === 0) return; // skip zero-balance data points
         if (!byDate.has(b.snapshot_date)) {
           byDate.set(b.snapshot_date, { date: b.snapshot_date });
         }
-        byDate.get(b.snapshot_date)![b.account_name] = Number(b.current_balance);
+        byDate.get(b.snapshot_date)![b.account_name] = bal;
       });
     }
 
     return Array.from(byDate.values()).sort(
       (a, b) => a.date.localeCompare(b.date)
     );
-  }, [balances, viewMode, selectedAccounts]);
+  }, [balances, viewMode, selectedAccounts, activeAccountIds]);
 
   const visibleAccounts = useMemo(() => {
     return activeAccounts.filter(a => selectedAccounts.has(a.id));
@@ -348,13 +365,25 @@ export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: n
                 width={85}
               />
               <Tooltip
-                labelFormatter={(label) =>
-                  new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const nonZero = payload.filter(p => p.value !== 0 && p.value !== undefined);
+                  if (!nonZero.length) return null;
+                  const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
                     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-                  })
-                }
-                formatter={(value: number, name: string) => [formatTooltipCurrency(value), name]}
-                contentStyle={{ fontSize: 12 }}
+                  });
+                  return (
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                      <p className="font-medium text-gray-700 mb-1">{dateLabel}</p>
+                      {nonZero.map((entry, i) => (
+                        <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
+                          <span>{entry.name}</span>
+                          <span className="font-medium">{formatTooltipCurrency(Number(entry.value))}</span>
+                        </p>
+                      ))}
+                    </div>
+                  );
+                }}
               />
               {viewMode === 'individual' && <Legend wrapperStyle={{ fontSize: 11 }} />}
 
