@@ -252,6 +252,20 @@ export async function GET(request) {
     // Apply region filter to all records (post-fetch filtering)
     if (region) allRecords = filterByRegion(allRecords, region);
 
+    // Deduplicate leases: count one lease per unit (co-applicants/co-signers share a unit)
+    // Keep the earliest application per unit as the representative record
+    const leaseRecords = allRecords.filter(r => r._stage === 'leases' && r.unit);
+    const nonLeaseRecords = allRecords.filter(r => r._stage !== 'leases');
+    const noUnitLeases = allRecords.filter(r => r._stage === 'leases' && !r.unit);
+    const leaseByUnit = new Map();
+    for (const record of leaseRecords) {
+      const existing = leaseByUnit.get(record.unit);
+      if (!existing || new Date(record[record._dateField]) < new Date(existing[existing._dateField])) {
+        leaseByUnit.set(record.unit, record);
+      }
+    }
+    allRecords = [...nonLeaseRecords, ...leaseByUnit.values(), ...noUnitLeases];
+
     // Check if any records from selected stages have dates after today
     // If no future data exists, cap endDate to today (normal cutoff)
     const now = new Date();
