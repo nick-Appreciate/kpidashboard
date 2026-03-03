@@ -84,6 +84,26 @@ export async function GET(request) {
     const endDate = searchParams.get('endDate');
     const granularity = searchParams.get('granularity') || 'weekly';
 
+    // For monthly/quarterly, backfill start date to ensure at least 8 data points
+    let effectiveStartDate = startDate;
+    if (startDate && (granularity === 'monthly' || granularity === 'quarterly')) {
+      const minBuckets = 8;
+      const anchor = parseDateStr(startDate);
+      if (granularity === 'monthly') {
+        const minStart = new Date(anchor);
+        minStart.setMonth(minStart.getMonth() - (minBuckets - 1));
+        minStart.setDate(1); // align to month start
+        if (minStart < anchor) effectiveStartDate = `${minStart.getFullYear()}-${String(minStart.getMonth() + 1).padStart(2, '0')}-${String(minStart.getDate()).padStart(2, '0')}`;
+      } else {
+        const minStart = new Date(anchor);
+        minStart.setMonth(minStart.getMonth() - (minBuckets * 3 - 1));
+        const qMonth = Math.floor(minStart.getMonth() / 3) * 3;
+        minStart.setMonth(qMonth);
+        minStart.setDate(1); // align to quarter start
+        if (minStart < anchor) effectiveStartDate = `${minStart.getFullYear()}-${String(minStart.getMonth() + 1).padStart(2, '0')}-${String(minStart.getDate()).padStart(2, '0')}`;
+      }
+    }
+
     // Support both single stage and multi-select
     const selectedStages = stagesParam ? stagesParam.split(',') : (stage ? [stage] : []);
     
@@ -109,7 +129,7 @@ export async function GET(request) {
     // Fetch name lookup from leasing_reports (inquiry_id -> name)
     // Also fetch all inquiries for baseline conversion calculation
     let inquiriesQuery = supabase.from('leasing_reports').select('inquiry_id, name, guest_card_id, inquiry_received, property');
-    if (startDate) inquiriesQuery = inquiriesQuery.gte('inquiry_received', startDate);
+    if (effectiveStartDate) inquiriesQuery = inquiriesQuery.gte('inquiry_received', effectiveStartDate);
     if (endDate) inquiriesQuery = inquiriesQuery.lte('inquiry_received', endDate + 'T23:59:59');
     if (property && property !== 'all') inquiriesQuery = inquiriesQuery.eq('property', property);
 
@@ -178,7 +198,7 @@ export async function GET(request) {
       let query = supabase.from(tableName).select('*');
 
       // Apply date filters
-      if (startDate) query = query.gte(dateField, startDate);
+      if (effectiveStartDate) query = query.gte(dateField, effectiveStartDate);
       if (endDate) query = query.lte(dateField, endDate + 'T23:59:59');
 
       // Apply stage-specific filters
@@ -245,7 +265,7 @@ export async function GET(request) {
 
     // Process data separately for each stage
     // Pass both selectedStages (for display) and all fetched stages (for conversion calculation)
-    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, startDate, effectiveEndDate, [...stagesToFetch], granularity);
+    const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, effectiveStartDate, effectiveEndDate, [...stagesToFetch], granularity);
     result.hasFutureData = hasFutureData;
 
     return NextResponse.json(result);
