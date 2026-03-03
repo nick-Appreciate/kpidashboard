@@ -346,10 +346,10 @@ export default function RehabsDashboard() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4">
-      <div className="max-w-full mx-auto">
+    <div className="h-screen bg-slate-100 p-4 flex flex-col">
+      <div className="max-w-full mx-auto w-full flex flex-col flex-1 min-h-0">
         {/* Compact Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 sticky top-0 z-20">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-semibold text-slate-800">🔧 Rehabs</h1>
@@ -407,6 +407,9 @@ export default function RehabsDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Scrollable content area */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
 
         {/* Spreadsheet Table */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200">
@@ -570,10 +573,11 @@ export default function RehabsDashboard() {
           </div>
         </div>
 
-      </div>
-
       {/* Rehabs Chart */}
       <RehabsChart rehabs={filteredRehabs} selectedProperty={selectedProperty} />
+
+        </div>{/* end scrollable content area */}
+      </div>
 
       {/* Edit Modal */}
       {editingRehab && (
