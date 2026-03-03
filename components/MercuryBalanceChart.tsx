@@ -24,7 +24,7 @@ interface BalanceRecord {
   available_balance: number | null;
 }
 
-export default function MercuryBalanceChart() {
+export default function MercuryBalanceChart({ refreshKey = 0 }: { refreshKey?: number }) {
   const [timeRange, setTimeRange] = useState('30');
   const [balances, setBalances] = useState<BalanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,7 +46,7 @@ export default function MercuryBalanceChart() {
 
   useEffect(() => {
     fetchBalances();
-  }, [timeRange]);
+  }, [timeRange, refreshKey]);
 
   // Derive unique accounts and pivot data for Recharts
   const { accounts, chartData } = useMemo(() => {

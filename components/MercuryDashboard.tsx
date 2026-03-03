@@ -11,6 +11,7 @@ export default function MercuryDashboard() {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<any>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Admin guard
   useEffect(() => {
@@ -27,6 +28,7 @@ export default function MercuryDashboard() {
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Sync failed');
       setLastSync(data);
+      setRefreshKey(k => k + 1);
     } catch (error) {
       console.error('Mercury sync error:', error);
       setSyncError(error instanceof Error ? error.message : 'Unknown error');
@@ -91,7 +93,7 @@ export default function MercuryDashboard() {
         </div>
 
         {/* Balance Chart */}
-        <MercuryBalanceChart />
+        <MercuryBalanceChart refreshKey={refreshKey} />
       </div>
     </div>
   );
