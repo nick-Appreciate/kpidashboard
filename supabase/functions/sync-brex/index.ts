@@ -159,7 +159,6 @@ Deno.serve(async (_req: Request) => {
     do {
       const params = new URLSearchParams();
       if (cursor) params.set('cursor', cursor);
-      params.set('posted_at_start', `${startDate}T00:00:00Z`);
       params.set('limit', '100');
 
       const url = `${baseUrl}?${params.toString()}`;
@@ -168,7 +167,6 @@ Deno.serve(async (_req: Request) => {
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${brexApiToken}`,
-          'Content-Type': 'application/json',
         },
       });
 
@@ -185,8 +183,13 @@ Deno.serve(async (_req: Request) => {
       console.log(`Page ${pageCount}: got ${items.length} transactions`);
 
       if (items.length > 0) {
-        // Transform and upsert this page
-        const records = items.map(transformTransaction);
+        // Client-side filter: only keep transactions on or after start date
+        const filtered = items.filter((txn: any) => {
+          const posted = txn.posted_at_date;
+          return !posted || posted >= startDate;
+        });
+        console.log(`Filtered to ${filtered.length} of ${items.length} (startDate=${startDate})`);
+        const records = filtered.map(transformTransaction);
 
         // Track latest posted date
         for (const r of records) {
