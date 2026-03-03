@@ -278,7 +278,7 @@ export default function RehabsDashboard() {
   }
 
   // Status order for sorting
-  const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Rented', 'Complete'];
+  const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
   
   // Filter rehabs by selected property
   const filteredRehabs = selectedProperty === 'all' 
@@ -442,7 +442,7 @@ export default function RehabsDashboard() {
                     className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-16 cursor-pointer hover:bg-blue-200"
                     onClick={() => toggleSort('contractor')}
                   >
-                    Cont {getSortIcon('contractor')}
+                    Days {getSortIcon('contractor')}
                   </th>
                   <th 
                     className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-28 cursor-pointer hover:bg-blue-200"
