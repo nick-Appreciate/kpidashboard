@@ -72,7 +72,24 @@ Deno.serve(async (_req: Request) => {
       });
     }
 
-    // 4. Upsert balance records
+    // 4. Always compute a "Total Cash" row from individual account balances
+    const hasTotalCash = records.some(r => r.account_name === 'Total Cash');
+    if (!hasTotalCash) {
+      const totalBalance = records.reduce((sum, r) => sum + Number(r.current_balance), 0);
+      records.push({
+        snapshot_date: snapshotDate,
+        account_id: 'total_cash_computed',
+        account_name: 'Total Cash',
+        account_type: 'computed',
+        account_kind: null,
+        current_balance: totalBalance,
+        available_balance: null,
+        account_status: 'active',
+      });
+      console.log(`Computed Total Cash: $${totalBalance.toFixed(2)}`);
+    }
+
+    // 5. Upsert balance records
     const { error } = await supabase
       .from('mercury_daily_balances')
       .upsert(records, { onConflict: 'snapshot_date,account_id' });

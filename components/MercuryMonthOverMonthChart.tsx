@@ -52,10 +52,32 @@ export default function MercuryMonthOverMonthChart() {
     const today = new Date();
     const dayOfMonth = today.getDate();
 
-    // Filter to "Total Cash" entries only
-    const totalCashEntries = balances
-      .filter(b => b.account_name === 'Total Cash')
-      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    // Get "Total Cash" entries, or compute from individual accounts when missing
+    const byDate = new Map<string, BalanceRecord[]>();
+    balances.forEach(b => {
+      if (!byDate.has(b.snapshot_date)) byDate.set(b.snapshot_date, []);
+      byDate.get(b.snapshot_date)!.push(b);
+    });
+
+    const totalCashEntries: BalanceRecord[] = [];
+    byDate.forEach((entries, date) => {
+      const totalRow = entries.find(e => e.account_name === 'Total Cash');
+      if (totalRow) {
+        totalCashEntries.push(totalRow);
+      } else {
+        // Compute total from individual accounts
+        const total = entries.reduce((sum, e) => sum + Number(e.current_balance), 0);
+        totalCashEntries.push({
+          snapshot_date: date,
+          account_id: 'computed',
+          account_name: 'Total Cash',
+          account_type: 'computed',
+          current_balance: total,
+          available_balance: null,
+        });
+      }
+    });
+    totalCashEntries.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
 
     if (totalCashEntries.length === 0) return [];
 

@@ -141,13 +141,19 @@ export default function MercuryBalanceChart() {
     const byDate = new Map<string, Record<string, any>>();
 
     if (viewMode === 'total') {
-      // Use the "Total Cash" row directly — it's the authoritative Mercury total
+      // Group all entries by date to compute Total Cash when missing
+      const entriesByDate = new Map<string, BalanceRecord[]>();
       balances.forEach(b => {
-        if (b.account_name !== 'Total Cash') return;
-        byDate.set(b.snapshot_date, {
-          date: b.snapshot_date,
-          'Total Cash': Number(b.current_balance),
-        });
+        if (!entriesByDate.has(b.snapshot_date)) entriesByDate.set(b.snapshot_date, []);
+        entriesByDate.get(b.snapshot_date)!.push(b);
+      });
+
+      entriesByDate.forEach((entries, date) => {
+        const totalRow = entries.find(e => e.account_name === 'Total Cash');
+        const total = totalRow
+          ? Number(totalRow.current_balance)
+          : entries.reduce((sum, e) => sum + Number(e.current_balance), 0);
+        byDate.set(date, { date, 'Total Cash': total });
       });
     } else {
       // Individual account lines — only active + selected, skip $0
