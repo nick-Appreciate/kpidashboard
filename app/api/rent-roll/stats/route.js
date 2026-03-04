@@ -630,6 +630,24 @@ export async function GET(request) {
       console.log('No tenant events data found:', error.message);
     }
     
+    // Get occupancy_id lookup from af_tenant_directory (best coverage: ~245/248 units)
+    let occupancyMap = {};
+    try {
+      const { data: tenantRows, error: tenantError } = await supabase
+        .from('af_tenant_directory')
+        .select('property_name, unit, occupancy_id')
+        .not('occupancy_id', 'is', null);
+
+      if (!tenantError && tenantRows) {
+        tenantRows.forEach(r => {
+          const key = `${r.property_name}||${r.unit}`.toLowerCase();
+          occupancyMap[key] = r.occupancy_id;
+        });
+      }
+    } catch (error) {
+      console.log('No tenant directory data found:', error.message);
+    }
+
     // Helper function to normalize property names for matching
     const normalizePropertyName = (name) => {
       if (!name) return '';
@@ -782,6 +800,7 @@ export async function GET(request) {
       const baseLeaseInfo = {
         property: u.property,
         unit: u.unit,
+        occupancyId: occupancyMap[`${u.property}||${u.unit}`.toLowerCase()] || null,
         renewalStatus: renewalInfo?.status || 'Not sent',
         renewalSentDate: renewalInfo?.renewal_sent_date || null,
         countersignedDate: renewalInfo?.countersigned_date || null,
@@ -830,7 +849,7 @@ export async function GET(request) {
             reason: `Expiring in ${daysUntil} days`,
             daysUntilExpiration: daysUntil
           });
-        } else if (daysUntil <= 90) {
+        } else if (daysUntil <= 180) {
           upcomingExpirations.push({
             ...baseLeaseInfo,
             reason: `Expiring in ${daysUntil} days`,
