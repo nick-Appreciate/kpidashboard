@@ -239,6 +239,7 @@ export default function BrexExpensesDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {/* @ts-ignore — untyped JS component */}
               <DarkSelect
                 value={sort}
                 onChange={(val: string) => setSort(val as SortOption)}
