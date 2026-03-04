@@ -67,24 +67,27 @@ export default function MercuryMonthOverMonthChart() {
       byMonth.get(ym)!.push(b);
     });
 
-    // For each month, find the entry closest to today's day-of-month
+    // For each month, find the entry on the exact day-of-month (or closest available)
     const points: { date: string; label: string; balance: number }[] = [];
     byMonth.forEach((entries, ym) => {
-      // Find closest day to dayOfMonth
-      let best = entries[0];
-      let bestDiff = Math.abs(parseInt(best.snapshot_date.split('-')[2]) - dayOfMonth);
-      entries.forEach(e => {
-        const day = parseInt(e.snapshot_date.split('-')[2]);
-        const diff = Math.abs(day - dayOfMonth);
-        if (diff < bestDiff) {
-          best = e;
-          bestDiff = diff;
-        }
-      });
+      // Prefer exact match on dayOfMonth, fall back to closest
+      const exactMatch = entries.find(e => parseInt(e.snapshot_date.split('-')[2]) === dayOfMonth);
+      let best = exactMatch || entries[0];
+      if (!exactMatch) {
+        let bestDiff = Math.abs(parseInt(best.snapshot_date.split('-')[2]) - dayOfMonth);
+        entries.forEach(e => {
+          const day = parseInt(e.snapshot_date.split('-')[2]);
+          const diff = Math.abs(day - dayOfMonth);
+          if (diff < bestDiff) {
+            best = e;
+            bestDiff = diff;
+          }
+        });
+      }
       const d = new Date(best.snapshot_date + 'T12:00:00');
       points.push({
         date: best.snapshot_date,
-        label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         balance: Number(best.current_balance),
       });
     });
@@ -172,7 +175,7 @@ export default function MercuryMonthOverMonthChart() {
                 dataKey="date"
                 tickFormatter={(d: string) => {
                   const dt = new Date(d + 'T12:00:00');
-                  return dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 }}
                 tick={{ fontSize: 11 }}
                 stroke="#9ca3af"
