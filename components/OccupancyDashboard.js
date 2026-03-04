@@ -58,9 +58,7 @@ export default function OccupancyDashboard() {
   
   const occupancyChartRef = useRef(null);
   const projectionChartRef = useRef(null);
-  const netChangeChartRef = useRef(null);
   const statusChartRef = useRef(null);
-  const leaseChartRef = useRef(null);
   const delinquencyChartRef = useRef(null);
   const healthyLeaseChartRef = useRef(null);
   const renewalsChartRef = useRef(null);
@@ -172,149 +170,237 @@ export default function OccupancyDashboard() {
   };
   
   const updateProjectionCharts = () => {
-    // Projected Occupancy Chart
+    // Unified Occupancy Projections Chart (mixed line + bar)
     const projectionCanvas = document.getElementById('projectionChart');
-    if (projectionCanvas && projections?.projections?.length > 0) {
-      const ctx = projectionCanvas.getContext('2d');
-      if (projectionCanvas.chart) projectionCanvas.chart.destroy();
-      
-      // If user has overridden occupied count, adjust projections starting from that value
-      let adjustedProjections = projections.projections;
-      if (occupiedOverride !== null && stats?.summary?.totalUnits > 0) {
-        const totalUnits = stats.summary.totalUnits;
-        const originalOccupied = stats.summary.occupiedUnits;
-        const occupiedDiff = occupiedOverride - originalOccupied;
-        
-        // Adjust all projection points by the difference
-        adjustedProjections = projections.projections.map(d => {
-          const originalRate = parseFloat(d.occupancyRate);
-          const adjustedOccupied = Math.round((originalRate / 100) * totalUnits) + occupiedDiff;
-          const adjustedRate = Math.max(0, Math.min(100, (adjustedOccupied / totalUnits) * 100));
-          return { ...d, occupancyRate: adjustedRate.toFixed(1) };
-        });
-      }
-      
-      projectionCanvas.chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: adjustedProjections.map(d => {
-            const [year, month, day] = d.date.split('-');
-            return `${month}/${day}`;
-          }),
-          datasets: [{
-            label: 'Projected Occupancy (%)',
-            data: adjustedProjections.map(d => parseFloat(d.occupancyRate)),
+    if (!projectionCanvas || !projections?.projections?.length || !projections?.netChangeByWeek?.length) return;
+
+    const ctx = projectionCanvas.getContext('2d');
+    if (projectionCanvas.chart) projectionCanvas.chart.destroy();
+
+    // If user has overridden occupied count, adjust projections starting from that value
+    let adjustedProjections = projections.projections;
+    if (occupiedOverride !== null && stats?.summary?.totalUnits > 0) {
+      const totalUnits = stats.summary.totalUnits;
+      const originalOccupied = stats.summary.occupiedUnits;
+      const occupiedDiff = occupiedOverride - originalOccupied;
+      adjustedProjections = projections.projections.map(d => {
+        const originalRate = parseFloat(d.occupancyRate);
+        const adjustedOccupied = Math.round((originalRate / 100) * totalUnits) + occupiedDiff;
+        const adjustedRate = Math.max(0, Math.min(100, (adjustedOccupied / totalUnits) * 100));
+        return { ...d, occupancyRate: adjustedRate.toFixed(1) };
+      });
+    }
+
+    const weeklyData = projections.netChangeByWeek;
+
+    // Use week labels from netChangeByWeek as shared x-axis
+    const labels = weeklyData.map(d => d.weekLabel);
+
+    // Map projection data to the same week labels
+    // projections.projections dates are weekly and should align with netChangeByWeek
+    const projDateMap = {};
+    adjustedProjections.forEach(d => {
+      const [year, month, day] = d.date.split('-');
+      projDateMap[`${month}/${day}`] = parseFloat(d.occupancyRate);
+    });
+    // Also map by weekLabel from netChangeByWeek for exact alignment
+    const occupancyByWeek = weeklyData.map((week, i) => {
+      // Try matching by label first
+      if (projDateMap[week.weekLabel]) return projDateMap[week.weekLabel];
+      // Fallback: use projection at same index
+      if (adjustedProjections[i]) return parseFloat(adjustedProjections[i].occupancyRate);
+      return null;
+    });
+
+    // Find the max absolute value for move events to set bar y-axis range
+    const maxMoveValue = Math.max(
+      ...weeklyData.map(d => Math.max(d.moveIns, d.moveOuts)),
+      1
+    );
+
+    projectionCanvas.chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'line',
+            label: 'Occupancy %',
+            data: occupancyByWeek,
             borderColor: '#8b5cf6',
             backgroundColor: '#8b5cf620',
             fill: true,
             tension: 0.4,
-            borderDash: [5, 5]
-          }]
-        },
-        options: {
-          ...DARK_CHART_DEFAULTS,
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            y: {
-              beginAtZero: false,
-              min: 75,
-              max: 100,
-              ticks: { callback: v => v + '%' }
-            }
+            borderDash: [5, 5],
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: '#8b5cf6',
+            pointBorderColor: '#1e293b',
+            pointBorderWidth: 2,
+            yAxisID: 'y',
+            order: 0
+          },
+          {
+            type: 'bar',
+            label: 'Move-ins',
+            data: weeklyData.map(d => d.moveIns),
+            backgroundColor: '#10b98180',
+            borderColor: '#10b981',
+            borderWidth: 1,
+            borderRadius: 3,
+            yAxisID: 'y1',
+            order: 1
+          },
+          {
+            type: 'bar',
+            label: 'Move-outs',
+            data: weeklyData.map(d => -d.moveOuts),
+            backgroundColor: '#ef444480',
+            borderColor: '#ef4444',
+            borderWidth: 1,
+            borderRadius: 3,
+            yAxisID: 'y1',
+            order: 1
           }
-        }
-      });
-    }
-
-    // Net Change by Week Chart
-    const netChangeCanvas = document.getElementById('netChangeChart');
-    if (netChangeCanvas && projections?.netChangeByWeek?.length > 0) {
-      const ctx = netChangeCanvas.getContext('2d');
-      if (netChangeCanvas.chart) netChangeCanvas.chart.destroy();
-      
-      // Store reference for tooltip callback
-      const weeklyData = projections.netChangeByWeek;
-      
-      netChangeCanvas.chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: weeklyData.map(d => d.weekLabel),
-          datasets: [
-            {
-              label: 'Move-ins',
-              data: weeklyData.map(d => d.moveIns),
-              backgroundColor: '#10b981'
-            },
-            {
-              label: 'Move-outs',
-              data: weeklyData.map(d => -d.moveOuts),
-              backgroundColor: '#ef4444'
-            }
-          ]
+        ]
+      },
+      options: {
+        ...DARK_CHART_DEFAULTS,
+        responsive: true,
+        maintainAspectRatio: true,
+        aspectRatio: 2.5,
+        interaction: {
+          mode: 'index',
+          intersect: false
         },
-        options: {
-          ...DARK_CHART_DEFAULTS,
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: {
-            legend: { display: true, position: 'top' },
-            tooltip: {
-              enabled: true,
-              mode: 'index',
-              intersect: false,
-              bodyFont: { size: 11 },
-              footerFont: { size: 10, weight: 'normal' },
-              footerColor: '#ccc',
-              callbacks: {
-                label: (context) => {
-                  const value = context.raw;
-                  const label = context.dataset.label;
-                  return `${label}: ${Math.abs(value)}`;
-                },
-                footer: function(tooltipItems) {
-                  const dataIndex = tooltipItems[0].dataIndex;
-                  const weekData = weeklyData[dataIndex];
-                  if (!weekData) return '';
-                  
-                  const lines = [];
-                  
-                  if (weekData.moveInDetails && weekData.moveInDetails.length > 0) {
-                    lines.push('Move-ins:');
-                    weekData.moveInDetails.slice(0, 5).forEach(d => {
-                      const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      lines.push(`  ${d.unit} - ${d.tenant} (${dateStr})`);
-                    });
-                  }
-                  
-                  if (weekData.moveOutDetails && weekData.moveOutDetails.length > 0) {
-                    if (lines.length > 0) lines.push('');
-                    lines.push('Move-outs:');
-                    weekData.moveOutDetails.slice(0, 5).forEach(d => {
-                      const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      const typeStr = d.type === 'Eviction' ? ' [Evict]' : d.type === 'Notice' ? ' [Notice]' : '';
-                      lines.push(`  ${d.unit} - ${d.tenant}${typeStr} (${dateStr})`);
-                    });
-                  }
-                  
-                  return lines.length > 0 ? lines : '';
-                }
-              }
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              color: '#94a3b8',
+              font: { size: 11 },
+              boxWidth: 12,
+              padding: 16,
+              usePointStyle: true,
+              pointStyleWidth: 12
             }
           },
-          scales: {
-            x: { stacked: true },
-            y: { 
-              stacked: true,
-              ticks: { 
-                callback: v => v >= 0 ? `+${v}` : v
+          tooltip: {
+            enabled: true,
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            titleColor: '#f1f5f9',
+            bodyColor: '#cbd5e1',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            padding: 12,
+            bodyFont: { size: 11 },
+            footerFont: { size: 10, weight: 'normal' },
+            footerColor: '#94a3b8',
+            callbacks: {
+              label: (context) => {
+                if (context.dataset.label === 'Occupancy %') {
+                  return `  Occupancy: ${context.parsed.y?.toFixed(1)}%`;
+                }
+                const value = Math.abs(context.raw);
+                if (value === 0) return null;
+                const label = context.dataset.label;
+                return `  ${label}: ${value}`;
+              },
+              footer: function(tooltipItems) {
+                const dataIndex = tooltipItems[0]?.dataIndex;
+                const week = weeklyData[dataIndex];
+                if (!week) return '';
+
+                const lines = [];
+                const net = week.moveIns - week.moveOuts;
+                if (net !== 0 || week.moveIns > 0 || week.moveOuts > 0) {
+                  lines.push(`Net: ${net >= 0 ? '+' : ''}${net}`);
+                }
+
+                if (week.moveInDetails?.length > 0) {
+                  lines.push('');
+                  lines.push('Move-ins:');
+                  week.moveInDetails.slice(0, 5).forEach(d => {
+                    const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    lines.push(`  ${d.unit} - ${d.tenant} (${dateStr})`);
+                  });
+                  if (week.moveInDetails.length > 5) lines.push(`  +${week.moveInDetails.length - 5} more`);
+                }
+
+                if (week.moveOutDetails?.length > 0) {
+                  lines.push('');
+                  lines.push('Move-outs:');
+                  week.moveOutDetails.slice(0, 5).forEach(d => {
+                    const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const typeStr = d.type === 'Eviction' ? ' [Evict]' : d.type === 'Notice' ? ' [Notice]' : '';
+                    lines.push(`  ${d.unit} - ${d.tenant}${typeStr} (${dateStr})`);
+                  });
+                  if (week.moveOutDetails.length > 5) lines.push(`  +${week.moveOutDetails.length - 5} more`);
+                }
+
+                return lines;
               }
             }
           }
+        },
+        scales: {
+          y: {
+            type: 'linear',
+            position: 'left',
+            beginAtZero: false,
+            min: 75,
+            max: 100,
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              color: '#8b5cf6',
+              callback: v => v + '%',
+              font: { size: 11 }
+            },
+            title: {
+              display: true,
+              text: 'Occupancy %',
+              color: '#8b5cf6',
+              font: { size: 11 }
+            }
+          },
+          y1: {
+            type: 'linear',
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            min: -(maxMoveValue + 1),
+            max: maxMoveValue + 1,
+            ticks: {
+              color: '#64748b',
+              stepSize: 1,
+              callback: v => {
+                const abs = Math.abs(v);
+                if (abs !== Math.floor(abs)) return '';
+                return v >= 0 ? `+${abs}` : `-${abs}`;
+              },
+              font: { size: 11 }
+            },
+            title: {
+              display: true,
+              text: 'Move-ins / Move-outs',
+              color: '#64748b',
+              font: { size: 11 }
+            }
+          },
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              color: '#64748b',
+              font: { size: 11 },
+              maxRotation: 45,
+              minRotation: 0
+            }
+          }
         }
-      });
-    }
+      }
+    });
   };
   
   // Color palette for multi-property charts
@@ -492,32 +578,6 @@ export default function OccupancyDashboard() {
           plugins: {
             legend: { position: 'right' }
           }
-        }
-      });
-    }
-    
-    // Lease Expiration Chart
-    if (leaseChartRef.current && stats.leaseExpirations) {
-      const ctx = leaseChartRef.current.getContext('2d');
-      if (leaseChartRef.current.chart) leaseChartRef.current.chart.destroy();
-      
-      const le = stats.leaseExpirations;
-      leaseChartRef.current.chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: ['Expired', '0-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'No End Date'],
-          datasets: [{
-            label: 'Units',
-            data: [le.expired, le.within30Days, le.within60Days, le.within90Days, le.beyond90Days, le.noLeaseEnd],
-            backgroundColor: ['#dc2626', '#ef4444', '#f97316', '#f59e0b', '#10b981', '#6b7280']
-          }]
-        },
-        options: {
-          ...DARK_CHART_DEFAULTS,
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
         }
       });
     }
@@ -895,154 +955,34 @@ export default function OccupancyDashboard() {
               <canvas ref={occupancyChartRef}></canvas>
             </div>
             
-            {/* Projections Section */}
+            {/* Occupancy Projections — Unified Chart */}
             {projections && (
-              <>
-                {/* Projection Summary Cards */}
-                <div className="glass-card p-6 mb-6">
-                  <h2 className="text-xl font-semibold text-violet-300 mb-4 pb-2 border-b-2 border-violet-500/20">
-                    📊 Occupancy Projections
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4">
-                      <div className="text-sm text-violet-400 font-medium mb-2">Next 30 Days</div>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <span className="text-emerald-400 font-bold">+{projections.summary?.next30Days?.moveIns || 0}</span>
-                          <span className="text-slate-500 text-sm ml-1">in</span>
+              <div className="glass-card p-6 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pb-2 border-b border-[var(--glass-border)]">
+                  <h2 className="text-lg font-semibold text-slate-100">Occupancy Projections</h2>
+                  <div className="flex items-center gap-4 text-xs">
+                    {[
+                      { label: '0-30d', data: projections.summary?.days0_30 },
+                      { label: '30-60d', data: projections.summary?.days30_60 },
+                      { label: '60-90d', data: projections.summary?.days60_90 },
+                    ].map(({ label, data }) => {
+                      const net = data?.netChange || 0;
+                      return (
+                        <div key={label} className="flex items-center gap-1.5 bg-surface-overlay/60 rounded-lg px-2.5 py-1 border border-[var(--glass-border)]">
+                          <span className="text-slate-500 font-medium">{label}</span>
+                          <span className="text-emerald-400 font-semibold">+{data?.moveIns || 0}</span>
+                          <span className="text-slate-600">/</span>
+                          <span className="text-rose-400 font-semibold">-{data?.moveOuts || 0}</span>
+                          <span className={`font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            ({net >= 0 ? '+' : ''}{net})
+                          </span>
                         </div>
-                        <div>
-                          <span className="text-rose-400 font-bold">-{projections.summary?.next30Days?.moveOuts || 0}</span>
-                          <span className="text-slate-500 text-sm ml-1">out</span>
-                        </div>
-                        <div className={`font-bold ${(projections.summary?.next30Days?.netChange || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          Net: {(projections.summary?.next30Days?.netChange || 0) >= 0 ? '+' : ''}{projections.summary?.next30Days?.netChange || 0}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4">
-                      <div className="text-sm text-violet-400 font-medium mb-2">Next 60 Days</div>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <span className="text-emerald-400 font-bold">+{projections.summary?.next60Days?.moveIns || 0}</span>
-                          <span className="text-slate-500 text-sm ml-1">in</span>
-                        </div>
-                        <div>
-                          <span className="text-rose-400 font-bold">-{projections.summary?.next60Days?.moveOuts || 0}</span>
-                          <span className="text-slate-500 text-sm ml-1">out</span>
-                        </div>
-                        <div className={`font-bold ${(projections.summary?.next60Days?.netChange || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          Net: {(projections.summary?.next60Days?.netChange || 0) >= 0 ? '+' : ''}{projections.summary?.next60Days?.netChange || 0}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4">
-                      <div className="text-sm text-violet-400 font-medium mb-2">Next 90 Days</div>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <span className="text-emerald-400 font-bold">+{projections.summary?.next90Days?.moveIns || 0}</span>
-                          <span className="text-slate-500 text-sm ml-1">in</span>
-                        </div>
-                        <div>
-                          <span className="text-rose-400 font-bold">-{projections.summary?.next90Days?.moveOuts || 0}</span>
-                          <span className="text-slate-500 text-sm ml-1">out</span>
-                        </div>
-                        <div className={`font-bold ${(projections.summary?.next90Days?.netChange || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          Net: {(projections.summary?.next90Days?.netChange || 0) >= 0 ? '+' : ''}{projections.summary?.next90Days?.netChange || 0}
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
-                
-                {/* Projection Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                  <div className="glass-card p-6">
-                    <h2 className="text-xl font-semibold text-violet-300 mb-4 pb-2 border-b-2 border-violet-500/20">
-                      Projected Occupancy (Next 12 Weeks)
-                    </h2>
-                    <canvas id="projectionChart"></canvas>
-                  </div>
-                  
-                  <div className="glass-card p-6">
-                    <h2 className="text-xl font-semibold text-violet-300 mb-4 pb-2 border-b-2 border-violet-500/20">
-                      Net Change by Week
-                    </h2>
-                    <canvas id="netChangeChart"></canvas>
-                  </div>
-                </div>
-                
-                {/* Upcoming Move-ins and Move-outs */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                  <div className="glass-card p-6">
-                    <h2 className="text-xl font-semibold text-emerald-300 mb-4 pb-2 border-b-2 border-emerald-500/20">
-                      🏠 Upcoming Move-ins ({projections.upcomingMoveIns?.length || 0})
-                    </h2>
-                    <div className="max-h-64 overflow-y-auto">
-                      {projections.upcomingMoveIns?.length > 0 ? (
-                        <table className="w-full text-sm">
-                          <thead className="sticky top-0 z-10 bg-surface-raised">
-                            <tr className="border-b">
-                              <th className="text-left py-2 px-2">Date</th>
-                              <th className="text-left py-2 px-2">Property</th>
-                              <th className="text-left py-2 px-2">Unit</th>
-                              <th className="text-right py-2 px-2">Rent</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {projections.upcomingMoveIns.map((event, idx) => (
-                              <tr key={idx} className="border-b hover:bg-emerald-500/5">
-                                <td className="py-2 px-2">{new Date(event.event_date).toLocaleDateString()}</td>
-                                <td className="py-2 px-2">{event.property}</td>
-                                <td className="py-2 px-2">{event.unit}</td>
-                                <td className="py-2 px-2 text-right">${event.rent?.toLocaleString() || '-'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <p className="text-slate-500 text-center py-4">No upcoming move-ins scheduled</p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="glass-card p-6">
-                    <h2 className="text-xl font-semibold text-rose-400 mb-4 pb-2 border-b-2 border-rose-500/20">
-                      📦 Upcoming Move-outs ({projections.upcomingMoveOuts?.length || 0})
-                    </h2>
-                    <div className="max-h-64 overflow-y-auto">
-                      {projections.upcomingMoveOuts?.length > 0 ? (
-                        <table className="w-full text-sm">
-                          <thead className="sticky top-0 z-10 bg-surface-raised">
-                            <tr className="border-b">
-                              <th className="text-left py-2 px-2">Date</th>
-                              <th className="text-left py-2 px-2">Property</th>
-                              <th className="text-left py-2 px-2">Unit</th>
-                              <th className="text-left py-2 px-2">Type</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {projections.upcomingMoveOuts.map((event, idx) => (
-                              <tr key={idx} className="border-b hover:bg-rose-500/5">
-                                <td className="py-2 px-2">{new Date(event.event_date).toLocaleDateString()}</td>
-                                <td className="py-2 px-2">{event.property}</td>
-                                <td className="py-2 px-2">{event.unit}</td>
-                                <td className="py-2 px-2">
-                                  <span className={`px-2 py-1 rounded text-xs ${event.event_type === 'Notice' ? 'bg-orange-500/15 text-orange-800' : 'bg-rose-500/15 text-red-800'}`}>
-                                    {event.event_type}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <p className="text-slate-500 text-center py-4">No upcoming move-outs scheduled</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </>
+                <canvas id="projectionChart"></canvas>
+              </div>
             )}
             
             {/* Healthy Lease Rate Chart */}
@@ -1400,17 +1340,12 @@ export default function OccupancyDashboard() {
             </div>
             
             {/* Other Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               <div className="glass-card p-6">
                 <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Unit Status Distribution</h2>
                 <canvas ref={statusChartRef}></canvas>
               </div>
-              
-              <div className="glass-card p-6">
-                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Lease Expirations</h2>
-                <canvas ref={leaseChartRef}></canvas>
-              </div>
-              
+
               <div className="glass-card p-6">
                 <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Delinquency by Property</h2>
                 <canvas ref={delinquencyChartRef}></canvas>
