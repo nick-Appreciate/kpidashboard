@@ -103,16 +103,8 @@ export default function Sidebar({ user, onLogout }) {
     }] : [])
   ];
 
-  const toggleSection = (label) => {
-    setOpenSections(prev => {
-      const next = new Set(prev);
-      if (next.has(label)) {
-        next.delete(label);
-      } else {
-        next.add(label);
-      }
-      return next;
-    });
+  const openSection = (label) => {
+    setOpenSections(new Set([label]));
   };
 
   return (
@@ -150,9 +142,9 @@ export default function Sidebar({ user, onLogout }) {
           const open = openSections.has(section.label);
           return (
             <div key={section.label} className="mb-0.5">
-              {/* Section header — clickable when expanded */}
-              <button
-                onClick={() => isExpanded && toggleSection(section.label)}
+              {/* Section header — opens on hover when expanded */}
+              <div
+                onMouseEnter={() => isExpanded && openSection(section.label)}
                 className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-md transition-all duration-200 relative ${
                   isExpanded
                     ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200 cursor-pointer'
@@ -178,7 +170,7 @@ export default function Sidebar({ user, onLogout }) {
                     {section.label}
                   </span>
                 </div>
-              </button>
+              </div>
 
               {/* Section items — only visible when sidebar expanded AND section open */}
               <div className={`overflow-hidden transition-all duration-200 ${
