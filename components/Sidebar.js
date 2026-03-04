@@ -8,7 +8,6 @@ export default function Sidebar({ user, onLogout }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const pathname = usePathname();
   const hoverTimeoutRef = useRef(null);
-  const [openSections, setOpenSections] = useState(new Set());
 
   const isAdmin = user?.role === 'admin';
 
@@ -103,10 +102,6 @@ export default function Sidebar({ user, onLogout }) {
     }] : [])
   ];
 
-  const openSection = (label) => {
-    setOpenSections(new Set([label]));
-  };
-
   return (
     <aside
       className={`fixed left-0 top-0 h-full bg-surface-raised/80 backdrop-blur-[16px] border-r border-[var(--glass-border)] text-white z-50 transition-all duration-300 ease-in-out ${
@@ -119,7 +114,6 @@ export default function Sidebar({ user, onLogout }) {
       onMouseLeave={() => {
         clearTimeout(hoverTimeoutRef.current);
         setIsExpanded(false);
-        setOpenSections(new Set());
       }}
     >
       {/* Logo — icon stays fixed, "Appreciate" text fades in beside it */}
@@ -138,73 +132,57 @@ export default function Sidebar({ user, onLogout }) {
 
       {/* Navigation */}
       <nav className="mt-2 px-1">
-        {navSections.map((section) => {
-          const open = openSections.has(section.label);
-          return (
-            <div key={section.label} className="mb-0.5">
-              {/* Section header — opens on hover when expanded */}
-              <div
-                onMouseEnter={() => isExpanded && openSection(section.label)}
-                className={`w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-md transition-all duration-200 relative ${
-                  isExpanded
-                    ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200 cursor-pointer'
-                    : 'cursor-default'
-                }`}
-              >
-                {/* Section icon when collapsed, chevron+label when expanded */}
-                <div className={`absolute flex-shrink-0 flex items-center justify-center w-5 transition-opacity duration-150 ${
-                  isExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 delay-200'
-                }`}>
-                  <span className="text-slate-500">{section.items[0].icon}</span>
-                </div>
-                <div className={`flex items-center gap-1.5 transition-opacity duration-150 ${
-                  isExpanded ? 'opacity-100 delay-200' : 'opacity-0 pointer-events-none'
-                }`}>
-                  <svg
-                    className={`w-3 h-3 flex-shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap">
-                    {section.label}
-                  </span>
-                </div>
-              </div>
-
-              {/* Section items — only visible when sidebar expanded AND section open */}
-              <div className={`overflow-hidden transition-all duration-200 ${
-                isExpanded && open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+        {navSections.map((section) => (
+          <div key={section.label} className="mb-1">
+            {/* Section label — bright teal, visible when expanded */}
+            <div className="w-full flex items-center gap-1.5 px-1.5 py-1 relative">
+              {/* Section icon when collapsed */}
+              <div className={`absolute flex-shrink-0 flex items-center justify-center w-5 transition-opacity duration-150 ${
+                isExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 delay-200'
               }`}>
-                {section.items.map((item) => {
-                  const isActive = pathname === item.href;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`flex items-center gap-2 px-1.5 py-1.5 rounded-md mb-0.5 transition-all duration-200 group ${
-                        isExpanded ? 'pl-5' : ''
-                      } ${
-                        isActive
-                          ? 'bg-accent/15 text-accent-light border-l-2 border-accent'
-                          : 'text-slate-500 hover:bg-white/5 hover:text-slate-200 hover:translate-x-0.5'
-                      }`}
-                    >
-                      <div className="flex-shrink-0">
-                        {item.icon}
-                      </div>
-                      <span className={`text-xs font-medium whitespace-nowrap transition-opacity duration-150 ${
-                        isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'
-                      }`}>
-                        {item.name}
-                      </span>
-                    </Link>
-                  );
-                })}
+                <span className="text-slate-500">{section.items[0].icon}</span>
+              </div>
+              <div className={`transition-opacity duration-150 ${
+                isExpanded ? 'opacity-100 delay-200' : 'opacity-0 pointer-events-none'
+              }`}>
+                <span className="text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-accent">
+                  {section.label}
+                </span>
               </div>
             </div>
-          );
-        })}
+
+            {/* Section items — visible when sidebar is expanded */}
+            <div className={`overflow-hidden transition-all duration-200 ${
+              isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+            }`}>
+              {section.items.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2 px-1.5 py-1.5 rounded-md mb-0.5 transition-all duration-200 group ${
+                      isExpanded ? 'pl-5' : ''
+                    } ${
+                      isActive
+                        ? 'bg-accent/15 text-accent-light border-l-2 border-accent'
+                        : 'text-slate-500 hover:bg-white/5 hover:text-slate-200 hover:translate-x-0.5'
+                    }`}
+                  >
+                    <div className="flex-shrink-0">
+                      {item.icon}
+                    </div>
+                    <span className={`text-xs font-medium whitespace-nowrap transition-opacity duration-150 ${
+                      isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'
+                    }`}>
+                      {item.name}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Bottom section - User info and logout */}
