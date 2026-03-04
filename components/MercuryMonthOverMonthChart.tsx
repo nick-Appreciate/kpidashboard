@@ -48,69 +48,70 @@ export default function MercuryMonthOverMonthChart() {
     return () => clearInterval(interval);
   }, [fetchBalances]);
 
-  const chartData = useMemo(() => {
+  interface ChartPoint {
+    date: string;
+    label: string;
+    balance: number;
+    accounts: { name: string; balance: number }[];
+  }
+
+  const chartData = useMemo((): ChartPoint[] => {
     const today = new Date();
     const dayOfMonth = today.getDate();
 
-    // Get "Total Cash" entries, or compute from individual accounts when missing
-    const byDate = new Map<string, BalanceRecord[]>();
+    // Group all balance records by date
+    const allByDate = new Map<string, BalanceRecord[]>();
     balances.forEach(b => {
-      if (!byDate.has(b.snapshot_date)) byDate.set(b.snapshot_date, []);
-      byDate.get(b.snapshot_date)!.push(b);
+      if (!allByDate.has(b.snapshot_date)) allByDate.set(b.snapshot_date, []);
+      allByDate.get(b.snapshot_date)!.push(b);
     });
 
-    const totalCashEntries: BalanceRecord[] = [];
-    byDate.forEach((entries, date) => {
+    // Build total cash entries with account breakdowns
+    const totalCashByDate = new Map<string, { total: number; accounts: { name: string; balance: number }[] }>();
+    allByDate.forEach((entries, date) => {
       const totalRow = entries.find(e => e.account_name === 'Total Cash');
-      if (totalRow) {
-        totalCashEntries.push(totalRow);
-      } else {
-        // Compute total from individual accounts
-        const total = entries.reduce((sum, e) => sum + Number(e.current_balance), 0);
-        totalCashEntries.push({
-          snapshot_date: date,
-          account_id: 'computed',
-          account_name: 'Total Cash',
-          account_type: 'computed',
-          current_balance: total,
-          available_balance: null,
-        });
-      }
+      const individualAccounts = entries
+        .filter(e => e.account_name !== 'Total Cash')
+        .map(e => ({ name: e.account_name, balance: Number(e.current_balance) }))
+        .filter(a => a.balance !== 0)
+        .sort((a, b) => b.balance - a.balance);
+      const total = totalRow
+        ? Number(totalRow.current_balance)
+        : individualAccounts.reduce((sum, a) => sum + a.balance, 0);
+      totalCashByDate.set(date, { total, accounts: individualAccounts });
     });
-    totalCashEntries.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
 
-    if (totalCashEntries.length === 0) return [];
+    if (totalCashByDate.size === 0) return [];
 
-    // Group entries by year-month
-    const byMonth = new Map<string, BalanceRecord[]>();
-    totalCashEntries.forEach(b => {
-      const ym = b.snapshot_date.substring(0, 7); // "2025-06"
+    // Group by year-month, pick best date per month
+    const byMonth = new Map<string, string[]>();
+    totalCashByDate.forEach((_, date) => {
+      const ym = date.substring(0, 7);
       if (!byMonth.has(ym)) byMonth.set(ym, []);
-      byMonth.get(ym)!.push(b);
+      byMonth.get(ym)!.push(date);
     });
 
-    // For each month, find the entry on the exact day-of-month (or closest available)
-    const points: { date: string; label: string; balance: number }[] = [];
-    byMonth.forEach((entries, ym) => {
+    const points: ChartPoint[] = [];
+    byMonth.forEach((dates) => {
       // Prefer exact match on dayOfMonth, fall back to closest
-      const exactMatch = entries.find(e => parseInt(e.snapshot_date.split('-')[2]) === dayOfMonth);
-      let best = exactMatch || entries[0];
-      if (!exactMatch) {
-        let bestDiff = Math.abs(parseInt(best.snapshot_date.split('-')[2]) - dayOfMonth);
-        entries.forEach(e => {
-          const day = parseInt(e.snapshot_date.split('-')[2]);
-          const diff = Math.abs(day - dayOfMonth);
-          if (diff < bestDiff) {
-            best = e;
-            bestDiff = diff;
-          }
+      let bestDate = dates[0];
+      const exactMatch = dates.find(d => parseInt(d.split('-')[2]) === dayOfMonth);
+      if (exactMatch) {
+        bestDate = exactMatch;
+      } else {
+        let bestDiff = Math.abs(parseInt(bestDate.split('-')[2]) - dayOfMonth);
+        dates.forEach(d => {
+          const diff = Math.abs(parseInt(d.split('-')[2]) - dayOfMonth);
+          if (diff < bestDiff) { bestDate = d; bestDiff = diff; }
         });
       }
-      const d = new Date(best.snapshot_date + 'T12:00:00');
+      const entry = totalCashByDate.get(bestDate)!;
+      const d = new Date(bestDate + 'T12:00:00');
       points.push({
-        date: best.snapshot_date,
+        date: bestDate,
         label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        balance: Number(best.current_balance),
+        balance: entry.total,
+        accounts: entry.accounts,
       });
     });
 
@@ -131,21 +132,48 @@ export default function MercuryMonthOverMonthChart() {
   const formatCurrency = (value: number) =>
     `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+  const formatTooltipCurrency = (value: number) =>
+    `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Shorten long Mercury account names for the tooltip
+  const shortName = (name: string) => {
+    return name
+      .replace(/^Mercury \(Column N\.A\.\)-?/, '')
+      .replace(/^Mercury\(Column N\.A\.\)-?/, '')
+      .replace(/^Mercury (Checking|Savings) /, '$1 ')
+      .replace(/^Simmons - /, '')
+      .replace(/^Como Security Deposits - Simmons Checking \d+ -/, 'Simmons CoMo SD')
+      .replace(/ Operating Account$/, '')
+      .replace(/ \[closed\]$/, '')
+      .trim() || name;
+  };
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const point = payload[0];
+    const dataPoint = chartData.find(d => d.date === label);
     const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
     });
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-        <p className="font-medium text-gray-700 mb-1">{dateLabel}</p>
-        <p style={{ color: point.color }} className="flex justify-between gap-4">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[200px]">
+        <p className="font-medium text-gray-700 mb-1.5">{dateLabel}</p>
+        <p style={{ color: point.color }} className="flex justify-between gap-4 font-semibold border-b border-gray-100 pb-1.5 mb-1.5">
           <span>Total Cash</span>
-          <span className="font-medium">
-            ${Number(point.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+          <span>{formatTooltipCurrency(Number(point.value))}</span>
         </p>
+        {dataPoint?.accounts && dataPoint.accounts.length > 0 && (
+          <div className="space-y-0.5">
+            {dataPoint.accounts.map((acct, i) => (
+              <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-500' : 'text-gray-500'}`}>
+                <span className="truncate max-w-[160px]">{shortName(acct.name)}</span>
+                <span className="tabular-nums shrink-0">
+                  {acct.balance < 0 ? '-' : ''}{formatTooltipCurrency(acct.balance)}
+                </span>
+              </p>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
