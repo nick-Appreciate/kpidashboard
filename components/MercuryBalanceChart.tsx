@@ -150,10 +150,15 @@ export default function MercuryBalanceChart() {
 
       entriesByDate.forEach((entries, date) => {
         const totalRow = entries.find(e => e.account_name === 'Total Cash');
+        const individualAccounts = entries
+          .filter(e => e.account_name !== 'Total Cash')
+          .map(e => ({ name: e.account_name, balance: Number(e.current_balance) }))
+          .filter(a => a.balance !== 0)
+          .sort((a, b) => b.balance - a.balance);
         const total = totalRow
           ? Number(totalRow.current_balance)
-          : entries.reduce((sum, e) => sum + Number(e.current_balance), 0);
-        byDate.set(date, { date, 'Total Cash': total });
+          : individualAccounts.reduce((sum, a) => sum + a.balance, 0);
+        byDate.set(date, { date, 'Total Cash': total, _accounts: individualAccounts });
       });
     } else {
       // Individual account lines — only active + selected, skip $0
@@ -214,7 +219,10 @@ export default function MercuryBalanceChart() {
   const formatTooltipCurrency = (value: number) =>
     `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Custom tooltip — only shows non-zero entries
+  const formatAbsCurrency = (value: number) =>
+    `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Custom tooltip — only shows non-zero entries, with account breakdown for total view
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const nonZero = payload.filter((p: any) => p.value !== 0 && p.value !== undefined && p.value !== null);
@@ -222,15 +230,29 @@ export default function MercuryBalanceChart() {
     const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
     });
+    const dataPoint = chartData.find(d => d.date === label);
+    const accountBreakdown: { name: string; balance: number }[] = dataPoint?._accounts || [];
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
         <p className="font-medium text-gray-700 mb-1">{dateLabel}</p>
         {nonZero.map((entry: any, i: number) => (
-          <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
+          <p key={i} style={{ color: entry.color }} className={`flex justify-between gap-4 font-semibold ${accountBreakdown.length > 0 ? 'border-b border-gray-100 pb-1.5 mb-1.5' : ''}`}>
             <span>{entry.name}</span>
-            <span className="font-medium">{formatTooltipCurrency(Number(entry.value))}</span>
+            <span>{formatTooltipCurrency(Number(entry.value))}</span>
           </p>
         ))}
+        {accountBreakdown.length > 0 && (
+          <div className="space-y-0.5">
+            {accountBreakdown.map((acct, i) => (
+              <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-500' : 'text-gray-500'}`}>
+                <span className="truncate max-w-[160px]">{shortName(acct.name)}</span>
+                <span className="tabular-nums shrink-0">
+                  {acct.balance < 0 ? '-' : ''}{formatAbsCurrency(acct.balance)}
+                </span>
+              </p>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
