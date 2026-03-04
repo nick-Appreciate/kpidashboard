@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, Check, XCircle, X } from "lucide-react";
 import { LogoLoader } from "./Logo";
+import DarkSelect from "./DarkSelect";
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -238,17 +239,20 @@ export default function BrexExpensesDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <select
+              <DarkSelect
                 value={sort}
-                onChange={(e) => setSort(e.target.value as SortOption)}
-                className="px-2 py-1 border border-slate-300 rounded text-sm bg-white"
-              >
-                <option value="unmatched_first">Unmatched first</option>
-                <option value="date_newest">Date (newest)</option>
-                <option value="date_oldest">Date (oldest)</option>
-                <option value="amount_high">Amount (high)</option>
-                <option value="amount_low">Amount (low)</option>
-              </select>
+                onChange={(val: string) => setSort(val as SortOption)}
+                compact
+                searchable={false}
+                className="w-40"
+                options={[
+                  { value: 'unmatched_first', label: 'Unmatched first' },
+                  { value: 'date_newest', label: 'Date (newest)' },
+                  { value: 'date_oldest', label: 'Date (oldest)' },
+                  { value: 'amount_high', label: 'Amount (high)' },
+                  { value: 'amount_low', label: 'Amount (low)' },
+                ]}
+              />
             </div>
           </div>
 
