@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, Check, XCircle, X } from "lucide-react";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, Check, XCircle, X, ExternalLink } from "lucide-react";
 import { LogoLoader } from "./Logo";
 import DarkSelect from "./DarkSelect";
 import { useAuth } from "../contexts/AuthContext";
@@ -34,6 +34,11 @@ interface BrexExpense {
   bill_status: string | null;
   bill_payment_status: string | null;
 }
+
+const brexExpenseUrl = (brexId: string) => {
+  const encoded = btoa(`Expense:${brexId}`);
+  return `https://dashboard.brex.com/expenses?expenseId=${encodeURIComponent(encoded)}`;
+};
 
 type SortOption = "unmatched_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
 type FilterOption = "all" | "unmatched" | "matched" | "review" | "corporate";
@@ -316,6 +321,16 @@ export default function BrexExpensesDashboard() {
                     <div className="p-4">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Brex Transaction</span>
+                        <a
+                          href={brexExpenseUrl(expense.brex_id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                          title="Open in Brex"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Brex
+                        </a>
                       </div>
                       <h2 className="text-base font-semibold text-slate-800 mb-0.5">{expense.merchant_name}</h2>
                       <p className="text-xs text-slate-500 mb-3">
