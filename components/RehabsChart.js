@@ -11,6 +11,7 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
+import { RECHARTS_THEME } from '../lib/chartTheme';
 
 const STATUS_COLORS = {
   'Not Started': '#ef4444',
@@ -55,7 +56,7 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
         if (selectedProperty && selectedProperty !== 'all' && selectedProperty !== 'portfolio') {
           params.append('property', selectedProperty);
         }
-        
+
         const res = await fetch(`/api/rehabs/history?${params}`);
         if (res.ok) {
           const data = await res.json();
@@ -67,13 +68,13 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
         setLoading(false);
       }
     };
-    
+
     fetchHistory();
   }, [timeRange, selectedProperty]);
 
   const toggleStatus = (status) => {
-    setSelectedStatuses(prev => 
-      prev.includes(status) 
+    setSelectedStatuses(prev =>
+      prev.includes(status)
         ? prev.filter(s => s !== status)
         : [...prev, status]
     );
@@ -134,19 +135,19 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mt-4">
+    <div className="glass-card p-4 mt-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-800">Rehab Status Overview</h3>
+        <h3 className="text-lg font-semibold text-slate-100">Rehab Status Overview</h3>
         <select
           value={timeRange}
           onChange={(e) => setTimeRange(e.target.value)}
-          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="dark-select px-3 py-1.5 text-sm"
         >
-          <option value="7">Last 7 days</option>
-          <option value="14">Last 14 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="60">Last 60 days</option>
-          <option value="90">Last 90 days</option>
+          <option value="7" className="bg-surface-overlay">Last 7 days</option>
+          <option value="14" className="bg-surface-overlay">Last 14 days</option>
+          <option value="30" className="bg-surface-overlay">Last 30 days</option>
+          <option value="60" className="bg-surface-overlay">Last 60 days</option>
+          <option value="90" className="bg-surface-overlay">Last 90 days</option>
         </select>
       </div>
 
@@ -159,7 +160,7 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
             className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
               selectedStatuses.includes(status)
                 ? 'text-white border-transparent'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/20'
             }`}
             style={{
               backgroundColor: selectedStatuses.includes(status) ? STATUS_COLORS[status] : undefined
@@ -174,26 +175,26 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis 
-              dataKey="date" 
+            <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
+            <XAxis
+              dataKey="date"
               tickFormatter={formatDate}
-              tick={{ fontSize: 11 }}
-              stroke="#9ca3af"
+              tick={{ fontSize: RECHARTS_THEME.axis.fontSize, fill: RECHARTS_THEME.axis.stroke }}
+              stroke={RECHARTS_THEME.axis.stroke}
             />
-            <YAxis 
-              tick={{ fontSize: 11 }}
-              stroke="#9ca3af"
+            <YAxis
+              tick={{ fontSize: RECHARTS_THEME.axis.fontSize, fill: RECHARTS_THEME.axis.stroke }}
+              stroke={RECHARTS_THEME.axis.stroke}
               allowDecimals={false}
             />
-            <Tooltip 
+            <Tooltip
               labelFormatter={(label) => {
                 const date = new Date(label);
                 return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
               }}
-              contentStyle={{ fontSize: 12 }}
+              contentStyle={{ ...RECHARTS_THEME.tooltip.contentStyle, fontSize: 12 }}
             />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
             {selectedStatuses.map(status => (
               <Line
                 key={status}
@@ -210,10 +211,10 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
         </ResponsiveContainer>
       </div>
 
-      <p className="text-xs text-gray-500 mt-2 text-center">
-        {loading ? 'Loading historical data...' : 
-          historyData.length > 0 
-            ? `Showing ${chartData.length} days of data` 
+      <p className="text-xs text-slate-500 mt-2 text-center">
+        {loading ? 'Loading historical data...' :
+          historyData.length > 0
+            ? `Showing ${chartData.length} days of data`
             : 'Historical data will accumulate daily'}
       </p>
     </div>

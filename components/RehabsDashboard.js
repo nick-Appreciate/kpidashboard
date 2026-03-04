@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { LogoLoader } from './Logo';
 import { formatVacancyDays, calculateVacancyDays } from '../lib/vacancyUtils';
 import RehabsChart from './RehabsChart';
+import DarkSelect from './DarkSelect';
 
 export default function RehabsDashboard() {
   const [rehabs, setRehabs] = useState([]);
@@ -15,27 +16,27 @@ export default function RehabsDashboard() {
   const [properties, setProperties] = useState([]);
   const [editingRehab, setEditingRehab] = useState(null);
   const [totalUnits, setTotalUnits] = useState(0);
-  
+
   // Toggle Ready for Move-In status (persisted to database)
   const toggleReadyForMoveIn = async (unitId) => {
     const unit = rehabs.find(r => r.id === unitId);
     if (!unit) return;
-    
+
     const newValue = !unit.ready_for_movein;
-    
+
     // Optimistic update
-    setRehabs(prev => prev.map(r => 
+    setRehabs(prev => prev.map(r =>
       r.id === unitId ? { ...r, ready_for_movein: newValue } : r
     ));
-    
+
     // Persist to database
     await updateRehabField(unitId, 'ready_for_movein', newValue);
   };
-  
+
   // Column sorting
   const [sortColumn, setSortColumn] = useState('property');
   const [sortDirection, setSortDirection] = useState('asc');
-  
+
   const toggleSort = (column) => {
     if (sortColumn === column) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -44,12 +45,12 @@ export default function RehabsDashboard() {
       setSortDirection('asc');
     }
   };
-  
+
   const getSortIcon = (column) => {
     if (sortColumn !== column) return '↕';
     return sortDirection === 'asc' ? '↑' : '↓';
   };
-  
+
   // Onboarding modal state
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingUnit, setOnboardingUnit] = useState(null);
@@ -86,25 +87,25 @@ export default function RehabsDashboard() {
       if (selectedProperty && selectedProperty !== 'all') {
         params.append('property', selectedProperty);
       }
-      
+
       const response = await fetch(`/api/rehabs?${params}`);
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch rehabs');
       }
-      
+
       setRehabs(data.rehabs || []);
       setNewVacancies(data.newVacancies || []);
       setTotalUnits(data.totalUnits || 0);
-      
+
       // Extract unique properties
       const allProps = new Set([
         ...data.rehabs.map(r => r.property),
         ...data.newVacancies.map(v => v.property)
       ]);
       setProperties([...allProps].sort());
-      
+
     } catch (err) {
       console.error('Error fetching rehabs:', err);
       setError(err.message);
@@ -126,7 +127,7 @@ export default function RehabsDashboard() {
   const handleOnboardingSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    
+
     try {
       const response = await fetch('/api/rehabs', {
         method: 'POST',
@@ -141,16 +142,16 @@ export default function RehabsDashboard() {
           move_out_date: onboardingUnit.move_out_date
         })
       });
-      
+
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to create rehab');
       }
-      
+
       setShowOnboarding(false);
       setOnboardingUnit(null);
       fetchRehabs();
-      
+
     } catch (err) {
       console.error('Error creating rehab:', err);
       alert(err.message);
@@ -162,7 +163,7 @@ export default function RehabsDashboard() {
   const updateRehabField = async (rehabId, field, value) => {
     // Save scroll position before update
     const scrollY = window.scrollY;
-    
+
     try {
       const response = await fetch('/api/rehabs', {
         method: 'PATCH',
@@ -172,20 +173,20 @@ export default function RehabsDashboard() {
           [field]: value
         })
       });
-      
+
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to update');
       }
-      
+
       const updatedRehab = await response.json();
       setRehabs(prev => prev.map(r => r.id === rehabId ? updatedRehab : r));
-      
+
       // Restore scroll position after React re-render
       requestAnimationFrame(() => {
         window.scrollTo(0, scrollY);
       });
-      
+
     } catch (err) {
       console.error('Error updating rehab:', err);
       alert(err.message);
@@ -209,21 +210,21 @@ export default function RehabsDashboard() {
   const getStatusStyle = (status) => {
     switch (status) {
       case 'Complete':
-        return 'bg-green-500 text-white';
+        return 'bg-green-500/20 text-green-400';
       case 'Supervisor Onboard':
-        return 'bg-purple-300 text-purple-900';
+        return 'bg-purple-500/20 text-purple-400';
       case 'In Progress':
-        return 'bg-yellow-300 text-yellow-900';
+        return 'bg-yellow-500/20 text-yellow-400';
       case 'Waiting':
-        return 'bg-red-400 text-white';
+        return 'bg-red-400/20 text-red-400';
       case 'Back Burner':
-        return 'bg-orange-300 text-orange-900';
+        return 'bg-orange-500/20 text-orange-400';
       case 'Not Started':
-        return 'bg-red-500 text-white';
+        return 'bg-red-500/20 text-red-400';
       case 'Rented':
-        return 'bg-blue-500 text-white';
+        return 'bg-blue-500/20 text-blue-400';
       default:
-        return 'bg-gray-200 text-gray-700';
+        return 'bg-white/10 text-slate-400';
     }
   };
 
@@ -271,7 +272,7 @@ export default function RehabsDashboard() {
 
   if (loading && rehabs.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <LogoLoader size={64} text="Loading rehabs..." />
       </div>
     );
@@ -279,18 +280,18 @@ export default function RehabsDashboard() {
 
   // Status order for sorting
   const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
-  
+
   // Filter rehabs by selected property
-  const filteredRehabs = selectedProperty === 'all' 
-    ? rehabs 
+  const filteredRehabs = selectedProperty === 'all'
+    ? rehabs
     : rehabs.filter(r => r.property === selectedProperty);
-  
+
   // All units for the table view (newVacancies are now auto-created as rehabs with 'Not Started' status)
   const allUnits = filteredRehabs
     .filter(r => r.status === 'in_progress')
     .sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortColumn) {
         case 'unit':
           comparison = (a.unit || '').localeCompare(b.unit || '');
@@ -341,41 +342,41 @@ export default function RehabsDashboard() {
         default:
           comparison = (a.property || '').localeCompare(b.property || '');
       }
-      
+
       return sortDirection === 'asc' ? comparison : -comparison;
     });
 
   return (
-    <div className="h-screen bg-slate-100 p-4 flex flex-col">
+    <div className="h-screen p-4 flex flex-col">
       <div className="max-w-full mx-auto w-full flex flex-col flex-1 min-h-0">
         {/* Compact Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 shrink-0">
+        <div className="bg-[rgba(10,14,26,0.92)] backdrop-blur-[16px] rounded-lg border border-[var(--glass-border)] p-4 mb-4 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <h1 className="text-xl font-semibold text-slate-800">🔧 Rehabs</h1>
+              <h1 className="text-lg font-semibold text-slate-100">Rehabs</h1>
             </div>
             <div className="flex items-center gap-3">
-              <select
+              <DarkSelect
                 value={selectedProperty}
-                onChange={(e) => setSelectedProperty(e.target.value)}
-                className="px-3 py-1.5 border border-slate-300 rounded text-sm bg-white"
-              >
-                <option value="all">All Properties</option>
-                {properties.map(prop => (
-                  <option key={prop} value={prop}>{prop}</option>
-                ))}
-              </select>
+                onChange={setSelectedProperty}
+                options={[
+                  { value: 'all', label: 'All Properties' },
+                  ...properties.map(prop => ({ value: prop, label: prop }))
+                ]}
+                compact
+                className="w-44"
+              />
               <button
                 onClick={fetchRehabs}
-                className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded text-sm hover:bg-slate-200"
+                className="px-3 py-1.5 bg-white/5 text-slate-400 rounded text-sm hover:bg-white/10 hover:text-slate-200"
               >
                 Refresh
               </button>
             </div>
           </div>
-          
+
           {/* Status Counters */}
-          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100">
+          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5">
             {(() => {
               const allItems = filteredRehabs.filter(r => r.status === 'in_progress');
               const statusCounts = {};
@@ -389,7 +390,7 @@ export default function RehabsDashboard() {
                 const count = statusCounts[status];
                 const percent = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
                 return (
-                  <div 
+                  <div
                     key={status}
                     className={`px-2 py-1 rounded text-xs font-medium ${getStatusStyle(status)}`}
                   >
@@ -398,7 +399,7 @@ export default function RehabsDashboard() {
                 );
               });
             })()}
-            <div className="px-2 py-1 rounded text-xs font-medium bg-slate-200 text-slate-700">
+            <div className="px-2 py-1 rounded text-xs font-medium bg-white/10 text-slate-400">
               {(() => {
                 const inRehabCount = filteredRehabs.filter(r => r.status === 'in_progress').length;
                 const percent = totalUnits > 0 ? ((inRehabCount / totalUnits) * 100).toFixed(1) : 0;
@@ -412,49 +413,49 @@ export default function RehabsDashboard() {
         <div className="flex-1 min-h-0 overflow-y-auto">
 
         {/* Spreadsheet Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+        <div className="glass-card">
           <div>
             <table className="w-full text-sm border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-blue-100 text-blue-900 text-xs">
-                  <th 
-                    className="px-1 py-2 text-left font-semibold border-r border-blue-200 w-16 cursor-pointer hover:bg-blue-200"
+                <tr className="dark-thead text-xs">
+                  <th
+                    className="px-1 py-2 text-left font-semibold border-r border-white/5 w-16 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('unit')}
                   >
                     Unit {getSortIcon('unit')}
                   </th>
-                  <th 
-                    className="px-1 py-2 text-left font-semibold border-r border-blue-200 w-20 cursor-pointer hover:bg-blue-200"
+                  <th
+                    className="px-1 py-2 text-left font-semibold border-r border-white/5 w-20 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('property')}
                   >
                     Property {getSortIcon('property')}
                   </th>
                   <th
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-16 cursor-pointer hover:bg-blue-200"
+                    className="px-1 py-2 text-center font-semibold border-r border-white/5 w-16 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('occupancy')}
                   >
                     Occ {getSortIcon('occupancy')}
                   </th>
                   <th
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-14 cursor-pointer hover:bg-blue-200"
+                    className="px-1 py-2 text-center font-semibold border-r border-white/5 w-14 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('days')}
                   >
                     Days {getSortIcon('days')}
                   </th>
-                  <th 
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-24 cursor-pointer hover:bg-blue-200"
+                  <th
+                    className="px-1 py-2 text-center font-semibold border-r border-white/5 w-24 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('contractor')}
                   >
                     Contractor {getSortIcon('contractor')}
                   </th>
-                  <th 
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-28 cursor-pointer hover:bg-blue-200"
+                  <th
+                    className="px-1 py-2 text-center font-semibold border-r border-white/5 w-28 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('status')}
                   >
                     Status {getSortIcon('status')}
                   </th>
-                  <th 
-                    className="px-1 py-2 text-center font-semibold border-r border-blue-200 w-48 cursor-pointer hover:bg-blue-200"
+                  <th
+                    className="px-1 py-2 text-center font-semibold border-r border-white/5 w-48 cursor-pointer hover:bg-white/10"
                     onClick={() => toggleSort('checklist')}
                   >
                     Checklist {getSortIcon('checklist')}
@@ -465,28 +466,28 @@ export default function RehabsDashboard() {
               <tbody>
                 {allUnits.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                       No units requiring rehab
                     </td>
                   </tr>
                 ) : (
                   allUnits.map((unit, idx) => (
-                    <tr 
-                      key={unit.id || `new-${idx}`} 
-                      className={`border-b border-gray-100 hover:bg-blue-50 ${unit.ready_for_movein ? 'bg-green-100' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                    <tr
+                      key={unit.id || `new-${idx}`}
+                      className={`border-b border-white/5 hover:bg-white/5 transition-colors ${unit.ready_for_movein ? 'bg-green-500/10' : idx % 2 === 1 ? 'bg-white/[0.02]' : ''}`}
                     >
-                      <td className="px-1 py-1.5 border-r border-gray-100 font-medium text-gray-800 text-xs truncate max-w-[64px]" title={unit.unit}>
+                      <td className="px-1 py-1.5 border-r border-white/5 font-medium text-slate-200 text-xs truncate max-w-[64px]" title={unit.unit}>
                         {unit.unit}
                       </td>
-                      <td className="px-1 py-1.5 border-r border-gray-100 text-gray-600 text-xs truncate max-w-[96px]" title={unit.property}>
+                      <td className="px-1 py-1.5 border-r border-white/5 text-slate-400 text-xs truncate max-w-[96px]" title={unit.property}>
                         {unit.property}
                       </td>
-                      <td className="px-1 py-1.5 border-r border-gray-100 text-center">
-                        <span className={`text-xs ${unit.source_type === 'vacancy' ? 'text-red-600' : unit.source_type === 'notice' ? 'text-orange-600' : 'text-gray-600'}`}>
+                      <td className="px-1 py-1.5 border-r border-white/5 text-center">
+                        <span className={`text-xs ${unit.source_type === 'vacancy' ? 'text-red-400' : unit.source_type === 'notice' ? 'text-orange-400' : 'text-slate-400'}`}>
                           {getOccupancyStatus(unit)}
                         </span>
                       </td>
-                      <td className="px-1 py-1.5 border-r border-gray-100 text-center text-xs">
+                      <td className="px-1 py-1.5 border-r border-white/5 text-center text-xs">
                         {(() => {
                           const vacancyInfo = formatVacancyDays(unit);
                           return (
@@ -496,34 +497,34 @@ export default function RehabsDashboard() {
                           );
                         })()}
                       </td>
-                      <td className="px-1 py-1.5 border-r border-gray-100 text-center">
+                      <td className="px-1 py-1.5 border-r border-white/5 text-center">
                         <select
                           value={unit.contractor || ''}
                           onChange={(e) => updateRehabField(unit.id, 'contractor', e.target.value)}
-                          className="w-full px-0 py-0.5 text-xs border-0 bg-transparent focus:ring-1 focus:ring-blue-500 rounded"
+                          className="w-full px-0 py-0.5 text-xs border-0 bg-transparent text-slate-300 focus:ring-1 focus:ring-accent rounded"
                         >
-                          <option value="">-</option>
-                          <option value="Jose">Jose</option>
-                          <option value="Stephen">Stephen</option>
+                          <option value="" className="bg-surface-overlay">-</option>
+                          <option value="Jose" className="bg-surface-overlay">Jose</option>
+                          <option value="Stephen" className="bg-surface-overlay">Stephen</option>
                         </select>
                       </td>
-                      <td className="px-1 py-1 border-r border-gray-100">
+                      <td className="px-1 py-1 border-r border-white/5">
                         <select
                           value={unit.rehab_status || 'Not Started'}
                           onChange={(e) => updateRehabField(unit.id, 'rehab_status', e.target.value)}
                           disabled={unit.rehab_status === 'Rented'}
                           className={`w-full px-1 py-1 text-xs border-0 rounded text-center font-medium ${getStatusStyle(unit.rehab_status || 'Not Started')} ${unit.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-90' : ''}`}
                         >
-                          <option value="Not Started">Not Started</option>
-                          <option value="Supervisor Onboard">Supervisor Onboard</option>
-                          <option value="Back Burner">Back Burner</option>
-                          <option value="Waiting">Waiting</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Rented">Rented</option>
-                          <option value="Complete">Complete</option>
+                          <option value="Not Started" className="bg-surface-overlay text-slate-200">Not Started</option>
+                          <option value="Supervisor Onboard" className="bg-surface-overlay text-slate-200">Supervisor Onboard</option>
+                          <option value="Back Burner" className="bg-surface-overlay text-slate-200">Back Burner</option>
+                          <option value="Waiting" className="bg-surface-overlay text-slate-200">Waiting</option>
+                          <option value="In Progress" className="bg-surface-overlay text-slate-200">In Progress</option>
+                          <option value="Rented" className="bg-surface-overlay text-slate-200">Rented</option>
+                          <option value="Complete" className="bg-surface-overlay text-slate-200">Complete</option>
                         </select>
                       </td>
-                      <td className="px-2 py-1 border-r border-gray-100">
+                      <td className="px-2 py-1 border-r border-white/5">
                         <div className="flex items-center gap-1.5">
                           {getChecklistItems(unit).map(item => (
                             <button
@@ -531,17 +532,17 @@ export default function RehabsDashboard() {
                               onClick={() => cycleChecklistState(unit.id, item.key, item.completed, item.excluded)}
                               className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                                 item.excluded
-                                  ? 'bg-gray-200 text-gray-400'
+                                  ? 'bg-white/10 text-slate-600'
                                   : item.completed
                                     ? 'bg-green-500 text-white'
-                                    : 'border border-green-500 bg-white text-green-700 hover:bg-green-50'
+                                    : 'border border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/20'
                               }`}
                               title={`${item.label}: ${item.excluded ? 'Ignored' : item.completed ? 'Complete' : 'Needs Done'} - Click to cycle`}
                             >
                               {item.label}
                             </button>
                           ))}
-                          <span className="text-xs text-gray-500 ml-1 font-medium">
+                          <span className="text-xs text-slate-500 ml-1 font-medium">
                             {getChecklistProgress(unit).completed}/{getChecklistProgress(unit).total}
                           </span>
                           <button
@@ -549,7 +550,7 @@ export default function RehabsDashboard() {
                             className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${
                               unit.ready_for_movein
                                 ? 'bg-green-600 text-white border-green-600'
-                                : 'bg-white text-green-600 border-green-500 hover:bg-green-50'
+                                : 'bg-green-500/10 text-green-400 border-green-500/50 hover:bg-green-500/20'
                             }`}
                             title={unit.ready_for_movein ? 'Click to unmark' : 'Mark as Ready for Move-In'}
                           >
@@ -560,7 +561,7 @@ export default function RehabsDashboard() {
                       <td className="px-2 py-1.5 text-center">
                         <button
                           onClick={() => setEditingRehab(unit)}
-                          className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                          className="px-2 py-1 bg-accent/15 text-accent rounded text-xs hover:bg-accent/25"
                         >
                           Edit
                         </button>
@@ -581,32 +582,32 @@ export default function RehabsDashboard() {
 
       {/* Edit Modal */}
       {editingRehab && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">Edit Rehab</h3>
-            <p className="text-gray-600 mb-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass-card max-w-lg w-full p-6">
+            <h3 className="text-xl font-semibold text-slate-100 mb-2">Edit Rehab</h3>
+            <p className="text-slate-400 mb-4">
               <span className="font-medium">{editingRehab.unit}</span> at {editingRehab.property}
             </p>
-            
+
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contractor</label>
+                  <label className="block text-sm font-medium text-slate-400 mb-1">Contractor</label>
                   <select
                     value={editingRehab.contractor || ''}
                     onChange={(e) => {
                       updateRehabField(editingRehab.id, 'contractor', e.target.value);
                       setEditingRehab(prev => ({ ...prev, contractor: e.target.value }));
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    className="dark-select w-full"
                   >
-                    <option value="">Select contractor</option>
-                    <option value="Jose">Jose</option>
-                    <option value="Stephen">Stephen</option>
+                    <option value="" className="bg-surface-overlay">Select contractor</option>
+                    <option value="Jose" className="bg-surface-overlay">Jose</option>
+                    <option value="Stephen" className="bg-surface-overlay">Stephen</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <label className="block text-sm font-medium text-slate-400 mb-1">Status</label>
                   <select
                     value={editingRehab.rehab_status || 'Not Started'}
                     onChange={(e) => {
@@ -614,21 +615,21 @@ export default function RehabsDashboard() {
                       setEditingRehab(prev => ({ ...prev, rehab_status: e.target.value }));
                     }}
                     disabled={editingRehab.rehab_status === 'Rented'}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${editingRehab.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-75 bg-gray-100' : ''}`}
+                    className={`dark-select w-full ${editingRehab.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-75 bg-white/5' : ''}`}
                   >
-                    <option value="Not Started">Not Started</option>
-                    <option value="Supervisor Onboard">Supervisor Onboard</option>
-                    <option value="Back Burner">Back Burner</option>
-                    <option value="Waiting">Waiting</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Rented">Rented</option>
-                    <option value="Complete">Complete</option>
+                    <option value="Not Started" className="bg-surface-overlay">Not Started</option>
+                    <option value="Supervisor Onboard" className="bg-surface-overlay">Supervisor Onboard</option>
+                    <option value="Back Burner" className="bg-surface-overlay">Back Burner</option>
+                    <option value="Waiting" className="bg-surface-overlay">Waiting</option>
+                    <option value="In Progress" className="bg-surface-overlay">In Progress</option>
+                    <option value="Rented" className="bg-surface-overlay">Rented</option>
+                    <option value="Complete" className="bg-surface-overlay">Complete</option>
                   </select>
                 </div>
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Goal Completion Date</label>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Goal Completion Date</label>
                 <input
                   type="date"
                   value={editingRehab.goal_completion_date || ''}
@@ -636,11 +637,11 @@ export default function RehabsDashboard() {
                     updateRehabField(editingRehab.id, 'goal_completion_date', e.target.value);
                     setEditingRehab(prev => ({ ...prev, goal_completion_date: e.target.value }));
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="dark-input w-full"
                 />
               </div>
-              
-              <div className="text-sm text-gray-600 space-y-1">
+
+              <div className="text-sm text-slate-400 space-y-1">
                 <div><span className="font-medium">Days Vacant:</span> {getDaysVacant(editingRehab)}</div>
                 <div><span className="font-medium">Source:</span> {editingRehab.source_type || 'Unknown'}</div>
                 {editingRehab.move_out_date && (
@@ -648,11 +649,11 @@ export default function RehabsDashboard() {
                 )}
               </div>
             </div>
-            
+
             <div className="flex gap-3 pt-6">
               <button
                 onClick={() => setEditingRehab(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-400 rounded-lg hover:bg-white/5"
               >
                 Close
               </button>
@@ -663,57 +664,57 @@ export default function RehabsDashboard() {
 
       {/* Onboarding Modal */}
       {showOnboarding && onboardingUnit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">Setup Rehab</h3>
-            <p className="text-gray-600 mb-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass-card max-w-md w-full p-6">
+            <h3 className="text-xl font-semibold text-slate-100 mb-2">Setup Rehab</h3>
+            <p className="text-slate-400 mb-4">
               <span className="font-medium">{onboardingUnit.unit}</span> at {onboardingUnit.property}
             </p>
-            
+
             <form onSubmit={handleOnboardingSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-slate-400 mb-1">
                   Assigned Contractor
                 </label>
                 <select
                   value={onboardingForm.contractor}
                   onChange={(e) => setOnboardingForm(prev => ({ ...prev, contractor: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                  className="dark-select w-full"
                 >
-                  <option value="">Select contractor</option>
-                  <option value="Jose">Jose</option>
-                  <option value="Stephen">Stephen</option>
+                  <option value="" className="bg-surface-overlay">Select contractor</option>
+                  <option value="Jose" className="bg-surface-overlay">Jose</option>
+                  <option value="Stephen" className="bg-surface-overlay">Stephen</option>
                 </select>
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-slate-400 mb-1">
                   Goal Completion Date
                 </label>
                 <input
                   type="date"
                   value={onboardingForm.goal_completion_date}
                   onChange={(e) => setOnboardingForm(prev => ({ ...prev, goal_completion_date: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                  className="dark-input w-full"
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-slate-400 mb-1">
                   Status
                 </label>
                 <select
                   value={onboardingForm.rehab_status}
                   onChange={(e) => setOnboardingForm(prev => ({ ...prev, rehab_status: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                  className="dark-select w-full"
                 >
-                  <option value="Not Started">Not Started</option>
-                  <option value="Supervisor Onboard">Supervisor Onboard</option>
-                  <option value="Back Burner">Back Burner</option>
-                  <option value="Waiting">Waiting</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Rented">Rented</option>
-                  <option value="Complete">Complete</option>
+                  <option value="Not Started" className="bg-surface-overlay">Not Started</option>
+                  <option value="Supervisor Onboard" className="bg-surface-overlay">Supervisor Onboard</option>
+                  <option value="Back Burner" className="bg-surface-overlay">Back Burner</option>
+                  <option value="Waiting" className="bg-surface-overlay">Waiting</option>
+                  <option value="In Progress" className="bg-surface-overlay">In Progress</option>
+                  <option value="Rented" className="bg-surface-overlay">Rented</option>
+                  <option value="Complete" className="bg-surface-overlay">Complete</option>
                 </select>
               </div>
 
@@ -721,14 +722,14 @@ export default function RehabsDashboard() {
                 <button
                   type="button"
                   onClick={() => setShowOnboarding(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-400 rounded-lg hover:bg-white/5"
                   disabled={saving}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50"
+                  className="btn-accent flex-1 px-4 py-2 rounded-lg font-medium disabled:opacity-50"
                   disabled={saving}
                 >
                   {saving ? 'Saving...' : 'Start Rehab'}
