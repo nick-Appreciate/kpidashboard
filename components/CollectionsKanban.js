@@ -100,10 +100,10 @@ function CollectionCard({ item, variant, onDragStart, onDragEnd, onClick, onCall
       onDragStart={(e) => !isLocked && onDragStart(e, item)}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`rounded border p-2 transition-all mb-1 ${
+      className={`rounded border p-2 transition-all duration-200 mb-1 ${
         isLocked
           ? `${cardBase} cursor-not-allowed opacity-80`
-          : `${cardBase} cursor-grab ${cardHover}`
+          : `${cardBase} cursor-grab ${cardHover} hover:-translate-y-0.5`
       } ${isDragging ? 'opacity-50 ring-2 ring-accent' : ''}`}
     >
       <div className="flex items-center justify-between gap-1">

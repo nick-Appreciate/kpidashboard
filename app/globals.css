@@ -36,7 +36,7 @@
 
   /* Stat card with glow on hover */
   .glass-stat {
-    @apply glass-card hover:shadow-glow;
+    @apply glass-card hover:shadow-glow hover:-translate-y-0.5;
   }
 
   /* Dark form inputs */
