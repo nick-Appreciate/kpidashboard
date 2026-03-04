@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { LogoLoader } from './Logo';
+import DarkSelect from './DarkSelect';
 
 const INSPECTION_TYPES = [
   'S8 - RFT',
@@ -398,15 +399,12 @@ export default function InspectionsDashboard() {
             </div>
 
             <div className="flex items-center gap-3">
-              <select
+              <DarkSelect
                 value={selectedProperty}
-                onChange={(e) => setSelectedProperty(e.target.value)}
-                className="dark-select px-3 py-2 rounded-lg text-sm"
-              >
-                {properties.map(p => (
-                  <option key={p} value={p}>{p === 'all' ? 'All Properties' : p}</option>
-                ))}
-              </select>
+                onChange={setSelectedProperty}
+                className="w-48"
+                options={properties.map(p => ({ value: p, label: p === 'all' ? 'All Properties' : p }))}
+              />
 
               <div className="flex border border-[var(--glass-border)] rounded-lg">
                 <button
@@ -705,44 +703,39 @@ export default function InspectionsDashboard() {
               <div className="p-6 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Inspection Type</label>
-                  <select
+                  <DarkSelect
                     value={editForm.type}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, type: e.target.value }))}
-                    className="dark-select w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
-                  >
-                    {INSPECTION_TYPES.map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setEditForm(prev => ({ ...prev, type: val }))}
+                    searchable={false}
+                    options={INSPECTION_TYPES.map(type => ({ value: type, label: type }))}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Property</label>
-                  <select
+                  <DarkSelect
                     value={editForm.property_name}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, property_name: e.target.value, unit_name: '' }))}
-                    className="dark-select w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
-                  >
-                    <option value="">Select a property...</option>
-                    {properties.filter(p => p !== 'all').map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setEditForm(prev => ({ ...prev, property_name: val, unit_name: '' }))}
+                    placeholder="Select a property..."
+                    options={[
+                      { value: '', label: 'Select a property...' },
+                      ...properties.filter(p => p !== 'all').map(p => ({ value: p, label: p })),
+                    ]}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Unit</label>
-                  <select
+                  <DarkSelect
                     value={editForm.unit_name}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, unit_name: e.target.value }))}
+                    onChange={(val) => setEditForm(prev => ({ ...prev, unit_name: val }))}
                     disabled={!editForm.property_name || loadingEditUnits}
-                    className="dark-select w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent disabled:bg-white/5 disabled:text-slate-500"
-                  >
-                    <option value="">{loadingEditUnits ? 'Loading...' : 'Select a unit...'}</option>
-                    {editUnits.map(unit => (
-                      <option key={unit} value={unit}>{unit}</option>
-                    ))}
-                  </select>
+                    placeholder={loadingEditUnits ? 'Loading...' : 'Select a unit...'}
+                    options={[
+                      { value: '', label: loadingEditUnits ? 'Loading...' : 'Select a unit...' },
+                      ...editUnits.map(unit => ({ value: unit, label: unit })),
+                    ]}
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -865,44 +858,39 @@ export default function InspectionsDashboard() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Inspection Type *</label>
-                  <select
+                  <DarkSelect
                     value={newInspectionForm.type}
-                    onChange={(e) => setNewInspectionForm(prev => ({ ...prev, type: e.target.value }))}
-                    className="dark-select w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
-                  >
-                    {INSPECTION_TYPES.map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setNewInspectionForm(prev => ({ ...prev, type: val }))}
+                    searchable={false}
+                    options={INSPECTION_TYPES.map(type => ({ value: type, label: type }))}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Property *</label>
-                  <select
+                  <DarkSelect
                     value={newInspectionForm.property_name}
-                    onChange={(e) => setNewInspectionForm(prev => ({ ...prev, property_name: e.target.value, unit_name: '' }))}
-                    className="dark-select w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
-                  >
-                    <option value="">Select a property...</option>
-                    {properties.filter(p => p !== 'all').map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setNewInspectionForm(prev => ({ ...prev, property_name: val, unit_name: '' }))}
+                    placeholder="Select a property..."
+                    options={[
+                      { value: '', label: 'Select a property...' },
+                      ...properties.filter(p => p !== 'all').map(p => ({ value: p, label: p })),
+                    ]}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Unit (optional)</label>
-                  <select
+                  <DarkSelect
                     value={newInspectionForm.unit_name}
-                    onChange={(e) => setNewInspectionForm(prev => ({ ...prev, unit_name: e.target.value }))}
+                    onChange={(val) => setNewInspectionForm(prev => ({ ...prev, unit_name: val }))}
                     disabled={!newInspectionForm.property_name || loadingUnits}
-                    className="dark-select w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent disabled:bg-white/5 disabled:text-slate-500"
-                  >
-                    <option value="">{loadingUnits ? 'Loading units...' : newInspectionForm.property_name ? 'Select a unit...' : 'Select property first'}</option>
-                    {availableUnits.map(unit => (
-                      <option key={unit} value={unit}>{unit}</option>
-                    ))}
-                  </select>
+                    placeholder={loadingUnits ? 'Loading units...' : newInspectionForm.property_name ? 'Select a unit...' : 'Select property first'}
+                    options={[
+                      { value: '', label: loadingUnits ? 'Loading units...' : newInspectionForm.property_name ? 'Select a unit...' : 'Select property first' },
+                      ...availableUnits.map(unit => ({ value: unit, label: unit })),
+                    ]}
+                  />
                 </div>
 
                 <div>

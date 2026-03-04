@@ -12,6 +12,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { RECHARTS_THEME } from '../lib/chartTheme';
+import DarkSelect from './DarkSelect';
 
 const STATUS_COLORS = {
   'Not Started': '#ef4444',
@@ -138,17 +139,20 @@ export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
     <div className="glass-card p-4 mt-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-slate-100">Rehab Status Overview</h3>
-        <select
+        <DarkSelect
           value={timeRange}
-          onChange={(e) => setTimeRange(e.target.value)}
-          className="dark-select px-3 py-1.5 text-sm"
-        >
-          <option value="7" className="bg-surface-overlay">Last 7 days</option>
-          <option value="14" className="bg-surface-overlay">Last 14 days</option>
-          <option value="30" className="bg-surface-overlay">Last 30 days</option>
-          <option value="60" className="bg-surface-overlay">Last 60 days</option>
-          <option value="90" className="bg-surface-overlay">Last 90 days</option>
-        </select>
+          onChange={setTimeRange}
+          compact
+          searchable={false}
+          className="w-36"
+          options={[
+            { value: '7', label: 'Last 7 days' },
+            { value: '14', label: 'Last 14 days' },
+            { value: '30', label: 'Last 30 days' },
+            { value: '60', label: 'Last 60 days' },
+            { value: '90', label: 'Last 90 days' },
+          ]}
+        />
       </div>
 
       {/* Status multi-select buttons */}

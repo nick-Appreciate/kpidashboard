@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { ExternalLink, FileText, CheckCircle2, AlertCircle, EyeOff, Eye, X } from "lucide-react";
 import { LogoLoader } from "./Logo";
+import DarkSelect from "./DarkSelect";
 
 interface Bill {
   id: number;
@@ -198,16 +199,19 @@ export default function BillingDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <select
+              <DarkSelect
                 value={sort}
-                onChange={(e) => setSort(e.target.value as SortOption)}
-                className="dark-select"
-              >
-                <option value="unmatched_first">Unmatched first</option>
-                <option value="matched_first">Matched first</option>
-                <option value="date_newest">Date (newest)</option>
-                <option value="date_oldest">Date (oldest)</option>
-              </select>
+                onChange={(val: string) => setSort(val as SortOption)}
+                compact
+                searchable={false}
+                className="w-40"
+                options={[
+                  { value: 'unmatched_first', label: 'Unmatched first' },
+                  { value: 'matched_first', label: 'Matched first' },
+                  { value: 'date_newest', label: 'Date (newest)' },
+                  { value: 'date_oldest', label: 'Date (oldest)' },
+                ]}
+              />
             </div>
           </div>
 

@@ -593,38 +593,41 @@ export default function RehabsDashboard() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">Contractor</label>
-                  <select
+                  <DarkSelect
                     value={editingRehab.contractor || ''}
-                    onChange={(e) => {
-                      updateRehabField(editingRehab.id, 'contractor', e.target.value);
-                      setEditingRehab(prev => ({ ...prev, contractor: e.target.value }));
+                    onChange={(val) => {
+                      updateRehabField(editingRehab.id, 'contractor', val);
+                      setEditingRehab(prev => ({ ...prev, contractor: val }));
                     }}
-                    className="dark-select w-full"
-                  >
-                    <option value="" className="bg-surface-overlay">Select contractor</option>
-                    <option value="Jose" className="bg-surface-overlay">Jose</option>
-                    <option value="Stephen" className="bg-surface-overlay">Stephen</option>
-                  </select>
+                    placeholder="Select contractor"
+                    searchable={false}
+                    options={[
+                      { value: '', label: 'Select contractor' },
+                      { value: 'Jose', label: 'Jose' },
+                      { value: 'Stephen', label: 'Stephen' },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-1">Status</label>
-                  <select
+                  <DarkSelect
                     value={editingRehab.rehab_status || 'Not Started'}
-                    onChange={(e) => {
-                      updateRehabField(editingRehab.id, 'rehab_status', e.target.value);
-                      setEditingRehab(prev => ({ ...prev, rehab_status: e.target.value }));
+                    onChange={(val) => {
+                      updateRehabField(editingRehab.id, 'rehab_status', val);
+                      setEditingRehab(prev => ({ ...prev, rehab_status: val }));
                     }}
                     disabled={editingRehab.rehab_status === 'Rented'}
-                    className={`dark-select w-full ${editingRehab.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-75 bg-white/5' : ''}`}
-                  >
-                    <option value="Not Started" className="bg-surface-overlay">Not Started</option>
-                    <option value="Supervisor Onboard" className="bg-surface-overlay">Supervisor Onboard</option>
-                    <option value="Back Burner" className="bg-surface-overlay">Back Burner</option>
-                    <option value="Waiting" className="bg-surface-overlay">Waiting</option>
-                    <option value="In Progress" className="bg-surface-overlay">In Progress</option>
-                    <option value="Rented" className="bg-surface-overlay">Rented</option>
-                    <option value="Complete" className="bg-surface-overlay">Complete</option>
-                  </select>
+                    searchable={false}
+                    options={[
+                      { value: 'Not Started', label: 'Not Started' },
+                      { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
+                      { value: 'Back Burner', label: 'Back Burner' },
+                      { value: 'Waiting', label: 'Waiting' },
+                      { value: 'In Progress', label: 'In Progress' },
+                      { value: 'Rented', label: 'Rented' },
+                      { value: 'Complete', label: 'Complete' },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -676,15 +679,17 @@ export default function RehabsDashboard() {
                 <label className="block text-sm font-medium text-slate-400 mb-1">
                   Assigned Contractor
                 </label>
-                <select
+                <DarkSelect
                   value={onboardingForm.contractor}
-                  onChange={(e) => setOnboardingForm(prev => ({ ...prev, contractor: e.target.value }))}
-                  className="dark-select w-full"
-                >
-                  <option value="" className="bg-surface-overlay">Select contractor</option>
-                  <option value="Jose" className="bg-surface-overlay">Jose</option>
-                  <option value="Stephen" className="bg-surface-overlay">Stephen</option>
-                </select>
+                  onChange={(val) => setOnboardingForm(prev => ({ ...prev, contractor: val }))}
+                  placeholder="Select contractor"
+                  searchable={false}
+                  options={[
+                    { value: '', label: 'Select contractor' },
+                    { value: 'Jose', label: 'Jose' },
+                    { value: 'Stephen', label: 'Stephen' },
+                  ]}
+                />
               </div>
 
               <div>
@@ -703,19 +708,20 @@ export default function RehabsDashboard() {
                 <label className="block text-sm font-medium text-slate-400 mb-1">
                   Status
                 </label>
-                <select
+                <DarkSelect
                   value={onboardingForm.rehab_status}
-                  onChange={(e) => setOnboardingForm(prev => ({ ...prev, rehab_status: e.target.value }))}
-                  className="dark-select w-full"
-                >
-                  <option value="Not Started" className="bg-surface-overlay">Not Started</option>
-                  <option value="Supervisor Onboard" className="bg-surface-overlay">Supervisor Onboard</option>
-                  <option value="Back Burner" className="bg-surface-overlay">Back Burner</option>
-                  <option value="Waiting" className="bg-surface-overlay">Waiting</option>
-                  <option value="In Progress" className="bg-surface-overlay">In Progress</option>
-                  <option value="Rented" className="bg-surface-overlay">Rented</option>
-                  <option value="Complete" className="bg-surface-overlay">Complete</option>
-                </select>
+                  onChange={(val) => setOnboardingForm(prev => ({ ...prev, rehab_status: val }))}
+                  searchable={false}
+                  options={[
+                    { value: 'Not Started', label: 'Not Started' },
+                    { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
+                    { value: 'Back Burner', label: 'Back Burner' },
+                    { value: 'Waiting', label: 'Waiting' },
+                    { value: 'In Progress', label: 'In Progress' },
+                    { value: 'Rented', label: 'Rented' },
+                    { value: 'Complete', label: 'Complete' },
+                  ]}
+                />
               </div>
 
               <div className="flex gap-3 pt-4">
