@@ -113,6 +113,10 @@ export default function BillingDashboard() {
   // Per-bill editable drafts: bill.id -> BillDraft
   const [drafts, setDrafts] = useState<Record<number, BillDraft>>({});
 
+  // Vendor → property/GL pre-fill from historical af_bill_detail
+  const [prefillMap, setPrefillMap] = useState<Record<string, { vendor_name: string; property: string; gl_account: string }>>({});
+  const prefillFetchedRef = useRef(false);
+
   // Upload queue state
   const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
   const processingRef = useRef(false);
@@ -169,6 +173,41 @@ export default function BillingDashboard() {
     }
   }, []);
 
+  /** Fetch vendor→property/GL pre-fill suggestions from historical af_bill_detail */
+  const fetchPrefill = useCallback(async (vendorNames: string[]) => {
+    if (vendorNames.length === 0) return;
+    try {
+      const res = await fetch("/api/admin/brex/prefill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchants: vendorNames }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPrefillMap(prev => ({ ...prev, ...data }));
+
+      // Backfill any existing drafts that are missing property/GL
+      setDrafts(prev => {
+        const next = { ...prev };
+        for (const bill of bills) {
+          const draft = next[bill.id];
+          if (!draft) continue;
+          const prefill = data[bill.vendor_name];
+          if (!prefill) continue;
+          if (!draft.af_property_input && prefill.property) {
+            draft.af_property_input = prefill.property;
+          }
+          if (!draft.af_gl_account_input && prefill.gl_account) {
+            draft.af_gl_account_input = prefill.gl_account;
+          }
+        }
+        return next;
+      });
+    } catch (error) {
+      console.error("Error fetching prefill:", error);
+    }
+  }, [bills]);
+
   useEffect(() => {
     fetchBills(true);
     fetchAfOptions();
@@ -176,15 +215,21 @@ export default function BillingDashboard() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchBills, fetchAfOptions]);
 
-  // Initialize drafts when bills change, and update empty fields from server suggestions
+  // Initialize drafts when bills change, and update empty fields from server suggestions + prefill
   useEffect(() => {
     setDrafts((prev) => {
       const next = { ...prev };
       for (const bill of bills) {
         if (bill.af_match_status === 'unmatched') {
           if (!next[bill.id]) {
-            // New bill — create full draft
-            next[bill.id] = makeDraft(bill);
+            // New bill — create full draft with prefill
+            const draft = makeDraft(bill);
+            const prefill = prefillMap[bill.vendor_name];
+            if (prefill) {
+              if (!draft.af_property_input && prefill.property) draft.af_property_input = prefill.property;
+              if (!draft.af_gl_account_input && prefill.gl_account) draft.af_gl_account_input = prefill.gl_account;
+            }
+            next[bill.id] = draft;
           } else {
             // Existing draft — backfill empty fields if server now has suggestions
             const d = next[bill.id];
@@ -193,12 +238,31 @@ export default function BillingDashboard() {
             if (!d.af_gl_account_input && fresh.af_gl_account_input) d.af_gl_account_input = fresh.af_gl_account_input;
             if (!d.af_property_input && fresh.af_property_input) d.af_property_input = fresh.af_property_input;
             if (!d.af_unit_input && fresh.af_unit_input) d.af_unit_input = fresh.af_unit_input;
+            // Also backfill from prefill map if still empty
+            const prefill = prefillMap[bill.vendor_name];
+            if (prefill) {
+              if (!d.af_property_input && prefill.property) d.af_property_input = prefill.property;
+              if (!d.af_gl_account_input && prefill.gl_account) d.af_gl_account_input = prefill.gl_account;
+            }
           }
         }
       }
       return next;
     });
-  }, [bills]);
+
+    // Trigger prefill fetch once when we have unmatched bills
+    if (!prefillFetchedRef.current && bills.length > 0) {
+      const unmatchedVendors = Array.from(new Set(
+        bills
+          .filter(b => b.af_match_status === 'unmatched' && b.vendor_name)
+          .map(b => b.vendor_name)
+      ));
+      if (unmatchedVendors.length > 0) {
+        prefillFetchedRef.current = true;
+        fetchPrefill(unmatchedVendors);
+      }
+    }
+  }, [bills, prefillMap, fetchPrefill]);
 
   // ─── Queue processor ──────────────────────────────────────────────────────
 
