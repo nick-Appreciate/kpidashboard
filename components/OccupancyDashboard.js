@@ -864,12 +864,12 @@ export default function OccupancyDashboard() {
               <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Property Breakdown</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-2">Property</th>
-                      <th className="text-right py-3 px-2">Total Units</th>
-                      <th className="text-right py-3 px-2">Occupied</th>
-                      <th className="text-right py-3 px-2">Occupancy %</th>
+                  <thead className="sticky top-0 z-10 bg-surface-raised text-xs uppercase tracking-wider text-slate-400">
+                    <tr className="border-b border-white/5">
+                      <th className="text-left py-3 px-2 font-medium">Property</th>
+                      <th className="text-right py-3 px-2 font-medium">Total Units</th>
+                      <th className="text-right py-3 px-2 font-medium">Occupied</th>
+                      <th className="text-right py-3 px-2 font-medium">Occupancy %</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -113,11 +113,12 @@
   scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
 }
 
-/* Prevent horizontal scrollbar on page */
+/* Prevent horizontal scrollbar on page — use clip (not hidden) to avoid
+   creating a scroll context that breaks position: sticky. */
 html, body {
   width: 100%;
   min-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 @media screen and (orientation: landscape) {
