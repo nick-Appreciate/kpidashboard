@@ -16,6 +16,7 @@ export default function OccupancyDashboard() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [occupiedOverride, setOccupiedOverride] = useState(null); // Temporary override for occupied count
+  const [selectedExpirationRange, setSelectedExpirationRange] = useState(null); // Filter from chart click
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -507,7 +508,17 @@ export default function OccupancyDashboard() {
           responsive: true,
           maintainAspectRatio: true,
           plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+          onClick: (event, elements) => {
+            if (elements.length > 0) {
+              const rangeKeys = ['expired', '0-30', '31-60', '61-90', '90+', 'noEnd'];
+              const idx = elements[0].index;
+              const key = rangeKeys[idx];
+              setSelectedExpirationRange(prev => prev === key ? null : key);
+            } else {
+              setSelectedExpirationRange(null);
+            }
+          }
         }
       });
     }
@@ -1081,22 +1092,46 @@ export default function OccupancyDashboard() {
               </div>
               <p className="text-sm text-gray-600 mb-4">
                 Units requiring attention (excluding vacant units)
+                {selectedExpirationRange && (
+                  <button
+                    onClick={() => setSelectedExpirationRange(null)}
+                    className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200"
+                  >
+                    Filtered: {selectedExpirationRange === 'expired' ? 'Expired' : selectedExpirationRange === 'noEnd' ? 'No End Date' : selectedExpirationRange + ' days'} ✕
+                  </button>
+                )}
               </p>
-              
+
               <div className="max-h-[600px] overflow-y-auto">
                 {(() => {
-                  const allBadLeases = [];
-                  
-                  stats.leaseHealthDetails?.badLeasesByReason?.evictions?.forEach(lease => 
+                  let allBadLeases = [];
+
+                  stats.leaseHealthDetails?.badLeasesByReason?.evictions?.forEach(lease =>
                     allBadLeases.push({ ...lease, type: 'eviction', color: 'red', priority: 1 })
                   );
-                  stats.leaseHealthDetails?.badLeasesByReason?.monthToMonth?.forEach(lease => 
+                  stats.leaseHealthDetails?.badLeasesByReason?.monthToMonth?.forEach(lease =>
                     allBadLeases.push({ ...lease, type: 'monthToMonth', color: 'orange', priority: 2 })
                   );
-                  stats.leaseHealthDetails?.badLeasesByReason?.expiringWithin60Days?.forEach(lease => 
+                  stats.leaseHealthDetails?.badLeasesByReason?.expiringWithin60Days?.forEach(lease =>
                     allBadLeases.push({ ...lease, type: 'expiring', color: 'yellow', priority: 3 })
                   );
-                  
+
+                  // Filter by selected expiration range from chart click
+                  if (selectedExpirationRange) {
+                    allBadLeases = allBadLeases.filter(lease => {
+                      const days = lease.daysUntilExpiration;
+                      switch (selectedExpirationRange) {
+                        case 'expired': return days !== null && days !== undefined && days < 0;
+                        case '0-30': return days !== null && days !== undefined && days >= 0 && days <= 30;
+                        case '31-60': return days !== null && days !== undefined && days > 30 && days <= 60;
+                        case '61-90': return days !== null && days !== undefined && days > 60 && days <= 90;
+                        case '90+': return days !== null && days !== undefined && days > 90;
+                        case 'noEnd': return days === null || days === undefined;
+                        default: return true;
+                      }
+                    });
+                  }
+
                   if (allBadLeases.length === 0) {
                     return (
                       <div className="text-center py-8 text-gray-500">
@@ -1277,7 +1312,7 @@ export default function OccupancyDashboard() {
               </div>
               
               {/* Upcoming Expirations */}
-              {stats.leaseHealthDetails?.upcomingExpirations?.length > 0 && (
+              {stats.leaseHealthDetails?.upcomingExpirations?.length > 0 && (!selectedExpirationRange || selectedExpirationRange === '61-90') && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-blue-600 text-white">
                     <span className="font-semibold">📆 Upcoming Expirations (61-90 days)</span>

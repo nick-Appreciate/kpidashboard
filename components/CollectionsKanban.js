@@ -43,12 +43,11 @@ const STAGE_CONFIG = {
   }
 };
 
-const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current'];
+const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'current'];
 
 // Locked stages that users cannot drag cards in/out of
-// - 'eviction': Only units with status='Evict' in rent_roll_snapshots
 // - 'current': Only units with balance <= 0
-const LOCKED_STAGES = ['eviction', 'current'];
+const LOCKED_STAGES = ['current'];
 
 // Region definitions - matches rent-roll stats config
 const REGION_PROPERTIES = {
@@ -544,7 +543,7 @@ export default function CollectionsKanban() {
         </div>
 
         {/* Kanban Board */}
-        <div className="grid grid-cols-6 gap-2 flex-1 min-h-0">
+        <div className="grid grid-cols-5 gap-2 flex-1 min-h-0">
           {STAGES.map(stage => {
             const config = STAGE_CONFIG[stage];
             const stageItems = itemsByStage[stage];
