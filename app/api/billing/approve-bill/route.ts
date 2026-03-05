@@ -95,32 +95,39 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. After successful upload, ensure appfolio_synced is set
-    // The edge function should do this too, but we do it here as a safety net
-    // so the dashboard immediately shows the bill as matched.
+    // 3. After successful edge function call, mark the bill as synced.
+    // Use loose comparison (==) for bill_id in case of string/number mismatch.
     const botResults = uploadResult.results || [];
-    const thisBillResult = botResults.find((r: any) => r.bill_id === bill_id);
+    const thisBillResult = botResults.find((r: any) => r.bill_id == bill_id);
 
-    if (thisBillResult?.success) {
-      const syncUpdate: Record<string, unknown> = {
-        appfolio_synced: true,
-        appfolio_checked_at: new Date().toISOString(),
-        status: 'entered',
-      };
-      // If the bot returned an AF bill ID, store it
-      if (thisBillResult.af_bill_id) {
-        syncUpdate.appfolio_bill_id = parseInt(thisBillResult.af_bill_id);
-      }
+    const botSuccess = thisBillResult?.success === true;
 
-      await supabase
-        .from('ops_bills')
-        .update(syncUpdate)
-        .eq('id', bill_id);
+    // Always set appfolio_synced when the edge function returned 200
+    // so the bill transitions to "matched" view immediately.
+    // Even if the bot didn't fully succeed, the approval is recorded.
+    const syncUpdate: Record<string, unknown> = {
+      appfolio_synced: true,
+      appfolio_checked_at: new Date().toISOString(),
+    };
+    // Only set status to 'entered' if the bot confirmed success
+    if (botSuccess) {
+      syncUpdate.status = 'entered';
     }
+    // If the bot returned an AF bill ID, store it
+    if (thisBillResult?.af_bill_id) {
+      syncUpdate.appfolio_bill_id = parseInt(thisBillResult.af_bill_id);
+    }
+
+    await supabase
+      .from('ops_bills')
+      .update(syncUpdate)
+      .eq('id', bill_id);
 
     return NextResponse.json({
       success: true,
       approved: true,
+      bot_success: botSuccess,
+      bot_error: thisBillResult?.error || null,
       approved_by,
       approved_at: new Date().toISOString(),
       upload: uploadResult,

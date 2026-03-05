@@ -170,17 +170,20 @@ Deno.serve(async (req: Request) => {
     // 4. Update Supabase for successful uploads
     if (!dryRun && botResult.results) {
       for (const result of botResult.results as BotUploadResult[]) {
-        if (result.success && result.af_bill_id) {
+        if (result.success) {
           // Mark the bill as synced with Appfolio
-          // (af_match_status is computed from af_bill_detail JOIN, so just update ops_bills status)
+          const updateData: Record<string, unknown> = {
+            appfolio_synced: true,
+            appfolio_checked_at: new Date().toISOString(),
+            status: 'entered',
+          };
+          // Store AF bill ID if the bot returned one
+          if (result.af_bill_id) {
+            updateData.appfolio_bill_id = parseInt(result.af_bill_id);
+          }
           const { error: updateErr } = await supabase
             .from('ops_bills')
-            .update({
-              appfolio_bill_id: parseInt(result.af_bill_id || '0'),
-              appfolio_synced: true,
-              appfolio_checked_at: new Date().toISOString(),
-              status: 'entered',
-            })
+            .update(updateData)
             .eq('id', result.bill_id);
 
           if (updateErr) {

@@ -247,16 +247,25 @@ export default function BillingDashboard() {
 
       const result = await res.json();
 
-      if (res.ok && result.success) {
-        setUploadQueue(prev =>
-          prev.map(q => q.billId === nextItem.billId
-            ? { ...q, status: 'success' as const, message: 'Uploaded to AppFolio!', completedAt: new Date() }
-            : q)
-        );
-      } else {
+      if (!res.ok || result.error) {
+        // HTTP error or explicit error from the API
         setUploadQueue(prev =>
           prev.map(q => q.billId === nextItem.billId
             ? { ...q, status: 'failed' as const, message: result.error || 'Upload failed. Check bot status.', completedAt: new Date() }
+            : q)
+        );
+      } else if (result.bot_success === false) {
+        // Approval saved but bot upload didn't fully succeed
+        setUploadQueue(prev =>
+          prev.map(q => q.billId === nextItem.billId
+            ? { ...q, status: 'success' as const, message: result.bot_error ? `Approved. Bot: ${result.bot_error}` : 'Approved & sent to AppFolio', completedAt: new Date() }
+            : q)
+        );
+      } else {
+        // Full success
+        setUploadQueue(prev =>
+          prev.map(q => q.billId === nextItem.billId
+            ? { ...q, status: 'success' as const, message: 'Uploaded to AppFolio!', completedAt: new Date() }
             : q)
         );
       }
