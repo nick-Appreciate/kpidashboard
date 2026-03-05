@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer
+  Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 
 const TIME_RANGES = [
@@ -11,6 +11,7 @@ const TIME_RANGES = [
   { label: '6m', value: '6' },
   { label: '1y', value: '12' },
   { label: 'All', value: 'all' },
+  { label: 'Custom', value: 'custom' },
 ];
 
 interface BalanceRecord {
@@ -26,6 +27,8 @@ export default function MercuryMonthOverMonthChart() {
   const [timeRange, setTimeRange] = useState('6');
   const [balances, setBalances] = useState<BalanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   const fetchBalances = useCallback(async () => {
     setLoading(true);
@@ -52,6 +55,10 @@ export default function MercuryMonthOverMonthChart() {
     date: string;
     label: string;
     balance: number;
+    high: number;
+    low: number;
+    highDate: string;
+    lowDate: string;
     accounts: { name: string; balance: number }[];
   }
 
@@ -106,11 +113,27 @@ export default function MercuryMonthOverMonthChart() {
         });
       }
       const entry = totalCashByDate.get(bestDate)!;
+
+      // Compute high and low total cash for this month
+      let high = -Infinity;
+      let low = Infinity;
+      let highDate = '';
+      let lowDate = '';
+      dates.forEach(date => {
+        const dayEntry = totalCashByDate.get(date)!;
+        if (dayEntry.total > high) { high = dayEntry.total; highDate = date; }
+        if (dayEntry.total < low) { low = dayEntry.total; lowDate = date; }
+      });
+
       const d = new Date(bestDate + 'T12:00:00');
       points.push({
         date: bestDate,
         label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         balance: entry.total,
+        high,
+        low,
+        highDate,
+        lowDate,
         accounts: entry.accounts,
       });
     });
@@ -118,7 +141,15 @@ export default function MercuryMonthOverMonthChart() {
     points.sort((a, b) => a.date.localeCompare(b.date));
 
     // Apply time range filter
-    if (timeRange !== 'all') {
+    if (timeRange === 'custom') {
+      if (customStart || customEnd) {
+        return points.filter(p => {
+          if (customStart && p.date < customStart) return false;
+          if (customEnd && p.date > customEnd) return false;
+          return true;
+        });
+      }
+    } else if (timeRange !== 'all') {
       const months = parseInt(timeRange);
       const cutoff = new Date(today);
       cutoff.setMonth(cutoff.getMonth() - months);
@@ -127,7 +158,7 @@ export default function MercuryMonthOverMonthChart() {
     }
 
     return points;
-  }, [balances, timeRange]);
+  }, [balances, timeRange, customStart, customEnd]);
 
   const formatCurrency = (value: number) =>
     `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -135,35 +166,46 @@ export default function MercuryMonthOverMonthChart() {
   const formatTooltipCurrency = (value: number) =>
     `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Shorten long Mercury account names for the tooltip
+  // Shorten Mercury account names for the tooltip
   const shortName = (name: string) => {
     return name
-      .replace(/^Mercury \(Column N\.A\.\)-?/, '')
-      .replace(/^Mercury\(Column N\.A\.\)-?/, '')
       .replace(/^Mercury (Checking|Savings) /, '$1 ')
-      .replace(/^Simmons - /, '')
-      .replace(/^Como Security Deposits - Simmons Checking \d+ -/, 'Simmons CoMo SD')
-      .replace(/ Operating Account$/, '')
-      .replace(/ \[closed\]$/, '')
-      .trim() || name;
+      .trim();
+  };
+
+  const formatDateLabel = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
-    const point = payload[0];
     const dataPoint = chartData.find(d => d.date === label);
-    const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
-      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    if (!dataPoint) return null;
+    const monthLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
+      month: 'long', year: 'numeric',
     });
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[200px]">
-        <p className="font-medium text-gray-700 mb-1.5">{dateLabel}</p>
-        <p style={{ color: point.color }} className="flex justify-between gap-4 font-semibold border-b border-gray-100 pb-1.5 mb-1.5">
-          <span>Total Cash</span>
-          <span>{formatTooltipCurrency(Number(point.value))}</span>
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
+        <p className="font-medium text-gray-700 mb-1.5">{monthLabel}</p>
+        <p className="flex justify-between gap-4 font-semibold text-indigo-600">
+          <span>Snapshot ({formatDateLabel(dataPoint.date)})</span>
+          <span>{formatTooltipCurrency(dataPoint.balance)}</span>
         </p>
-        {dataPoint?.accounts && dataPoint.accounts.length > 0 && (
-          <div className="space-y-0.5">
+        <p className="flex justify-between gap-4 font-semibold text-emerald-600 mt-0.5">
+          <span>High ({formatDateLabel(dataPoint.highDate)})</span>
+          <span>{formatTooltipCurrency(dataPoint.high)}</span>
+        </p>
+        <p className="flex justify-between gap-4 font-semibold text-rose-500 mt-0.5">
+          <span>Low ({formatDateLabel(dataPoint.lowDate)})</span>
+          <span>{formatTooltipCurrency(dataPoint.low)}</span>
+        </p>
+        <p className="flex justify-between gap-4 text-gray-400 mt-1 pt-1 border-t border-gray-100">
+          <span>Spread</span>
+          <span>{formatTooltipCurrency(dataPoint.high - dataPoint.low)}</span>
+        </p>
+        {dataPoint.accounts.length > 0 && (
+          <div className="space-y-0.5 mt-1.5 pt-1.5 border-t border-gray-100">
             {dataPoint.accounts.map((acct, i) => (
               <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-500' : 'text-gray-500'}`}>
                 <span className="truncate max-w-[160px]">{shortName(acct.name)}</span>
@@ -205,6 +247,23 @@ export default function MercuryMonthOverMonthChart() {
               {t.label}
             </button>
           ))}
+          {timeRange === 'custom' && (
+            <div className="flex items-center gap-1.5 ml-1">
+              <input
+                type="date"
+                value={customStart}
+                onChange={e => setCustomStart(e.target.value)}
+                className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+              <span className="text-xs text-gray-400">to</span>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={e => setCustomEnd(e.target.value)}
+                className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -237,14 +296,35 @@ export default function MercuryMonthOverMonthChart() {
                 width={85}
               />
               <Tooltip content={<CustomTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line
+                type="monotone"
+                dataKey="high"
+                name="Monthly High"
+                stroke="#10b981"
+                strokeWidth={1.5}
+                strokeDasharray="4 2"
+                dot={{ r: 3, fill: '#10b981', strokeWidth: 1.5, stroke: '#fff' }}
+                activeDot={{ r: 5 }}
+              />
               <Line
                 type="monotone"
                 dataKey="balance"
-                name="Total Cash"
+                name="Snapshot"
                 stroke="#6366f1"
                 strokeWidth={2.5}
                 dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }}
                 activeDot={{ r: 6 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="low"
+                name="Monthly Low"
+                stroke="#f43f5e"
+                strokeWidth={1.5}
+                strokeDasharray="4 2"
+                dot={{ r: 3, fill: '#f43f5e', strokeWidth: 1.5, stroke: '#fff' }}
+                activeDot={{ r: 5 }}
               />
             </LineChart>
           </ResponsiveContainer>

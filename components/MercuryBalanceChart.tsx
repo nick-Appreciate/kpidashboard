@@ -7,17 +7,10 @@ import {
 } from 'recharts';
 
 const ACCOUNT_COLORS: Record<string, string> = {
-  'Mercury (Column N.A.)-Corporate Checking': '#3b82f6',
-  'Mercury (Column N.A.)-Columbia Properties': '#22c55e',
-  'Mercury (Column N.A.)-KC Operating Acct': '#f59e0b',
-  'Mercury(Column N.A.)-KC Security Deposits': '#8b5cf6',
-  'Mercury(Column N.A.)-CoMo Security Deposits': '#06b6d4',
-  'Simmons - Columbia Operating Account 5218': '#ef4444',
-  'Como Security Deposits - Simmons Checking 3505 -': '#ec4899',
-  'Mercury Checking (3241) - Columbia Properties Operating Account': '#14b8a6',
-  'Mercury Checking (7828) - KC Operating Account [closed]': '#a3a3a3',
-  'Mercury Checking (7980) - Corporate Checking - DL Account [closed]': '#d4d4d4',
-  'Simmons - KC Operating (1552) [closed]': '#737373',
+  'Mercury Checking ••6531': '#f59e0b',
+  'Mercury Checking ••4109': '#3b82f6',
+  'Mercury Savings ••0148': '#06b6d4',
+  'Mercury Checking ••5740': '#8b5cf6',
 };
 
 const FALLBACK_COLORS = [
@@ -34,6 +27,7 @@ const TIME_RANGES = [
   { label: '6m', value: '180' },
   { label: '1y', value: '365' },
   { label: 'All', value: 'all' },
+  { label: 'Custom', value: 'custom' },
 ];
 
 interface BalanceRecord {
@@ -49,20 +43,9 @@ type ViewMode = 'total' | 'individual';
 
 // Short display names for cleaner legend
 function shortName(name: string): string {
-  const map: Record<string, string> = {
-    'Mercury (Column N.A.)-Corporate Checking': 'Corporate Checking',
-    'Mercury (Column N.A.)-Columbia Properties': 'Columbia Properties',
-    'Mercury (Column N.A.)-KC Operating Acct': 'KC Operating',
-    'Mercury(Column N.A.)-KC Security Deposits': 'KC Security Deposits',
-    'Mercury(Column N.A.)-CoMo Security Deposits': 'CoMo Security Deposits',
-    'Simmons - Columbia Operating Account 5218': 'Simmons Columbia 5218',
-    'Como Security Deposits - Simmons Checking 3505 -': 'Simmons CoMo 3505',
-    'Mercury Checking (3241) - Columbia Properties Operating Account': 'Mercury 3241 (Columbia)',
-    'Mercury Checking (7828) - KC Operating Account [closed]': 'Mercury 7828 [closed]',
-    'Mercury Checking (7980) - Corporate Checking - DL Account [closed]': 'Mercury 7980 [closed]',
-    'Simmons - KC Operating (1552) [closed]': 'Simmons KC [closed]',
-  };
-  return map[name] || name;
+  return name
+    .replace(/^Mercury (Checking|Savings) /, '$1 ')
+    .trim();
 }
 
 export default function MercuryBalanceChart() {
@@ -72,11 +55,14 @@ export default function MercuryBalanceChart() {
   const [viewMode, setViewMode] = useState<ViewMode>('total');
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   const fetchBalances = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/mercury/balances?days=${timeRange}`);
+      const days = timeRange === 'custom' ? 'all' : timeRange;
+      const res = await fetch(`/api/admin/mercury/balances?days=${days}`);
       if (res.ok) {
         const data = await res.json();
         setBalances(data.balances || []);
@@ -175,10 +161,21 @@ export default function MercuryBalanceChart() {
       });
     }
 
-    return Array.from(byDate.values()).sort(
+    let sorted = Array.from(byDate.values()).sort(
       (a, b) => a.date.localeCompare(b.date)
     );
-  }, [balances, viewMode, selectedAccounts, activeAccountIds]);
+
+    // Apply custom date range filter
+    if (timeRange === 'custom' && (customStart || customEnd)) {
+      sorted = sorted.filter(d => {
+        if (customStart && d.date < customStart) return false;
+        if (customEnd && d.date > customEnd) return false;
+        return true;
+      });
+    }
+
+    return sorted;
+  }, [balances, viewMode, selectedAccounts, activeAccountIds, timeRange, customStart, customEnd]);
 
   const visibleAccounts = useMemo(
     () => activeAccounts.filter(a => selectedAccounts.has(a.id)),
@@ -207,7 +204,7 @@ export default function MercuryBalanceChart() {
 
   const formatDate = (dateStr: string) => {
     const [year, month, day] = dateStr.split('-');
-    if (timeRange === 'all' || parseInt(timeRange) > 90) {
+    if (timeRange === 'all' || timeRange === 'custom' || parseInt(timeRange) > 90) {
       return `${parseInt(month)}/${parseInt(day)}/${year.slice(2)}`;
     }
     return `${parseInt(month)}/${parseInt(day)}`;
@@ -277,6 +274,23 @@ export default function MercuryBalanceChart() {
                 {t.label}
               </button>
             ))}
+            {timeRange === 'custom' && (
+              <div className="flex items-center gap-1.5 ml-1">
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={e => setCustomStart(e.target.value)}
+                  className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <span className="text-xs text-gray-400">to</span>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={e => setCustomEnd(e.target.value)}
+                  className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -399,7 +413,7 @@ export default function MercuryBalanceChart() {
                 tickFormatter={formatDate}
                 tick={{ fontSize: 11 }}
                 stroke="#9ca3af"
-                interval={timeRange === 'all' || parseInt(timeRange) > 90 ? 'preserveStartEnd' : undefined}
+                interval={timeRange === 'all' || timeRange === 'custom' || parseInt(timeRange) > 90 ? 'preserveStartEnd' : undefined}
               />
               <YAxis
                 tickFormatter={formatCurrency}
