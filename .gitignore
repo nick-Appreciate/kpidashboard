@@ -50,3 +50,8 @@ venv/
 *.swp
 *.swo
 *~
+
+# Appfolio automation
+.appfolio-session.json
+.appfolio-screenshots/
+.tmp-bill-*.pdf

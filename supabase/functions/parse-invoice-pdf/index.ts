@@ -132,8 +132,154 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
     if (fuzzy && fuzzy.length > 0) return fuzzy[0].company_name;
   }
 
+  // 4. Broader fuzzy: match all significant words individually
+  // Catches misspellings like "Janssen Glass" -> "Jansen Glass"
+  const words = normalized.split(/\s+/).filter(w => w.length > 2);
+  if (words.length >= 2) {
+    // Try matching the last word (often the distinctive part: "Glass", "Plumbing", etc.)
+    const lastWord = words[words.length - 1];
+    const { data: wordMatch } = await supabase
+      .from('af_vendor_directory')
+      .select('company_name')
+      .ilike('company_name', `%${lastWord}%`)
+      .limit(20);
+
+    if (wordMatch && wordMatch.length > 0) {
+      // Score each candidate by how many words match
+      let bestMatch: string | null = null;
+      let bestScore = 0;
+      for (const candidate of wordMatch) {
+        const cLower = candidate.company_name.toLowerCase();
+        let score = 0;
+        for (const w of words) {
+          if (cLower.includes(w.toLowerCase())) score++;
+          // Also check first 3 chars for typo tolerance (e.g., "jan" matches "jansen" and "janssen")
+          else if (w.length >= 4 && cLower.includes(w.substring(0, 3).toLowerCase())) score += 0.5;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = candidate.company_name;
+        }
+      }
+      // Require at least half the words to match
+      if (bestMatch && bestScore >= words.length * 0.5) return bestMatch;
+    }
+  }
+
   // No match — return original name
   return vendorName;
+}
+
+// Look up historical AppFolio bill data for a vendor to suggest property, GL account, and unit
+async function suggestBillDefaults(vendorName: string, description: string | null, emailSubject: string | null = null): Promise<{
+  property: string | null;
+  gl_account: string | null;
+  unit: string | null;
+}> {
+  const defaults = { property: null as string | null, gl_account: null as string | null, unit: null as string | null };
+
+  if (!vendorName) return defaults;
+
+  try {
+    // Query af_bill_detail for the most recent bills from this vendor
+    const { data: recentBills } = await supabase
+      .from('af_bill_detail')
+      .select('property_name, gl_account_name, gl_account_id')
+      .ilike('vendor_name', `%${vendorName}%`)
+      .order('bill_date', { ascending: false })
+      .limit(10);
+
+    if (!recentBills || recentBills.length === 0) {
+      // Try fuzzy match with first word
+      const firstWord = normalizeVendorName(vendorName).split(' ')[0];
+      if (firstWord && firstWord.length > 2) {
+        const { data: fuzzyBills } = await supabase
+          .from('af_bill_detail')
+          .select('property_name, gl_account_name, gl_account_id')
+          .ilike('vendor_name', `${firstWord}%`)
+          .order('bill_date', { ascending: false })
+          .limit(10);
+
+        if (fuzzyBills && fuzzyBills.length > 0) {
+          return extractMostCommon(fuzzyBills, description, emailSubject);
+        }
+      }
+      return defaults;
+    }
+
+    return extractMostCommon(recentBills, description, emailSubject);
+  } catch (err: any) {
+    console.error(`suggestBillDefaults error for ${vendorName}:`, err.message);
+    return defaults;
+  }
+}
+
+// From a list of historical bills, pick the most common property and GL account
+// If description or email subject mentions a specific property, prefer that match
+function extractMostCommon(
+  bills: Array<{ property_name: string | null; gl_account_name: string | null; gl_account_id: string | null }>,
+  description: string | null,
+  emailSubject: string | null = null
+): { property: string | null; gl_account: string | null; unit: string | null } {
+  // Count occurrences of each GL account (usually consistent per vendor)
+  const glCounts: Record<string, { count: number; id: string }> = {};
+  for (const b of bills) {
+    if (b.gl_account_id) {
+      // Extract just the number part (e.g., "5050.9" from "5050.9 - Pest Control")
+      const glNum = b.gl_account_id.split(' ')[0];
+      glCounts[glNum] = glCounts[glNum] || { count: 0, id: glNum };
+      glCounts[glNum].count++;
+    }
+  }
+
+  // Pick most common GL account
+  let bestGl: string | null = null;
+  let maxGlCount = 0;
+  for (const [id, info] of Object.entries(glCounts)) {
+    if (info.count > maxGlCount) {
+      bestGl = id;
+      maxGlCount = info.count;
+    }
+  }
+
+  // For property: check description AND email subject for property name hints
+  // Combine all text sources for matching
+  const textToSearch = [description, emailSubject].filter(Boolean).join(' ').toLowerCase();
+
+  let bestProperty: string | null = null;
+  if (textToSearch) {
+    for (const b of bills) {
+      if (b.property_name) {
+        // Check if the property name appears in description or email subject
+        const propWords = b.property_name.toLowerCase().split(/\s+/);
+        const significantWords = propWords.filter(w => w.length > 2);
+        const matchCount = significantWords.filter(w => textToSearch.includes(w)).length;
+        if (matchCount >= Math.min(2, significantWords.length)) {
+          bestProperty = b.property_name;
+          break;
+        }
+      }
+    }
+  }
+
+  // Fallback: most common property for this vendor
+  if (!bestProperty) {
+    const propCounts: Record<string, number> = {};
+    for (const b of bills) {
+      if (b.property_name) {
+        propCounts[b.property_name] = (propCounts[b.property_name] || 0) + 1;
+      }
+    }
+    let maxPropCount = 0;
+    for (const [name, count] of Object.entries(propCounts)) {
+      if (count > maxPropCount) {
+        bestProperty = name;
+        maxPropCount = count;
+      }
+    }
+  }
+
+  return { property: bestProperty, gl_account: bestGl, unit: null };
 }
 
 // Use Claude to intelligently parse invoice data
@@ -160,6 +306,7 @@ Read the PDF, email subject, and email body carefully. Classify as one of:
 - "estimate" — A quote, proposal, bid, or estimate. Often from Docusign, marked "Proposal", "Quote", "Estimate", or "Bid". No payment is due yet.
 - "receipt" — Proof of a purchase already completed and paid (e.g., Home Depot receipts, store receipts, credit card transaction confirmations). The money has already left our account.
 - "payment" — Someone is paying US. Look for: "payment remittance", "ACH payment", "rent payment", "deposit", "remittance advice", "payment confirmation" in the subject/body. Entities like Salvation Army, Housing Authority, or tenants sending money TO us are payments.
+- "credit_memo" — A refund, credit, or return from a vendor. The vendor owes US money. Look for: "credit memo", "refund", "return", "credit note", negative amounts, or return merchandise.
 - "other" — Thank-you notes for paying a bill, account statements, marketing, subscription confirmations, or anything that is NOT a bill requiring action.
 
 KEY CLASSIFICATION RULES:
@@ -167,12 +314,13 @@ KEY CLASSIFICATION RULES:
 - If the document is a store receipt or electronic receipt (Home Depot, Lowe's, etc.) — classify as "receipt" with payment_status "paid".
 - If the document comes from Docusign or contains "proposal", "quote", "bid" — classify as "estimate".
 - If the email body thanks us for a payment or confirms a payment we made — classify as "other".
+- If the document shows a REFUND, CREDIT, or RETURN — classify as "credit_memo". The amount should be NEGATIVE.
 - ONLY classify as "invoice" if you are confident this is a genuine bill requesting payment from us.
 
 STEP 2 — EXTRACT DATA:
 - Vendor/Company name: Use the actual vendor or company that provided goods/services, as shown on the document. Do NOT use the email sender if it is a payment processor, bank, or notification service (e.g. Mercury, PayPal, Stripe, Square).
 - Invoice number (or reference number, receipt number, etc.)
-- Amount (total, as a number)
+- Amount (total, as a number). For credit memos and refunds, use a NEGATIVE number.
 - Date (YYYY-MM-DD format)
 - Due date (YYYY-MM-DD format, if available)
 - Brief description of what the document is about
@@ -190,7 +338,7 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
   "invoice_date": "YYYY-MM-DD or null",
   "due_date": "YYYY-MM-DD or null",
   "description": "string or null",
-  "document_type": "invoice or estimate or receipt or payment or other",
+  "document_type": "invoice or estimate or receipt or payment or credit_memo or other",
   "payment_status": "paid or unpaid or unknown"
 }`,
           },
@@ -370,6 +518,21 @@ Deno.serve(async (req: Request) => {
         // Upload to Storage
         const pdfUrl = await uploadPdfToStorage(pdfBuffer, msg.conversation_id, attachmentId);
 
+        // Suggest Property, GL Account from historical Appfolio data
+        const suggestions = await suggestBillDefaults(
+          invoice.vendor_name!,
+          invoice.description,
+          msg.subject
+        );
+        console.log(`  Bill defaults for ${invoice.vendor_name}: property=${suggestions.property}, gl=${suggestions.gl_account}`);
+
+        // Flag credit memos / refunds for manual entry
+        const isCredit = invoice.document_type === 'credit_memo' || (invoice.invoice_amount !== null && invoice.invoice_amount < 0);
+        const billStatus = isCredit ? 'manual_entry' : 'pending';
+        const billDescription = isCredit
+          ? `⚠️ CREDIT/REFUND — Manual entry required. ${invoice.description || ''}`
+          : invoice.description;
+
         // Prepare ops_bills entry
         opsBillsInserts.push({
           vendor_name: invoice.vendor_name,
@@ -381,11 +544,14 @@ Deno.serve(async (req: Request) => {
           front_email_subject: msg.subject,
           front_email_from: msg.sender_email,
           attachments_json: [{ filename: `${attachmentId}.pdf`, url: pdfUrl }],
-          status: 'pending',
+          status: billStatus,
           due_date: invoice.due_date,
-          description: invoice.description,
+          description: billDescription,
           document_type: invoice.document_type || 'invoice',
           payment_status: invoice.payment_status || 'unpaid',
+          af_property_input: suggestions.property,
+          af_gl_account_input: suggestions.gl_account,
+          af_unit_input: suggestions.unit,
         });
 
         // Mark message as extracted with parsed data
@@ -407,9 +573,10 @@ Deno.serve(async (req: Request) => {
           status: 'success',
           invoice,
           pdfUrl,
+          is_credit: isCredit,
         });
 
-        console.log(`Parsed ${invoice.vendor_name}: $${invoice.invoice_amount}`);
+        console.log(`Parsed ${invoice.vendor_name}: $${invoice.invoice_amount}${isCredit ? ' (CREDIT — flagged for manual entry)' : ''}`);
       } catch (error) {
         console.error(`Error processing message ${msg.front_id}:`, error);
         results.push({
