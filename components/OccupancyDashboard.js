@@ -18,6 +18,7 @@ export default function OccupancyDashboard() {
   const [endDate, setEndDate] = useState('');
   const [occupiedOverride, setOccupiedOverride] = useState(null); // Temporary override for occupied count
   const [pctEditing, setPctEditing] = useState(null); // Local text while editing percentage input
+  const [selectedExpirationRange, setSelectedExpirationRange] = useState(null); // Filter from chart click
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -580,6 +581,41 @@ export default function OccupancyDashboard() {
       });
     }
     
+    // Lease Expiration Chart
+    if (leaseChartRef.current && stats.leaseExpirations) {
+      const ctx = leaseChartRef.current.getContext('2d');
+      if (leaseChartRef.current.chart) leaseChartRef.current.chart.destroy();
+
+      const le = stats.leaseExpirations;
+      leaseChartRef.current.chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Expired', '0-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'No End Date'],
+          datasets: [{
+            label: 'Units',
+            data: [le.expired, le.within30Days, le.within60Days, le.within90Days, le.beyond90Days, le.noLeaseEnd],
+            backgroundColor: ['#dc2626', '#ef4444', '#f97316', '#f59e0b', '#10b981', '#6b7280']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+          onClick: (event, elements) => {
+            if (elements.length > 0) {
+              const rangeKeys = ['expired', '0-30', '31-60', '61-90', '90+', 'noEnd'];
+              const idx = elements[0].index;
+              const key = rangeKeys[idx];
+              setSelectedExpirationRange(prev => prev === key ? null : key);
+            } else {
+              setSelectedExpirationRange(null);
+            }
+          }
+        }
+      });
+    }
+
     // Delinquency Chart
     if (delinquencyChartRef.current && stats.delinquencyStats?.length > 0) {
       const ctx = delinquencyChartRef.current.getContext('2d');
@@ -846,6 +882,384 @@ export default function OccupancyDashboard() {
               </div>
             )}
             
+            {/* Healthy Lease Rate Chart */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <h2 className="text-xl font-semibold text-amber-700 mb-4 pb-2 border-b-2 border-amber-200">
+                Healthy Lease Rate Trend
+              </h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Percentage of units with healthy leases (not expiring within 60 days, not evicting)
+              </p>
+              <div className="text-3xl font-bold text-amber-600 mb-4">
+                {summary.healthyLeaseRate || 0}%
+              </div>
+              <canvas id="healthyLeaseChart"></canvas>
+            </div>
+            
+            {/* Bad Leases Tape Feed */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+              <div className="flex justify-between items-center mb-4 pb-2 border-b-2 border-amber-200">
+                <h2 className="text-xl font-semibold text-amber-700">
+                  Bad Leases Detail
+                </h2>
+                <button
+                  onClick={() => setGroupByProperty(!groupByProperty)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    groupByProperty 
+                      ? 'bg-amber-600 text-white hover:bg-amber-700' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {groupByProperty ? 'Grouped by Property' : 'Group by Type'}
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mb-4">
+                Units requiring attention (excluding vacant units)
+                {selectedExpirationRange && (
+                  <button
+                    onClick={() => setSelectedExpirationRange(null)}
+                    className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200"
+                  >
+                    Filtered: {selectedExpirationRange === 'expired' ? 'Expired' : selectedExpirationRange === 'noEnd' ? 'No End Date' : selectedExpirationRange + ' days'} ✕
+                  </button>
+                )}
+              </p>
+
+              <div className="max-h-[600px] overflow-y-auto">
+                {(() => {
+                  let allBadLeases = [];
+
+                  stats.leaseHealthDetails?.badLeasesByReason?.evictions?.forEach(lease =>
+                    allBadLeases.push({ ...lease, type: 'eviction', color: 'red', priority: 1 })
+                  );
+                  stats.leaseHealthDetails?.badLeasesByReason?.monthToMonth?.forEach(lease =>
+                    allBadLeases.push({ ...lease, type: 'monthToMonth', color: 'orange', priority: 2 })
+                  );
+                  stats.leaseHealthDetails?.badLeasesByReason?.expiringWithin60Days?.forEach(lease =>
+                    allBadLeases.push({ ...lease, type: 'expiring', color: 'yellow', priority: 3 })
+                  );
+
+                  // Filter by selected expiration range from chart click
+                  if (selectedExpirationRange) {
+                    allBadLeases = allBadLeases.filter(lease => {
+                      const days = lease.daysUntilExpiration;
+                      switch (selectedExpirationRange) {
+                        case 'expired': return days !== null && days !== undefined && days < 0;
+                        case '0-30': return days !== null && days !== undefined && days >= 0 && days <= 30;
+                        case '31-60': return days !== null && days !== undefined && days > 30 && days <= 60;
+                        case '61-90': return days !== null && days !== undefined && days > 60 && days <= 90;
+                        case '90+': return days !== null && days !== undefined && days > 90;
+                        case 'noEnd': return days === null || days === undefined;
+                        default: return true;
+                      }
+                    });
+                  }
+
+                  if (allBadLeases.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-gray-500">
+                        <div className="text-2xl mb-2">🎉</div>
+                        <p>No bad leases found!</p>
+                      </div>
+                    );
+                  }
+                  
+                  if (groupByProperty) {
+                    const groupedByProperty = allBadLeases.reduce((acc, lease) => {
+                      if (!acc[lease.property]) acc[lease.property] = [];
+                      acc[lease.property].push(lease);
+                      return acc;
+                    }, {});
+                    
+                    return Object.entries(groupedByProperty).map(([property, leases]) => (
+                      <div key={property} className="mb-4">
+                        <div className="bg-gray-800 text-white px-3 py-2 rounded-t-lg flex justify-between items-center">
+                          <span className="font-semibold">{property}</span>
+                          <span className="bg-gray-600 px-2 py-0.5 rounded text-xs">{leases.length} units</span>
+                        </div>
+                        <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 text-xs text-gray-600">
+                              <tr>
+                                <th className="px-2 py-2 text-left font-medium">Unit</th>
+                                <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                                <th className="px-2 py-2 text-left font-medium">Issue</th>
+                                <th className="px-2 py-2 text-center font-medium">Days Left</th>
+                                <th className="px-2 py-2 text-center font-medium">Renewal</th>
+                                <th className="px-2 py-2 text-right font-medium">Rent</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {leases.sort((a, b) => a.priority - b.priority).map((lease, idx) => (
+                                <tr key={idx} className={`${
+                                  lease.color === 'red' ? 'bg-red-50 hover:bg-red-100' : 
+                                  lease.color === 'orange' ? 'bg-orange-50 hover:bg-orange-100' : 
+                                  'bg-yellow-50 hover:bg-yellow-100'
+                                } transition-colors`}>
+                                  <td className="px-2 py-2 font-medium">{lease.unit}</td>
+                                  <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                                    {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                      lease.color === 'red' ? 'bg-red-200 text-red-800' : 
+                                      lease.color === 'orange' ? 'bg-orange-200 text-orange-800' : 
+                                      'bg-yellow-200 text-yellow-800'
+                                    }`}>
+                                      {lease.type === 'eviction' ? '⚠️ Evict' : 
+                                       lease.type === 'monthToMonth' ? '📅 MTM' : 
+                                       '⏰ Expiring'}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-center text-xs font-medium">
+                                    {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
+                                      <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-gray-600'}>
+                                        {lease.daysUntilExpiration}
+                                      </span>
+                                    ) : '-'}
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                      lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
+                                      lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
+                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
+                                      lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
+                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
+                                      'bg-gray-100 text-gray-500'
+                                    }`}>
+                                      {lease.renewalStatus === 'Renewed' ? '✓' :
+                                       lease.renewalStatus === 'Pending' ? '⏳' :
+                                       lease.renewalStatus === 'Did Not Renew' ? '✗' :
+                                       lease.renewalStatus === 'Canceled by User' ? '—' :
+                                       lease.renewalStatus === 'Not sent' ? '📭' : '?'}
+                                      <span className="ml-1 hidden sm:inline">
+                                        {lease.renewalStatus}
+                                      </span>
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-right font-medium text-gray-700">
+                                    {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ));
+                  } else {
+                    const typeGroups = [
+                      { key: 'eviction', label: 'Evictions', color: 'red', icon: '⚠️', leases: allBadLeases.filter(l => l.type === 'eviction') },
+                      { key: 'monthToMonth', label: 'Month-to-Month', color: 'orange', icon: '📅', leases: allBadLeases.filter(l => l.type === 'monthToMonth') },
+                      { key: 'expiring', label: 'Expiring Soon', color: 'yellow', icon: '⏰', leases: allBadLeases.filter(l => l.type === 'expiring') }
+                    ].filter(g => g.leases.length > 0);
+                    
+                    return typeGroups.map(group => (
+                      <div key={group.key} className="mb-4">
+                        <div className={`px-3 py-2 rounded-t-lg flex justify-between items-center ${
+                          group.color === 'red' ? 'bg-red-600 text-white' :
+                          group.color === 'orange' ? 'bg-orange-500 text-white' :
+                          'bg-yellow-500 text-white'
+                        }`}>
+                          <span className="font-semibold">{group.icon} {group.label}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            group.color === 'red' ? 'bg-red-700' :
+                            group.color === 'orange' ? 'bg-orange-600' :
+                            'bg-yellow-600'
+                          }`}>{group.leases.length} units</span>
+                        </div>
+                        <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 text-xs text-gray-600">
+                              <tr>
+                                <th className="px-2 py-2 text-left font-medium">Property</th>
+                                <th className="px-2 py-2 text-left font-medium">Unit</th>
+                                <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                                <th className="px-2 py-2 text-center font-medium">Days Left</th>
+                                <th className="px-2 py-2 text-center font-medium">Renewal</th>
+                                <th className="px-2 py-2 text-right font-medium">Rent</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {group.leases.map((lease, idx) => (
+                                <tr key={idx} className={`${
+                                  group.color === 'red' ? 'bg-red-50 hover:bg-red-100' : 
+                                  group.color === 'orange' ? 'bg-orange-50 hover:bg-orange-100' : 
+                                  'bg-yellow-50 hover:bg-yellow-100'
+                                } transition-colors`}>
+                                  <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={lease.property}>
+                                    {lease.property}
+                                  </td>
+                                  <td className="px-2 py-2 font-medium">{lease.unit}</td>
+                                  <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                                    {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                                  </td>
+                                  <td className="px-2 py-2 text-center text-xs font-medium">
+                                    {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
+                                      <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-gray-600'}>
+                                        {lease.daysUntilExpiration}
+                                      </span>
+                                    ) : '-'}
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                      lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
+                                      lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
+                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
+                                      lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
+                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
+                                      'bg-gray-100 text-gray-500'
+                                    }`}>
+                                      {lease.renewalStatus === 'Renewed' ? '✓' :
+                                       lease.renewalStatus === 'Pending' ? '⏳' :
+                                       lease.renewalStatus === 'Did Not Renew' ? '✗' :
+                                       lease.renewalStatus === 'Canceled by User' ? '—' :
+                                       lease.renewalStatus === 'Not sent' ? '📭' : '?'}
+                                      <span className="ml-1 hidden sm:inline">
+                                        {lease.renewalStatus}
+                                      </span>
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-right font-medium text-gray-700">
+                                    {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ));
+                  }
+                })()}
+              </div>
+              
+              {/* Upcoming Expirations */}
+              {stats.leaseHealthDetails?.upcomingExpirations?.length > 0 && (!selectedExpirationRange || selectedExpirationRange === '61-90') && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-blue-600 text-white">
+                    <span className="font-semibold">📆 Upcoming Expirations (61-90 days)</span>
+                    <span className="px-2 py-0.5 rounded text-xs bg-blue-700">{stats.leaseHealthDetails.upcomingExpirations.length} units</span>
+                  </div>
+                  <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-600">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium">Property</th>
+                          <th className="px-2 py-2 text-left font-medium">Unit</th>
+                          <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                          <th className="px-2 py-2 text-center font-medium">Days Left</th>
+                          <th className="px-2 py-2 text-center font-medium">Renewal</th>
+                          <th className="px-2 py-2 text-right font-medium">Rent</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {stats.leaseHealthDetails.upcomingExpirations.map((lease, idx) => (
+                          <tr key={idx} className="bg-blue-50 hover:bg-blue-100 transition-colors">
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={lease.property}>
+                              {lease.property}
+                            </td>
+                            <td className="px-2 py-2 font-medium">{lease.unit}</td>
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                              {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs font-medium">
+                              {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
+                                <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-blue-600'}>
+                                  {lease.daysUntilExpiration}
+                                </span>
+                              ) : '-'}
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
+                                lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
+                                lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
+                                lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
+                                lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
+                                'bg-gray-100 text-gray-500'
+                              }`}>
+                                {lease.renewalStatus === 'Renewed' ? '✓' :
+                                 lease.renewalStatus === 'Pending' ? '⏳' :
+                                 lease.renewalStatus === 'Did Not Renew' ? '✗' :
+                                 lease.renewalStatus === 'Canceled by User' ? '—' :
+                                 lease.renewalStatus === 'Not sent' ? '📭' : '?'}
+                                <span className="ml-1 hidden sm:inline">
+                                  {lease.renewalStatus}
+                                </span>
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-right font-medium text-gray-700">
+                              {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              
+              {/* Recent Renewals */}
+              {stats.leaseHealthDetails?.recentRenewals?.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-green-600 text-white">
+                    <span className="font-semibold">🔄 Recent Renewals (Last 60 Days + Future)</span>
+                    <span className="px-2 py-0.5 rounded text-xs bg-green-700">{stats.leaseHealthDetails.recentRenewals.length} renewals</span>
+                  </div>
+                  <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-xs text-gray-600">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium">Property</th>
+                          <th className="px-2 py-2 text-left font-medium">Unit</th>
+                          <th className="px-2 py-2 text-left font-medium">Tenant</th>
+                          <th className="px-2 py-2 text-center font-medium">Lease Start</th>
+                          <th className="px-2 py-2 text-right font-medium">Rent</th>
+                          <th className="px-2 py-2 text-right font-medium">Change</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {stats.leaseHealthDetails.recentRenewals.map((renewal, idx) => (
+                          <tr key={idx} className="bg-green-50 hover:bg-green-100 transition-colors">
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={renewal.property}>
+                              {renewal.property}
+                            </td>
+                            <td className="px-2 py-2 font-medium">{renewal.unit}</td>
+                            <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={renewal.tenantName || ''}>
+                              {renewal.tenantName || <span className="text-gray-400 italic text-xs">-</span>}
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs">
+                              <span className={renewal.daysFromToday > 0 ? 'text-blue-600 font-medium' : 'text-gray-600'}>
+                                {new Date(renewal.leaseStart).toLocaleDateString()}
+                                {renewal.daysFromToday > 0 && <span className="ml-1 text-blue-500">(+{renewal.daysFromToday}d)</span>}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-right font-medium text-gray-700">
+                              {renewal.rent ? `$${Number(renewal.rent).toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-2 py-2 text-right text-xs">
+                              {renewal.percentDifference !== null && renewal.percentDifference !== undefined ? (
+                                <span className={Number(renewal.percentDifference) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                  {Number(renewal.percentDifference) >= 0 ? '+' : ''}{Number(renewal.percentDifference).toFixed(1)}%
+                                </span>
+                              ) : renewal.dollarDifference !== null && renewal.dollarDifference !== undefined ? (
+                                <span className={Number(renewal.dollarDifference) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                  {Number(renewal.dollarDifference) >= 0 ? '+' : ''}${Number(renewal.dollarDifference).toLocaleString()}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Other Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               <div className="glass-card p-6">
