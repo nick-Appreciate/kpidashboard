@@ -1116,9 +1116,9 @@ export default function OccupancyDashboard() {
                           <span className="font-semibold">{property}</span>
                           <span className="bg-gray-600 px-2 py-0.5 rounded text-xs">{leases.length} units</span>
                         </div>
-                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
+                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-clip">
                           <table className="w-full text-sm">
-                            <thead className="bg-surface-raised/80 text-xs text-slate-400">
+                            <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                               <tr>
                                 <th className="px-2 py-2 text-left font-medium">Unit</th>
                                 <th className="px-2 py-2 text-left font-medium">Tenant</th>
@@ -1207,9 +1207,9 @@ export default function OccupancyDashboard() {
                             'bg-yellow-600'
                           }`}>{group.leases.length} units</span>
                         </div>
-                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
+                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-clip">
                           <table className="w-full text-sm">
-                            <thead className="bg-surface-raised/80 text-xs text-slate-400">
+                            <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                               <tr>
                                 <th className="px-2 py-2 text-left font-medium">Property</th>
                                 <th className="px-2 py-2 text-left font-medium">Unit</th>
@@ -1280,9 +1280,9 @@ export default function OccupancyDashboard() {
                     <span className="font-semibold">📆 Upcoming Expirations (61-90 days)</span>
                     <span className="px-2 py-0.5 rounded text-xs bg-blue-600">{stats.leaseHealthDetails.upcomingExpirations.length} units</span>
                   </div>
-                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
+                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-clip">
                     <table className="w-full text-sm">
-                      <thead className="bg-surface-raised/80 text-xs text-slate-400">
+                      <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                         <tr>
                           <th className="px-2 py-2 text-left font-medium">Property</th>
                           <th className="px-2 py-2 text-left font-medium">Unit</th>
@@ -1346,9 +1346,9 @@ export default function OccupancyDashboard() {
                     <span className="font-semibold">🔄 Recent Renewals (Last 60 Days + Future)</span>
                     <span className="px-2 py-0.5 rounded text-xs bg-emerald-600">{stats.leaseHealthDetails.recentRenewals.length} renewals</span>
                   </div>
-                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
+                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-clip">
                     <table className="w-full text-sm">
-                      <thead className="bg-surface-raised/80 text-xs text-slate-400">
+                      <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                         <tr>
                           <th className="px-2 py-2 text-left font-medium">Property</th>
                           <th className="px-2 py-2 text-left font-medium">Unit</th>
@@ -1428,12 +1428,12 @@ export default function OccupancyDashboard() {
               <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Property Breakdown</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-2">Property</th>
-                      <th className="text-right py-3 px-2">Total Units</th>
-                      <th className="text-right py-3 px-2">Occupied</th>
-                      <th className="text-right py-3 px-2">Occupancy %</th>
+                  <thead className="sticky top-0 z-10 bg-surface-raised text-xs uppercase tracking-wider text-slate-400">
+                    <tr className="border-b border-white/5">
+                      <th className="text-left py-3 px-2 font-medium">Property</th>
+                      <th className="text-right py-3 px-2 font-medium">Total Units</th>
+                      <th className="text-right py-3 px-2 font-medium">Occupied</th>
+                      <th className="text-right py-3 px-2 font-medium">Occupancy %</th>
                     </tr>
                   </thead>
                   <tbody>
