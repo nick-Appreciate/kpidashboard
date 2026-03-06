@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../../lib/supabase';
+import { supabaseAdmin } from '../../../../../lib/supabase';
 
 /**
  * POST /api/admin/brex/approve-expense
@@ -43,10 +43,11 @@ export async function POST(request: Request) {
     }
 
     // 1. Save the edited fields + record approval on brex_expenses
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await supabaseAdmin
       .from('brex_expenses')
       .update({
         af_vendor_name: vendor_name || null,
+        af_description: description || null,
         af_property_input: af_property_input || null,
         af_gl_account_input: af_gl_account_input || null,
         af_unit_input: af_unit_input || null,
@@ -62,15 +63,15 @@ export async function POST(request: Request) {
     }
 
     // 2. Trigger the Supabase Edge Function to upload this expense as a bill
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const sbAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     const uploadRes = await fetch(
-      `${supabaseUrl}/functions/v1/upload-appfolio-bills`,
+      `${sbUrl}/functions/v1/upload-appfolio-bills`,
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${supabaseKey}`,
+          'Authorization': `Bearer ${sbAnonKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       syncUpdate.appfolio_bill_id = parseInt(thisResult.af_bill_id);
     }
 
-    await supabase
+    await supabaseAdmin
       .from('brex_expenses')
       .update(syncUpdate)
       .eq('id', expense_id);
@@ -155,7 +156,7 @@ export async function PATCH(request: Request) {
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
     const allowedFields = [
-      'af_vendor_name', 'af_property_input', 'af_gl_account_input', 'af_unit_input',
+      'af_vendor_name', 'af_description', 'af_property_input', 'af_gl_account_input', 'af_unit_input',
     ];
     for (const key of allowedFields) {
       if (key in fields) {
@@ -163,7 +164,7 @@ export async function PATCH(request: Request) {
       }
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('brex_expenses')
       .update(updates)
       .eq('id', expense_id)

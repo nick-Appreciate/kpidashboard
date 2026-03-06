@@ -115,7 +115,9 @@ async function handleExpenseSource(expenseId: number, dryRun: boolean): Promise<
     invoice_date: postedDate,
     invoice_number: null,
     due_date: dueDate,
-    description: expense.memo ? `${expense.is_corporate ? 'Corporate' : 'Entered'} - ${expense.memo}` : null,
+    description: expense.af_description
+      || (expense.memo ? `${expense.is_corporate ? 'Corporate' : 'Entered'} - ${expense.memo}` : null)
+      || `Brex charge - ${expense.merchant_name}`,
     property: expense.af_property_input,
     unit: expense.af_unit_input,
     gl_account: expense.af_gl_account_input,
