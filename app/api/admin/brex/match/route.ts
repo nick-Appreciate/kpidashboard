@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../../lib/supabase';
+import { supabaseAdmin } from '../../../../../lib/supabase';
 
 export async function POST(request: Request) {
   try {
@@ -28,12 +28,13 @@ export async function POST(request: Request) {
     } else if (action === 'link' && bill_id) {
       updates.match_status = 'matched';
       updates.match_confidence = 'high';
-      updates.matched_bill_id = bill_id;
+      updates.matched_bill_id = typeof bill_id === 'string' ? parseInt(bill_id) : bill_id;
       updates.matched_at = new Date().toISOString();
       updates.matched_by = 'manual';
     }
 
-    const { data, error } = await supabase
+    // Use admin client to bypass RLS for server-side mutation
+    const { data, error } = await supabaseAdmin
       .from('brex_expenses')
       .update(updates)
       .eq('id', expense_id)
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      console.error("Error updating match:", error);
+      console.error("Error updating match:", error, { expense_id, bill_id, action, updates });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

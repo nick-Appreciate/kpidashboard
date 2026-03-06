@@ -94,12 +94,9 @@ interface QueueItem {
 }
 
 const brexExpenseUrl = (expenseId: string | null) => {
-  if (expenseId) {
-    // Deep link to specific expense using expense_id (expense_...)
-    const encoded = btoa(`Expense:${expenseId}`);
-    return `https://dashboard.brex.com/expenses/card?expenseId=${encodeURIComponent(encoded)}`;
-  }
-  // Fall back to general Brex expenses page when we only have transaction IDs
+  // Always link to the Brex expenses page — Brex deep links using expenseId
+  // query params no longer persist (SPA redirects to main view).
+  // Users can search by amount/merchant in the Brex dashboard.
   return `https://dashboard.brex.com/expenses/card`;
 };
 

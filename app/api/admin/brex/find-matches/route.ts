@@ -230,8 +230,9 @@ export async function POST(request: Request) {
       const billAmount = Math.abs(Number(bill.amount));
       const amountMatch = Math.abs(billAmount - expenseAmount) < 0.01;
 
-      // Must match on amount OR vendor name
-      if (!amountMatch && vendorScore < MIN_VENDOR_SCORE) return;
+      // ALWAYS require vendor name match — never show unrelated vendors
+      // even if amounts happen to match (e.g. two different HVAC companies at $168)
+      if (vendorScore < MIN_VENDOR_SCORE) return;
 
       seen.add(key);
 
@@ -241,9 +242,6 @@ export async function POST(request: Request) {
       if (amountMatch && vendorScore >= MIN_VENDOR_SCORE) {
         score = 0.9 + vendorScore * 0.1;
         reason = 'Amount + vendor match';
-      } else if (amountMatch) {
-        score = 0.5;
-        reason = 'Amount match';
       } else {
         score = vendorScore * 0.6;
         reason = 'Vendor match (different amount)';
