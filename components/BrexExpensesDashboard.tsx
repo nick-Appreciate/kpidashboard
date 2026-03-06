@@ -47,6 +47,7 @@ interface BrexExpense {
   bill_invoice_number: string | null;
   bill_status: string | null;
   bill_payment_status: string | null;
+  bill_appfolio_bill_id: number | null;
 }
 
 interface GLAccount {
@@ -90,12 +91,18 @@ interface QueueItem {
   completedAt?: Date;
 }
 
-const brexExpenseUrl = (expenseId: string | null, brexId: string) => {
-  // Use expense_id (expense_...) if available; fall back to brex_id (pste_...)
-  const id = expenseId || brexId;
-  const encoded = btoa(`Expense:${id}`);
-  return `https://dashboard.brex.com/expenses?expenseId=${encodeURIComponent(encoded)}`;
+const brexExpenseUrl = (expenseId: string | null) => {
+  if (expenseId) {
+    // Deep link to specific expense using expense_id (expense_...)
+    const encoded = btoa(`Expense:${expenseId}`);
+    return `https://dashboard.brex.com/expenses/card?expenseId=${encodeURIComponent(encoded)}`;
+  }
+  // Fall back to general Brex expenses page when we only have transaction IDs
+  return `https://dashboard.brex.com/expenses/card`;
 };
+
+const appfolioBillUrl = (billId: number) =>
+  `https://appreciate.appfolio.com/accounting/bills/${billId}`;
 
 type SortOption = "pending_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
 type FilterOption = "all" | "pending" | "matched" | "entered" | "corporate" | "payments";
@@ -112,7 +119,7 @@ function makeDraft(expense: BrexExpense, prefill?: { vendor_name: string; proper
   }
 
   // Use Brex memo as primary description, fall back to prefill description
-  const brexLink = brexExpenseUrl(expense.expense_id, expense.brex_id);
+  const brexLink = brexExpenseUrl(expense.expense_id);
   let description = '';
   if (expense.memo) {
     description = expense.memo;
@@ -1020,6 +1027,20 @@ export default function BrexExpensesDashboard() {
                 }`}>{expense.bill_payment_status}</p>
               </div>
             )}
+            {expense.bill_appfolio_bill_id && (
+              <div className="col-span-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">AppFolio Bill</span>
+                <a
+                  href={appfolioBillUrl(expense.bill_appfolio_bill_id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 font-mono text-sm text-accent hover:underline"
+                >
+                  #{expense.bill_appfolio_bill_id}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1081,8 +1102,16 @@ export default function BrexExpensesDashboard() {
           )}
           {expense.appfolio_bill_id && (
             <div>
-              <span className="text-xs text-slate-500">AF Bill ID</span>
-              <p className="text-sm text-emerald-300/80 font-mono">{expense.appfolio_bill_id}</p>
+              <span className="text-xs text-slate-500">AF Bill</span>
+              <a
+                href={appfolioBillUrl(expense.appfolio_bill_id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 font-mono text-sm text-accent hover:underline"
+              >
+                #{expense.appfolio_bill_id}
+                <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
           )}
         </div>
@@ -1457,7 +1486,7 @@ export default function BrexExpensesDashboard() {
                     {/* Quick actions (don't expand) */}
                     <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <a
-                        href={brexExpenseUrl(expense.expense_id, expense.brex_id)}
+                        href={brexExpenseUrl(expense.expense_id)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-slate-500 hover:text-accent transition-colors"
@@ -1465,6 +1494,17 @@ export default function BrexExpensesDashboard() {
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
+                      {(expense.bill_appfolio_bill_id || expense.appfolio_bill_id) && (
+                        <a
+                          href={appfolioBillUrl(expense.bill_appfolio_bill_id || expense.appfolio_bill_id!)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 text-emerald-600 hover:text-emerald-400 transition-colors"
+                          title="Open in AppFolio"
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                        </a>
+                      )}
                       {expense.receipt_ids && expense.receipt_ids.length > 0 && (
                         <a
                           href={`/api/admin/brex/receipt?receipt_id=${expense.receipt_ids[0]}`}
@@ -1487,7 +1527,7 @@ export default function BrexExpensesDashboard() {
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Brex Transaction</span>
                           <a
-                            href={brexExpenseUrl(expense.expense_id, expense.brex_id)}
+                            href={brexExpenseUrl(expense.expense_id)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors font-medium"
