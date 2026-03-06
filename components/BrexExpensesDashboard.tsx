@@ -94,9 +94,7 @@ interface QueueItem {
 }
 
 const brexExpenseUrl = (expenseId: string | null) => {
-  // Always link to the Brex expenses page — Brex deep links using expenseId
-  // query params no longer persist (SPA redirects to main view).
-  // Users can search by amount/merchant in the Brex dashboard.
+  if (expenseId) return `https://dashboard.brex.com/expenses/card/${expenseId}`;
   return `https://dashboard.brex.com/expenses/card`;
 };
 
