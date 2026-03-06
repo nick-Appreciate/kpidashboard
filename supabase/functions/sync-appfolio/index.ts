@@ -679,6 +679,7 @@ async function syncBillDetail(): Promise<SyncResult> {
         paid_date: row.payment_date || null,
         bill_number: row.reference_number || null,
         memo: row.description || null,
+        unit: row.unit || null,
         gl_account_name: row.account_name || null,
         gl_account_id: row.account_number ? String(row.account_number) : null,
         amount: totalAmount || null,
