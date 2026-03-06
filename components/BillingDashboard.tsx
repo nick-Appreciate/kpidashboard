@@ -113,8 +113,8 @@ export default function BillingDashboard() {
   // Per-bill editable drafts: bill.id -> BillDraft
   const [drafts, setDrafts] = useState<Record<number, BillDraft>>({});
 
-  // Vendor → property/GL pre-fill from historical af_bill_detail
-  const [prefillMap, setPrefillMap] = useState<Record<string, { vendor_name: string; property: string; gl_account: string }>>({});
+  // Vendor → property/GL/description pre-fill from historical af_bill_detail
+  const [prefillMap, setPrefillMap] = useState<Record<string, { vendor_name: string; property: string; gl_account: string; description: string }>>({});
   const prefillFetchedRef = useRef(false);
 
   // Upload queue state
@@ -186,7 +186,7 @@ export default function BillingDashboard() {
       const data = await res.json();
       setPrefillMap(prev => ({ ...prev, ...data }));
 
-      // Backfill any existing drafts that are missing property/GL
+      // Backfill any existing drafts that are missing property/GL/description
       setDrafts(prev => {
         const next = { ...prev };
         for (const bill of bills) {
@@ -199,6 +199,9 @@ export default function BillingDashboard() {
           }
           if (!draft.af_gl_account_input && prefill.gl_account) {
             draft.af_gl_account_input = prefill.gl_account;
+          }
+          if (!draft.description && prefill.description) {
+            draft.description = prefill.description;
           }
         }
         return next;
@@ -228,6 +231,7 @@ export default function BillingDashboard() {
             if (prefill) {
               if (!draft.af_property_input && prefill.property) draft.af_property_input = prefill.property;
               if (!draft.af_gl_account_input && prefill.gl_account) draft.af_gl_account_input = prefill.gl_account;
+              if (!draft.description && prefill.description) draft.description = prefill.description;
             }
             next[bill.id] = draft;
           } else {
@@ -243,6 +247,7 @@ export default function BillingDashboard() {
             if (prefill) {
               if (!d.af_property_input && prefill.property) d.af_property_input = prefill.property;
               if (!d.af_gl_account_input && prefill.gl_account) d.af_gl_account_input = prefill.gl_account;
+              if (!d.description && prefill.description) d.description = prefill.description;
             }
           }
         }

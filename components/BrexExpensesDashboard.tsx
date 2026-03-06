@@ -86,7 +86,7 @@ type FilterOption = "all" | "pending" | "entered" | "corporate";
 
 const POLL_INTERVAL = 15_000;
 
-function makeDraft(expense: BrexExpense, prefill?: { vendor_name: string; property: string; gl_account: string } | null): ExpenseDraft {
+function makeDraft(expense: BrexExpense, prefill?: { vendor_name: string; property: string; gl_account: string; description: string } | null): ExpenseDraft {
   const postedDate = expense.posted_at || expense.initiated_at || '';
   let defaultDue = '';
   if (postedDate) {
@@ -129,7 +129,7 @@ export default function BrexExpensesDashboard() {
 
   // Per-expense editable drafts: expense.id -> ExpenseDraft
   const [drafts, setDrafts] = useState<Record<number, ExpenseDraft>>({});
-  const [prefillMap, setPrefillMap] = useState<Record<string, { vendor_name: string; property: string; gl_account: string } | null>>({});
+  const [prefillMap, setPrefillMap] = useState<Record<string, { vendor_name: string; property: string; gl_account: string; description: string } | null>>({});
   const prefillFetchedRef = useRef<Set<string>>(new Set());
 
   // Upload queue state
