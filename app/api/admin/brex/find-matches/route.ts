@@ -4,11 +4,12 @@ import { supabase } from '../../../../../lib/supabase';
 /**
  * POST /api/admin/brex/find-matches
  *
- * Takes a Brex merchant name and amount, finds potential matching ops_bills.
- * Uses the same sophisticated normalization from the prefill route.
+ * Takes a Brex merchant name and amount, finds potential matching bills
+ * from both ops_bills (invoices from Front email) AND af_bill_detail
+ * (bills already in AppFolio).
  *
  * Body: { merchant_name: string, amount: number }
- * Returns: { matches: Array<{ id, vendor_name, amount, invoice_date, invoice_number, status, payment_status, score, match_reason }> }
+ * Returns: { matches: Array<{ id, vendor_name, amount, invoice_date, invoice_number, status, payment_status, score, match_reason, source }> }
  */
 
 // ─── POS / card-descriptor prefixes to strip ─────────────────────────────────
@@ -166,6 +167,21 @@ function editDistance(a: string, b: string): number {
 
 const MIN_VENDOR_SCORE = 0.4; // Lower threshold for "find potential matches" - user will verify
 
+/** Unified match result from either ops_bills or af_bill_detail */
+interface MatchResult {
+  id: number | string;
+  vendor_name: string;
+  amount: number;
+  invoice_date: string | null;
+  invoice_number: string | null;
+  status: string | null;
+  payment_status: string | null;
+  score: number;
+  match_reason: string;
+  source: 'ops_bills' | 'af_bill_detail';
+  property_name?: string | null;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -178,130 +194,115 @@ export async function POST(request: Request) {
     const merchantNorm = normalizeMerchant(merchant_name);
     const expenseAmount = Math.abs(Number(amount));
 
-    // Strategy: fetch bills that match by amount OR by vendor name, then score
-    // 1. Exact amount matches (most important signal)
-    const { data: amountMatches, error: amtErr } = await supabase
-      .from('ops_bills')
-      .select('id, vendor_name, amount, invoice_date, invoice_number, status, payment_status')
-      .eq('is_hidden', false)
-      .gte('amount', expenseAmount - 0.01)
-      .lte('amount', expenseAmount + 0.01);
+    // ─── Search ops_bills (invoices from Front email) ───────────────────────
 
-    if (amtErr) {
-      return NextResponse.json({ error: amtErr.message }, { status: 500 });
-    }
-
-    // 2. Also fetch bills by vendor name that might have different amounts (near-matches)
-    // We'll do a broader search and filter by vendor similarity
-    // Get distinct vendor names that fuzzy-match our merchant
-    const { data: allBills, error: allErr } = await supabase
+    const { data: opsBills } = await supabase
       .from('ops_bills')
       .select('id, vendor_name, amount, invoice_date, invoice_number, status, payment_status')
       .eq('is_hidden', false)
       .order('invoice_date', { ascending: false })
       .limit(500);
 
-    if (allErr) {
-      return NextResponse.json({ error: allErr.message }, { status: 500 });
-    }
+    // ─── Search af_bill_detail (bills already in AppFolio) ──────────────────
 
-    // Score and rank all potential matches
-    const seen = new Set<number>();
-    const results: Array<{
-      id: number;
-      vendor_name: string;
-      amount: number;
-      invoice_date: string | null;
-      invoice_number: string | null;
-      status: string | null;
-      payment_status: string | null;
-      score: number;
-      match_reason: string;
-    }> = [];
+    const { data: afBills } = await supabase
+      .from('af_bill_detail')
+      .select('id, bill_id, vendor_name, amount, bill_date, bill_number, status, paid_date, property_name')
+      .order('bill_date', { ascending: false })
+      .limit(1000);
 
-    // Process amount matches first (these are strong candidates)
-    for (const bill of amountMatches || []) {
-      if (seen.has(bill.id)) continue;
-      seen.add(bill.id);
+    // ─── Score and rank all candidates ──────────────────────────────────────
+
+    const results: MatchResult[] = [];
+    // Dedup key: source:id
+    const seen = new Set<string>();
+
+    // Helper to process a bill candidate
+    const scoreBill = (
+      bill: { id: number | string; vendor_name: string | null; amount: string | number; invoice_date?: string | null; bill_date?: string | null; invoice_number?: string | null; bill_number?: string | null; status?: string | null; payment_status?: string | null; paid_date?: string | null; property_name?: string | null },
+      source: 'ops_bills' | 'af_bill_detail'
+    ) => {
+      const key = `${source}:${bill.id}`;
+      if (seen.has(key)) return;
 
       const billNorm = normalizeAfVendor(bill.vendor_name || '');
       const vendorScore = matchScore(merchantNorm, billNorm);
-      const amountMatch = Math.abs(Number(bill.amount) - expenseAmount) < 0.01;
+      const billAmount = Math.abs(Number(bill.amount));
+      const amountMatch = Math.abs(billAmount - expenseAmount) < 0.01;
 
-      // Amount matches always included; vendor match boosts score
+      // Must match on amount OR vendor name
+      if (!amountMatch && vendorScore < MIN_VENDOR_SCORE) return;
+
+      seen.add(key);
+
       let score = 0;
       let reason = '';
 
       if (amountMatch && vendorScore >= MIN_VENDOR_SCORE) {
-        score = 0.9 + vendorScore * 0.1; // Strong match: both amount and vendor
+        score = 0.9 + vendorScore * 0.1;
         reason = 'Amount + vendor match';
       } else if (amountMatch) {
-        score = 0.5; // Amount match only
+        score = 0.5;
         reason = 'Amount match';
+      } else {
+        score = vendorScore * 0.6;
+        reason = 'Vendor match (different amount)';
       }
 
-      if (score > 0) {
-        results.push({
-          id: bill.id,
-          vendor_name: bill.vendor_name,
-          amount: Number(bill.amount),
-          invoice_date: bill.invoice_date,
-          invoice_number: bill.invoice_number,
-          status: bill.status,
-          payment_status: bill.payment_status,
-          score,
-          match_reason: reason,
-        });
-      }
+      const invoiceDate = bill.invoice_date || bill.bill_date || null;
+      const invoiceNumber = bill.invoice_number || bill.bill_number || null;
+      const paymentStatus = bill.payment_status || (bill.paid_date ? 'paid' : null);
+
+      results.push({
+        id: source === 'af_bill_detail' ? (bill as any).bill_id || bill.id : bill.id,
+        vendor_name: bill.vendor_name || '',
+        amount: billAmount,
+        invoice_date: invoiceDate,
+        invoice_number: invoiceNumber,
+        status: bill.status || null,
+        payment_status: paymentStatus,
+        score,
+        match_reason: reason,
+        source,
+        property_name: bill.property_name || null,
+      });
+    };
+
+    // Score ops_bills
+    for (const bill of opsBills || []) {
+      scoreBill(bill, 'ops_bills');
     }
 
-    // Process vendor name matches (may have different amounts)
-    for (const bill of allBills || []) {
-      if (seen.has(bill.id)) continue;
-
-      const billNorm = normalizeAfVendor(bill.vendor_name || '');
-      const vendorScore = matchScore(merchantNorm, billNorm);
-
-      if (vendorScore >= MIN_VENDOR_SCORE) {
-        seen.add(bill.id);
-        const amountMatch = Math.abs(Number(bill.amount) - expenseAmount) < 0.01;
-
-        let score = vendorScore * 0.6; // Vendor match but different amount
-        let reason = 'Vendor match (different amount)';
-
-        if (amountMatch) {
-          score = 0.9 + vendorScore * 0.1;
-          reason = 'Amount + vendor match';
-        }
-
-        results.push({
-          id: bill.id,
-          vendor_name: bill.vendor_name,
-          amount: Number(bill.amount),
-          invoice_date: bill.invoice_date,
-          invoice_number: bill.invoice_number,
-          status: bill.status,
-          payment_status: bill.payment_status,
-          score,
-          match_reason: reason,
-        });
-      }
+    // Score af_bill_detail
+    for (const bill of afBills || []) {
+      scoreBill(bill, 'af_bill_detail');
     }
 
     // Sort by score descending, then date
     results.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
-      // Prefer more recent bills
       if (a.invoice_date && b.invoice_date) return b.invoice_date.localeCompare(a.invoice_date);
       return 0;
     });
 
-    // Filter out low-score vendor-only matches (reduce noise)
-    const MIN_FINAL_SCORE = 0.35;
-    const filtered = results.filter(r => r.score >= MIN_FINAL_SCORE);
+    // Deduplicate: if same vendor + same amount from both sources, prefer af_bill_detail (already in AppFolio)
+    const deduped: MatchResult[] = [];
+    const vendorAmountSeen = new Set<string>();
+    for (const r of results) {
+      const vaKey = `${normalizeAfVendor(r.vendor_name)}:${r.amount.toFixed(2)}`;
+      if (vendorAmountSeen.has(vaKey)) {
+        // Skip duplicate from ops_bills if af_bill_detail already has it
+        if (r.source === 'ops_bills') continue;
+      }
+      vendorAmountSeen.add(vaKey);
+      deduped.push(r);
+    }
 
-    // Limit to top 10 matches
-    return NextResponse.json({ matches: filtered.slice(0, 10) });
+    // Filter low-score matches
+    const MIN_FINAL_SCORE = 0.35;
+    const filtered = deduped.filter(r => r.score >= MIN_FINAL_SCORE);
+
+    return NextResponse.json({ matches: filtered.slice(0, 15) });
   } catch (error) {
     console.error("Error finding matches:", error);
     return NextResponse.json(

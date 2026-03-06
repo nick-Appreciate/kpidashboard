@@ -49,7 +49,7 @@ function transformTransaction(txn: any) {
 }
 
 // --- Fetch expenses from Brex Expenses API to get expense_id + memo ---
-async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean }> {
+async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean; debug?: any }> {
   // Get all records missing expense_id
   const { data: needsEnrichment } = await supabase
     .from('brex_expenses')
@@ -60,7 +60,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
 
   if (!needsEnrichment || needsEnrichment.length === 0) {
     console.log('No records need expense enrichment');
-    return { enriched: 0, logged: false };
+    return { enriched: 0, logged: false, debug: { reason: 'no_records_need_enrichment' } };
   }
 
   console.log(`${needsEnrichment.length} records need expense_id enrichment`);
@@ -76,6 +76,12 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
   let logged = false;
   let cursor: string | null = null;
   let pageCount = 0;
+  let totalExpensesSeen = 0;
+  let txnIdMatches = 0;
+  let fallbackMatches = 0;
+  let apiError: string | null = null;
+  let sampleKeys: string[] = [];
+  let sampleExpense: any = null;
 
   do {
     const params = new URLSearchParams();
@@ -86,7 +92,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
     params.set('expand[]', 'receipts');
 
     const url = `https://platform.brexapis.com/v2/expenses/card?${params.toString()}`;
-    console.log(`Fetching expenses page ${pageCount + 1}`);
+    console.log(`Fetching expenses page ${pageCount + 1}: ${url}`);
 
     const response = await fetch(url, {
       headers: {
@@ -97,33 +103,35 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Expenses API error ${response.status}: ${errorText}`);
+      apiError = `${response.status}: ${errorText}`;
+      console.error(`Expenses API error ${apiError}`);
       break;
     }
 
     const data = await response.json();
     const items = data.items || [];
     pageCount++;
+    totalExpensesSeen += items.length;
 
-    // Log first expense object structure for debugging
+    // Log first expense object structure for debugging - capture in response
     if (!logged && items.length > 0) {
-      console.log('Sample expense object keys:', JSON.stringify(Object.keys(items[0])));
-      // Log a redacted version to see field structure
+      sampleKeys = Object.keys(items[0]);
       const sample = items[0];
-      console.log('Sample expense structure:', JSON.stringify({
+      sampleExpense = {
         id: sample.id,
         memo: sample.memo,
         merchant_name: sample.merchant_name,
         purchased_at: sample.purchased_at,
         updated_at: sample.updated_at,
-        // Check for transaction reference in various locations
         card_expense_id: sample.card_expense?.id,
         card_transaction_id: sample.card_expense?.card_transaction?.id,
         transaction_id: sample.transaction_id,
         card_transaction: sample.card_transaction,
         original_amount: sample.original_amount,
         amount: sample.amount,
-      }, null, 2));
+      };
+      console.log('Sample expense object keys:', JSON.stringify(sampleKeys));
+      console.log('Sample expense structure:', JSON.stringify(sampleExpense, null, 2));
       logged = true;
     }
 
@@ -142,7 +150,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
         memo = expense.memo.value;
       }
 
-      // Try to find the matching transaction ID (pste_...)
+      // Try to find the matching transaction ID (pste_...) via multiple paths
       const txnId = expense.card_expense?.card_transaction?.id
         || expense.card_transaction?.id
         || expense.transaction_id
@@ -150,6 +158,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
 
       if (txnId && brexIdToDbId.has(txnId)) {
         // Direct match via transaction ID
+        txnIdMatches++;
         const dbId = brexIdToDbId.get(txnId)!;
         const updateData: any = { expense_id: expenseId };
         if (memo) updateData.memo = memo;
@@ -161,7 +170,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
 
         if (!error) {
           enrichedCount++;
-          brexIdToDbId.delete(txnId); // Remove from lookup so we don't double-match
+          brexIdToDbId.delete(txnId);
         }
       } else {
         // Fallback: match by amount + merchant + date proximity
@@ -197,6 +206,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
             }
 
             if (amountMatch && (merchantMatch || dateMatch)) {
+              fallbackMatches++;
               const updateData: any = { expense_id: expenseId };
               if (memo) updateData.memo = memo;
 
@@ -209,7 +219,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
                 enrichedCount++;
                 brexIdToDbId.delete(brexId);
               }
-              break; // Move to next expense
+              break;
             }
           }
         }
@@ -225,8 +235,23 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
     }
   } while (cursor && pageCount < MAX_PAGES);
 
-  console.log(`Expense enrichment: ${enrichedCount} records updated across ${pageCount} pages`);
-  return { enriched: enrichedCount, logged };
+  console.log(`Expense enrichment: ${enrichedCount} records updated across ${pageCount} pages (${totalExpensesSeen} expenses seen, ${txnIdMatches} txnId matches, ${fallbackMatches} fallback matches)`);
+
+  return {
+    enriched: enrichedCount,
+    logged,
+    debug: {
+      needsEnrichment: needsEnrichment.length,
+      totalExpensesSeen,
+      txnIdMatches,
+      fallbackMatches,
+      pagesProcessed: pageCount,
+      apiError,
+      sampleKeys,
+      sampleExpense,
+      remainingUnmatched: brexIdToDbId.size,
+    },
+  };
 }
 
 // --- Matching logic ---

@@ -67,9 +67,9 @@ interface ExpenseDraft {
   af_unit_input: string;
 }
 
-/** A potential bill match from ops_bills */
+/** A potential bill match from ops_bills or af_bill_detail */
 interface PotentialMatch {
-  id: number;
+  id: number | string;
   vendor_name: string;
   amount: number;
   invoice_date: string | null;
@@ -78,6 +78,8 @@ interface PotentialMatch {
   payment_status: string | null;
   score: number;
   match_reason: string;
+  source?: 'ops_bills' | 'af_bill_detail';
+  property_name?: string | null;
 }
 
 /** Upload queue item */
@@ -118,19 +120,15 @@ function makeDraft(expense: BrexExpense, prefill?: { vendor_name: string; proper
     defaultDue = d.toISOString().split('T')[0];
   }
 
-  // Use Brex memo as primary description, fall back to prefill description
-  const brexLink = brexExpenseUrl(expense.expense_id);
+  // Build description: Brex memo > prefill memo > merchant name fallback
   let description = '';
   if (expense.memo) {
     description = expense.memo;
   } else if (prefill?.description) {
     description = prefill.description;
-  }
-  // Append Brex link for AppFolio reference
-  if (description) {
-    description = `${description} | Brex: ${brexLink}`;
   } else {
-    description = `Brex: ${brexLink}`;
+    // Fallback: use merchant name as description when no memo available
+    description = `Brex charge - ${expense.merchant_name}`;
   }
 
   return {
@@ -716,19 +714,24 @@ export default function BrexExpensesDashboard() {
                     <span className="text-sm font-semibold text-cyan-300 truncate">{match.vendor_name}</span>
                     <span className="text-xs font-bold text-cyan-200 tabular-nums">${match.amount.toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5 flex-wrap">
                     {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                     {match.invoice_number && <span>#{match.invoice_number}</span>}
+                    {match.property_name && <span className="text-slate-400">{match.property_name}</span>}
                     {match.payment_status && (
                       <span className={match.payment_status === 'paid' ? 'text-emerald-500' : 'text-amber-500'}>
                         {match.payment_status}
                       </span>
                     )}
-                    <span className="text-cyan-500/60">{match.match_reason}</span>
+                    <span className={`px-1 py-px rounded text-[9px] font-medium ${
+                      match.source === 'af_bill_detail' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-500/15 text-slate-400'
+                    }`}>
+                      {match.source === 'af_bill_detail' ? 'AppFolio' : 'Pending'}
+                    </span>
                   </div>
                 </div>
                 <button
-                  onClick={() => linkExpenseToBill(expense.id, match.id)}
+                  onClick={() => linkExpenseToBill(expense.id, typeof match.id === 'string' ? parseInt(match.id) || 0 : match.id)}
                   disabled={linkingId === expense.id}
                   className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded bg-cyan-600 hover:bg-cyan-500 text-white transition-colors disabled:opacity-50"
                 >
@@ -760,18 +763,24 @@ export default function BrexExpensesDashboard() {
                     <span className="text-xs font-medium text-slate-300 truncate">{match.vendor_name}</span>
                     <span className="text-xs text-slate-400 tabular-nums">${match.amount.toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-600 mt-0.5">
+                  <div className="flex items-center gap-2 text-[10px] text-slate-600 mt-0.5 flex-wrap">
                     {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                     {match.invoice_number && <span>#{match.invoice_number}</span>}
+                    {match.property_name && <span className="text-slate-400">{match.property_name}</span>}
                     {match.payment_status && (
                       <span className={match.payment_status === 'paid' ? 'text-emerald-600' : 'text-amber-600'}>
                         {match.payment_status}
                       </span>
                     )}
+                    <span className={`px-1 py-px rounded text-[9px] font-medium ${
+                      match.source === 'af_bill_detail' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-500/15 text-slate-400'
+                    }`}>
+                      {match.source === 'af_bill_detail' ? 'AppFolio' : 'Pending'}
+                    </span>
                   </div>
                 </div>
                 <button
-                  onClick={() => linkExpenseToBill(expense.id, match.id)}
+                  onClick={() => linkExpenseToBill(expense.id, typeof match.id === 'string' ? parseInt(match.id) || 0 : match.id)}
                   disabled={linkingId === expense.id}
                   className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors border border-[var(--glass-border)] disabled:opacity-50"
                 >
