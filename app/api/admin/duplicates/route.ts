@@ -84,7 +84,7 @@ export async function GET(request: Request) {
 
       // Filter to duplicates only (must have different bill_ids, not just multi-line items on same bill)
       const dupeGroups: DupeGroup[] = [];
-      for (const [key, items] of groups) {
+      for (const [key, items] of Array.from(groups.entries())) {
         const uniqueBillIds = new Set(items.map(b => b.bill_id));
         if (uniqueBillIds.size <= 1) continue;
         // Deduplicate line items — keep one row per unique bill_id
