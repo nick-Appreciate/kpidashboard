@@ -644,6 +644,64 @@ async function syncProspectSourceTracking(): Promise<SyncResult> {
   }
 }
 
+async function syncBillDetail(): Promise<SyncResult> {
+  try {
+    // bill_detail uses occurred_on_from/to, not from_date/to_date
+    const data = await fetchAppFolioReport('bill_detail', {
+      occurred_on_from: '2025-01-01',
+      occurred_on_to: getTodayDate()
+    });
+
+    const records = data.map((row: any) => {
+      // Amount = paid + unpaid (gives total bill amount)
+      const paid = row.paid ? parseFloat(row.paid) : 0;
+      const unpaid = row.unpaid ? parseFloat(row.unpaid) : 0;
+      const totalAmount = paid + unpaid;
+
+      // Derive status from payment state
+      let status: string | null = null;
+      if (row.payment_date) {
+        status = 'Paid';
+      } else if (row.approval_status === 'Approved' && unpaid > 0) {
+        status = 'Unpaid';
+      } else if (row.approval_status) {
+        status = row.approval_status;
+      }
+
+      return {
+        bill_id: row.txn_id ? String(row.txn_id) : null,
+        vendor_name: row.payee_name,
+        vendor_id: row.vendor_id ? String(row.vendor_id) : (row.party_id ? String(row.party_id) : null),
+        property_name: row.property_name,
+        property_id: row.property_id ? String(row.property_id) : null,
+        bill_date: row.bill_date || null,
+        due_date: row.due_date || null,
+        paid_date: row.payment_date || null,
+        bill_number: row.reference_number || null,
+        memo: row.description || null,
+        gl_account_name: row.account_name || null,
+        gl_account_id: row.account_number ? String(row.account_number) : null,
+        amount: totalAmount || null,
+        status,
+        synced_at: new Date().toISOString()
+      };
+    });
+
+    await supabase.rpc('truncate_af_bill_detail');
+
+    const batchSize = 100;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+      const { error } = await supabase.from('af_bill_detail').insert(batch);
+      if (error) throw new Error(JSON.stringify(error));
+    }
+
+    return { report: 'bill_detail', success: true, rowsProcessed: records.length };
+  } catch (error: any) {
+    return { report: 'bill_detail', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 async function syncTenantDirectory(): Promise<SyncResult> {
   try {
     // Include all tenant statuses to get eviction/prior tenant contact info
@@ -724,6 +782,7 @@ Deno.serve(async (req: Request) => {
       results.push(await syncChargeDetail()); await delay();
       results.push(await syncGeneralLedger()); await delay();
       results.push(await syncChartOfAccounts()); await delay();
+      results.push(await syncBillDetail()); await delay();
       results.push(await syncTrialBalance()); await delay();
       results.push(await syncProspectSourceTracking()); await delay();
       results.push(await syncTenantDirectory());
@@ -745,8 +804,9 @@ Deno.serve(async (req: Request) => {
       results.push(await syncChargeDetail()); await delay();
       results.push(await syncGeneralLedger()); await delay();
       results.push(await syncChartOfAccounts()); await delay();
+      results.push(await syncBillDetail()); await delay();
       results.push(await syncTrialBalance());
-      
+
     } else {
       // Individual report sync
       const syncFunctions: Record<string, () => Promise<SyncResult>> = {
@@ -765,6 +825,7 @@ Deno.serve(async (req: Request) => {
         'charge_detail': syncChargeDetail,
         'general_ledger': syncGeneralLedger,
         'chart_of_accounts': syncChartOfAccounts,
+        'bill_detail': syncBillDetail,
         'trial_balance': syncTrialBalance,
         'prospect_source_tracking': syncProspectSourceTracking,
         'tenant_directory': syncTenantDirectory

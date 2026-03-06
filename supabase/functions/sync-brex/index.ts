@@ -91,7 +91,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
     params.set('expand[]', 'merchant');
     params.set('expand[]', 'receipts');
 
-    const url = `https://platform.brexapis.com/v2/expenses/card?${params.toString()}`;
+    const url = `https://platform.brexapis.com/v1/expenses/card?${params.toString()}`;
     console.log(`Fetching expenses page ${pageCount + 1}: ${url}`);
 
     const response = await fetch(url, {
