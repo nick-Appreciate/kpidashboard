@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, X, ExternalLink, Upload, Loader2, RefreshCw, Image as ImageIcon, XCircle } from "lucide-react";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, X, ExternalLink, Upload, Loader2, RefreshCw, Image as ImageIcon, XCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { LogoLoader } from "./Logo";
 import DarkSelect from "./DarkSelect";
 import { useAuth } from "../contexts/AuthContext";
@@ -131,6 +131,17 @@ export default function BrexExpensesDashboard() {
   const [drafts, setDrafts] = useState<Record<number, ExpenseDraft>>({});
   const [prefillMap, setPrefillMap] = useState<Record<string, { vendor_name: string; property: string; gl_account: string; description: string } | null>>({});
   const prefillFetchedRef = useRef<Set<string>>(new Set());
+
+  // Expand/collapse state for cards
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const toggleExpand = (id: number) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Upload queue state
   const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
@@ -891,152 +902,277 @@ export default function BrexExpensesDashboard() {
             {filter === "corporate" ? "No corporate expenses." : "No expenses found for the current filter."}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {sortedExpenses.map((expense) => {
               const isEntered = expense.appfolio_synced;
               const isCorporateView = filter === "corporate" || expense.is_corporate;
               const isPending = !isEntered && !expense.is_corporate;
+              const isExpanded = expandedIds.has(expense.id);
+              const draft = drafts[expense.id];
+              const queueItem = uploadQueue.find(q => q.expenseId === expense.id);
+              const result = uploadResult[expense.id];
+              const missing = draft ? getMissingFields(draft) : [];
+              const prefill = prefillMap[expense.merchant_name];
+              const hasPrefill = !!prefill;
+
+              // Status indicator color
+              const statusColor = isEntered ? 'bg-green-500' : isCorporateView ? 'bg-slate-400' : 'bg-amber-500';
+              const statusBorder = isEntered ? 'border-green-200' : isCorporateView ? 'border-slate-300' : queueItem?.status === 'uploading' ? 'border-blue-300' : queueItem?.status === 'failed' ? 'border-red-300' : 'border-slate-200';
 
               return (
                 <div
                   key={expense.id}
-                  className={`bg-white rounded-lg shadow-sm border overflow-hidden ${
-                    isCorporateView ? "border-slate-300 opacity-75" : isEntered ? "border-green-200" : "border-slate-200"
+                  className={`bg-white rounded-lg shadow-sm border overflow-hidden transition-all ${statusBorder} ${
+                    isCorporateView && !isExpanded ? 'opacity-70' : ''
                   }`}
                 >
-                  <div className="grid grid-cols-2 divide-x divide-slate-200">
-                    {/* LEFT PANEL: Brex Transaction */}
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Brex Transaction</span>
+                  {/* ── SLIM PREVIEW ROW ── */}
+                  <div
+                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors select-none ${
+                      isExpanded ? 'border-b border-slate-100' : ''
+                    }`}
+                    onClick={() => toggleExpand(expense.id)}
+                  >
+                    {/* Expand chevron */}
+                    <div className="flex-shrink-0 text-slate-400">
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </div>
+
+                    {/* Status dot */}
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
+
+                    {/* Merchant name */}
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-slate-800 truncate block">{expense.merchant_name}</span>
+                    </div>
+
+                    {/* Memo snippet */}
+                    <div className="hidden md:block min-w-0 flex-1 max-w-[200px]">
+                      {expense.memo && (
+                        <span className="text-xs text-slate-400 truncate block">{expense.memo}</span>
+                      )}
+                    </div>
+
+                    {/* Pre-fill indicator */}
+                    <div className="flex-shrink-0 w-16 text-center">
+                      {isPending && hasPrefill && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium">Matched</span>
+                      )}
+                      {isPending && !hasPrefill && missing.length > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-400 font-medium">{missing.length} req</span>
+                      )}
+                    </div>
+
+                    {/* Amount */}
+                    <div className="flex-shrink-0 w-24 text-right">
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">${Number(expense.amount).toFixed(2)}</span>
+                    </div>
+
+                    {/* Date */}
+                    <div className="flex-shrink-0 w-24 text-right">
+                      <span className="text-xs text-slate-500 tabular-nums">
+                        {expense.posted_at
+                          ? new Date(expense.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          : expense.initiated_at
+                          ? new Date(expense.initiated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          : '—'}
+                      </span>
+                    </div>
+
+                    {/* Status badge */}
+                    <div className="flex-shrink-0 w-20">
+                      {isEntered ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-green-100 text-green-700">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Entered
+                        </span>
+                      ) : isCorporateView ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-200 text-slate-600">
+                          <Archive className="w-3 h-3" />
+                          Corp
+                        </span>
+                      ) : queueItem?.status === 'uploading' ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-600">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Sending
+                        </span>
+                      ) : queueItem?.status === 'queued' ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-500">
+                          Queued
+                        </span>
+                      ) : result?.success === false ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-600">
+                          <XCircle className="w-3 h-3" />
+                          Failed
+                        </span>
+                      ) : (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-100 text-amber-700">
+                          Pending
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Quick actions (don't expand) */}
+                    <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <a
+                        href={brexExpenseUrl(expense.brex_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1 text-slate-400 hover:text-blue-500 transition-colors"
+                        title="Open in Brex"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                      {expense.receipt_ids && expense.receipt_ids.length > 0 && (
                         <a
-                          href={brexExpenseUrl(expense.brex_id)}
+                          href={`/api/admin/brex/receipt?receipt_id=${expense.receipt_ids[0]}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors font-medium"
-                          title="Open in Brex Dashboard"
+                          className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                          title="View receipt"
                         >
-                          <ExternalLink className="w-3 h-3" />
-                          Open in Brex
+                          <ImageIcon className="w-3.5 h-3.5" />
                         </a>
-                      </div>
-                      <h2 className="text-base font-semibold text-slate-800 mb-0.5">{expense.merchant_name}</h2>
-                      <p className="text-xs text-slate-500 mb-3">
-                        {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name
-                          ? `${expense.merchant_raw_descriptor} · `
-                          : ""}
-                        {expense.posted_at
-                          ? new Date(expense.posted_at).toLocaleDateString()
-                          : expense.initiated_at
-                          ? new Date(expense.initiated_at).toLocaleDateString()
-                          : "No date"}
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
-                        <div>
-                          <span className="text-xs text-slate-400">Amount</span>
-                          <p className="font-bold text-slate-900 text-base">${Number(expense.amount).toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <span className="text-xs text-slate-400">Posted Date</span>
-                          <p className="font-mono text-sm text-slate-700">
-                            {expense.posted_at || "Pending"}
-                          </p>
-                        </div>
-                        {expense.transaction_type && (
-                          <div>
-                            <span className="text-xs text-slate-400">Type</span>
-                            <p className="text-sm text-slate-700">{expense.transaction_type}</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {expense.memo && (
-                        <p className="text-xs text-slate-500 mb-2 line-clamp-2">
-                          <span className="text-slate-400">Memo: </span>{expense.memo}
-                        </p>
                       )}
-
-                      {/* Receipt Thumbnails */}
-                      {expense.receipt_ids && expense.receipt_ids.length > 0 && (
-                        <div className="flex gap-1.5 mb-2">
-                          {expense.receipt_ids.map((receiptId, idx) => (
-                            <a
-                              key={receiptId}
-                              href={`/api/admin/brex/receipt?receipt_id=${receiptId}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 rounded text-[10px] hover:bg-slate-200 transition-colors"
-                              title={`View receipt ${idx + 1}`}
-                            >
-                              <ImageIcon className="w-3 h-3" />
-                              Receipt {idx + 1}
-                            </a>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Corporate note */}
-                      {isCorporateView && expense.corporate_note && (
-                        <p className="text-xs text-orange-600 mb-2 italic">
-                          <span className="text-orange-400">Corporate: </span>{expense.corporate_note}
-                        </p>
-                      )}
-
-                      {/* Action Buttons */}
-                      <div className="flex gap-2 flex-wrap">
-                        {expense.is_corporate ? (
-                          <button
-                            onClick={() => unarchiveCorporate(expense.id)}
-                            disabled={actionId === expense.id}
-                            className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 disabled:opacity-50"
-                          >
-                            <ArchiveRestore className="w-3.5 h-3.5" />
-                            {actionId === expense.id ? "..." : "Unarchive"}
-                          </button>
-                        ) : !isEntered ? (
-                          <button
-                            onClick={() => setArchiveModal({ expense, note: "" })}
-                            className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
-                          >
-                            <Archive className="w-3.5 h-3.5" />
-                            Archive as Corporate
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {/* RIGHT PANEL: AppFolio */}
-                    <div className={`p-4 ${
-                      isEntered ? "bg-green-50" :
-                      isCorporateView ? "bg-slate-50" :
-                      "bg-amber-50/50"
-                    }`}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">AppFolio</span>
-                        {isEntered ? (
-                          <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-green-200 text-green-800">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Entered
-                          </span>
-                        ) : isCorporateView ? (
-                          <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-200 text-slate-700">
-                            <Archive className="w-3 h-3" />
-                            Corporate
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-200 text-amber-800">
-                            <AlertCircle className="w-3 h-3" />
-                            Pending
-                          </span>
-                        )}
-                      </div>
-
-                      {isPending && renderPendingPanel(expense)}
-                      {isEntered && renderEnteredPanel(expense)}
-                      {isCorporateView && !isEntered && renderCorporatePanel(expense)}
                     </div>
                   </div>
+
+                  {/* ── EXPANDED CONTENT ── */}
+                  {isExpanded && (
+                    <div className="grid grid-cols-2 divide-x divide-slate-200">
+                      {/* LEFT PANEL: Brex Transaction */}
+                      <div className="p-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Brex Transaction</span>
+                          <a
+                            href={brexExpenseUrl(expense.brex_id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors font-medium"
+                            title="Open in Brex Dashboard"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Open in Brex
+                          </a>
+                        </div>
+                        <h2 className="text-base font-semibold text-slate-800 mb-0.5">{expense.merchant_name}</h2>
+                        <p className="text-xs text-slate-500 mb-3">
+                          {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name
+                            ? `${expense.merchant_raw_descriptor} · `
+                            : ""}
+                          {expense.posted_at
+                            ? new Date(expense.posted_at).toLocaleDateString()
+                            : expense.initiated_at
+                            ? new Date(expense.initiated_at).toLocaleDateString()
+                            : "No date"}
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
+                          <div>
+                            <span className="text-xs text-slate-400">Amount</span>
+                            <p className="font-bold text-slate-900 text-base">${Number(expense.amount).toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <span className="text-xs text-slate-400">Posted Date</span>
+                            <p className="font-mono text-sm text-slate-700">
+                              {expense.posted_at || "Pending"}
+                            </p>
+                          </div>
+                          {expense.transaction_type && (
+                            <div>
+                              <span className="text-xs text-slate-400">Type</span>
+                              <p className="text-sm text-slate-700">{expense.transaction_type}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {expense.memo && (
+                          <p className="text-xs text-slate-500 mb-2 line-clamp-2">
+                            <span className="text-slate-400">Memo: </span>{expense.memo}
+                          </p>
+                        )}
+
+                        {/* Receipt Thumbnails */}
+                        {expense.receipt_ids && expense.receipt_ids.length > 0 && (
+                          <div className="flex gap-1.5 mb-2">
+                            {expense.receipt_ids.map((receiptId, idx) => (
+                              <a
+                                key={receiptId}
+                                href={`/api/admin/brex/receipt?receipt_id=${receiptId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 rounded text-[10px] hover:bg-slate-200 transition-colors"
+                                title={`View receipt ${idx + 1}`}
+                              >
+                                <ImageIcon className="w-3 h-3" />
+                                Receipt {idx + 1}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Corporate note */}
+                        {isCorporateView && expense.corporate_note && (
+                          <p className="text-xs text-orange-600 mb-2 italic">
+                            <span className="text-orange-400">Corporate: </span>{expense.corporate_note}
+                          </p>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 flex-wrap">
+                          {expense.is_corporate ? (
+                            <button
+                              onClick={() => unarchiveCorporate(expense.id)}
+                              disabled={actionId === expense.id}
+                              className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 disabled:opacity-50"
+                            >
+                              <ArchiveRestore className="w-3.5 h-3.5" />
+                              {actionId === expense.id ? "..." : "Unarchive"}
+                            </button>
+                          ) : !isEntered ? (
+                            <button
+                              onClick={() => setArchiveModal({ expense, note: "" })}
+                              className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                              Archive as Corporate
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {/* RIGHT PANEL: AppFolio */}
+                      <div className={`p-4 ${
+                        isEntered ? "bg-green-50" :
+                        isCorporateView ? "bg-slate-50" :
+                        "bg-amber-50/50"
+                      }`}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">AppFolio</span>
+                          {isEntered ? (
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-green-200 text-green-800">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Entered
+                            </span>
+                          ) : isCorporateView ? (
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-200 text-slate-700">
+                              <Archive className="w-3 h-3" />
+                              Corporate
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-200 text-amber-800">
+                              <AlertCircle className="w-3 h-3" />
+                              Pending
+                            </span>
+                          )}
+                        </div>
+
+                        {isPending && renderPendingPanel(expense)}
+                        {isEntered && renderEnteredPanel(expense)}
+                        {isCorporateView && !isEntered && renderCorporatePanel(expense)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
