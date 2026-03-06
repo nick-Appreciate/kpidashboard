@@ -194,6 +194,17 @@ export async function POST(request: Request) {
     const merchantNorm = normalizeMerchant(merchant_name);
     const expenseAmount = Math.abs(Number(amount));
 
+    // ─── Fetch already-matched bill IDs to exclude ──────────────────────────
+
+    const { data: matchedExpenses } = await supabase
+      .from('brex_expenses')
+      .select('matched_bill_id')
+      .not('matched_bill_id', 'is', null);
+
+    const alreadyMatchedBillIds = new Set(
+      (matchedExpenses || []).map(e => e.matched_bill_id as number)
+    );
+
     // ─── Search ops_bills (invoices from Front email) ───────────────────────
 
     const { data: opsBills } = await supabase
@@ -224,6 +235,10 @@ export async function POST(request: Request) {
     ) => {
       const key = `${source}:${bill.id}`;
       if (seen.has(key)) return;
+
+      // Skip bills already matched to another Brex expense
+      const billIdForMatch = source === 'af_bill_detail' ? ((bill as any).bill_id || bill.id) : bill.id;
+      if (alreadyMatchedBillIds.has(Number(billIdForMatch))) return;
 
       const billNorm = normalizeAfVendor(bill.vendor_name || '');
       const vendorScore = matchScore(merchantNorm, billNorm);

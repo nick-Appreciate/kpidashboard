@@ -360,6 +360,36 @@ async function runMatching(): Promise<{ highConfidence: number; lowConfidence: n
   return { highConfidence: highCount, lowConfidence: lowCount };
 }
 
+// --- Apply corporate merchant rules (auto-archive expenses from designated merchants) ---
+async function applyCorporateMerchantRules(): Promise<number> {
+  const { data: rules } = await supabase
+    .from('brex_corporate_merchants')
+    .select('merchant_name_normalized')
+    .eq('enabled', true);
+
+  if (!rules || rules.length === 0) return 0;
+
+  const names = rules.map(r => r.merchant_name_normalized);
+
+  const { data: updated } = await supabase
+    .from('brex_expenses')
+    .update({
+      is_corporate: true,
+      match_status: 'corporate',
+      corporate_at: new Date().toISOString(),
+      corporate_note: 'Auto: merchant rule',
+      updated_at: new Date().toISOString(),
+    })
+    .in('vendor_name_normalized', names)
+    .eq('is_corporate', false)
+    .eq('appfolio_synced', false)
+    .select('id');
+
+  const count = updated?.length || 0;
+  if (count > 0) console.log(`Auto-corporate: marked ${count} expenses from merchant rules`);
+  return count;
+}
+
 // --- Main handler ---
 Deno.serve(async (_req: Request) => {
   try {
@@ -457,6 +487,9 @@ Deno.serve(async (_req: Request) => {
     // 3. Enrich with expense IDs + memos from Expenses API
     const enrichResults = await enrichWithExpenses();
 
+    // 3.5. Apply corporate merchant rules (auto-archive vendor-rule expenses)
+    const autoCorporateCount = await applyCorporateMerchantRules();
+
     // 4. Run matching
     const matchResults = await runMatching();
 
@@ -468,6 +501,7 @@ Deno.serve(async (_req: Request) => {
       pagesProcessed: pageCount,
       hasMore: !!cursor,
       enrichment: enrichResults,
+      autoCorporate: autoCorporateCount,
       matching: matchResults,
     }), {
       status: 200,
