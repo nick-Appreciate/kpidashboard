@@ -43,8 +43,8 @@ export default function Sidebar({ user, onLogout }) {
           )
         },
         {
-          name: 'Billing',
-          href: '/billing',
+          name: 'Bookkeeping',
+          href: '/bookkeeping',
           icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -99,15 +99,6 @@ export default function Sidebar({ user, onLogout }) {
           )
         },
         {
-          name: 'Brex Expenses',
-          href: '/admin/brex',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-            </svg>
-          )
-        },
-        {
           name: 'Mercury Cash',
           href: '/admin/mercury',
           icon: (
@@ -116,15 +107,6 @@ export default function Sidebar({ user, onLogout }) {
             </svg>
           )
         },
-        {
-          name: 'Duplicates',
-          href: '/admin/duplicates',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          )
-        }
       ]
     }] : [])
   ];
