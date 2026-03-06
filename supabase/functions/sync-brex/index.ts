@@ -48,6 +48,187 @@ function transformTransaction(txn: any) {
   };
 }
 
+// --- Fetch expenses from Brex Expenses API to get expense_id + memo ---
+async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean }> {
+  // Get all records missing expense_id
+  const { data: needsEnrichment } = await supabase
+    .from('brex_expenses')
+    .select('id, brex_id, amount, merchant_name, posted_at')
+    .is('expense_id', null)
+    .order('posted_at', { ascending: false })
+    .limit(500);
+
+  if (!needsEnrichment || needsEnrichment.length === 0) {
+    console.log('No records need expense enrichment');
+    return { enriched: 0, logged: false };
+  }
+
+  console.log(`${needsEnrichment.length} records need expense_id enrichment`);
+
+  // Build a lookup map: brex_id (pste_...) -> DB record id
+  const brexIdToDbId = new Map<string, number>();
+  for (const r of needsEnrichment) {
+    brexIdToDbId.set(r.brex_id, r.id);
+  }
+
+  // Fetch expenses from Brex Expenses API
+  let enrichedCount = 0;
+  let logged = false;
+  let cursor: string | null = null;
+  let pageCount = 0;
+
+  do {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    params.set('limit', '100');
+    // Expand to get full details
+    params.set('expand[]', 'merchant');
+    params.set('expand[]', 'receipts');
+
+    const url = `https://platform.brexapis.com/v2/expenses/card?${params.toString()}`;
+    console.log(`Fetching expenses page ${pageCount + 1}`);
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${brexApiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Expenses API error ${response.status}: ${errorText}`);
+      break;
+    }
+
+    const data = await response.json();
+    const items = data.items || [];
+    pageCount++;
+
+    // Log first expense object structure for debugging
+    if (!logged && items.length > 0) {
+      console.log('Sample expense object keys:', JSON.stringify(Object.keys(items[0])));
+      // Log a redacted version to see field structure
+      const sample = items[0];
+      console.log('Sample expense structure:', JSON.stringify({
+        id: sample.id,
+        memo: sample.memo,
+        merchant_name: sample.merchant_name,
+        purchased_at: sample.purchased_at,
+        updated_at: sample.updated_at,
+        // Check for transaction reference in various locations
+        card_expense_id: sample.card_expense?.id,
+        card_transaction_id: sample.card_expense?.card_transaction?.id,
+        transaction_id: sample.transaction_id,
+        card_transaction: sample.card_transaction,
+        original_amount: sample.original_amount,
+        amount: sample.amount,
+      }, null, 2));
+      logged = true;
+    }
+
+    console.log(`Expenses page ${pageCount}: got ${items.length} items`);
+
+    for (const expense of items) {
+      const expenseId = expense.id; // expense_...
+
+      // Extract memo - handle both string and object formats
+      let memo: string | null = null;
+      if (typeof expense.memo === 'string') {
+        memo = expense.memo;
+      } else if (expense.memo?.raw_memo) {
+        memo = expense.memo.raw_memo;
+      } else if (expense.memo?.value) {
+        memo = expense.memo.value;
+      }
+
+      // Try to find the matching transaction ID (pste_...)
+      const txnId = expense.card_expense?.card_transaction?.id
+        || expense.card_transaction?.id
+        || expense.transaction_id
+        || null;
+
+      if (txnId && brexIdToDbId.has(txnId)) {
+        // Direct match via transaction ID
+        const dbId = brexIdToDbId.get(txnId)!;
+        const updateData: any = { expense_id: expenseId };
+        if (memo) updateData.memo = memo;
+
+        const { error } = await supabase
+          .from('brex_expenses')
+          .update(updateData)
+          .eq('id', dbId);
+
+        if (!error) {
+          enrichedCount++;
+          brexIdToDbId.delete(txnId); // Remove from lookup so we don't double-match
+        }
+      } else {
+        // Fallback: match by amount + merchant + date proximity
+        const expAmount = expense.original_amount?.amount
+          ? Math.abs(expense.original_amount.amount / 100)
+          : expense.amount?.amount
+          ? Math.abs(expense.amount.amount / 100)
+          : null;
+
+        const expDate = expense.purchased_at || null;
+        const expMerchant = (expense.merchant_name || expense.merchant?.name || '').toLowerCase();
+
+        if (expAmount !== null) {
+          for (const [brexId, dbId] of brexIdToDbId.entries()) {
+            const record = needsEnrichment.find(r => r.id === dbId);
+            if (!record) continue;
+
+            const dbAmount = Number(record.amount);
+            const amountMatch = Math.abs(dbAmount - expAmount) < 0.01;
+            if (!amountMatch) continue;
+
+            // Check merchant name similarity
+            const dbMerchant = (record.merchant_name || '').toLowerCase();
+            const merchantMatch = dbMerchant.includes(expMerchant) || expMerchant.includes(dbMerchant)
+              || (dbMerchant.split(' ')[0].length > 2 && dbMerchant.split(' ')[0] === expMerchant.split(' ')[0]);
+
+            // Check date proximity
+            let dateMatch = false;
+            if (expDate && record.posted_at) {
+              const d1 = new Date(expDate);
+              const d2 = new Date(record.posted_at);
+              dateMatch = Math.abs(d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24) <= 3;
+            }
+
+            if (amountMatch && (merchantMatch || dateMatch)) {
+              const updateData: any = { expense_id: expenseId };
+              if (memo) updateData.memo = memo;
+
+              const { error } = await supabase
+                .from('brex_expenses')
+                .update(updateData)
+                .eq('id', dbId);
+
+              if (!error) {
+                enrichedCount++;
+                brexIdToDbId.delete(brexId);
+              }
+              break; // Move to next expense
+            }
+          }
+        }
+      }
+    }
+
+    cursor = data.next_cursor || null;
+
+    // Stop if we've enriched all records we need
+    if (brexIdToDbId.size === 0) {
+      console.log('All records enriched, stopping expense fetch');
+      break;
+    }
+  } while (cursor && pageCount < MAX_PAGES);
+
+  console.log(`Expense enrichment: ${enrichedCount} records updated across ${pageCount} pages`);
+  return { enriched: enrichedCount, logged };
+}
+
 // --- Matching logic ---
 async function runMatching(): Promise<{ highConfidence: number; lowConfidence: number }> {
   // Get all unmatched, non-corporate brex expenses
@@ -227,7 +408,10 @@ Deno.serve(async (_req: Request) => {
 
     console.log(`Sync complete: ${totalFetched} fetched, ${totalUpserted} upserted across ${pageCount} pages`);
 
-    // 3. Run matching
+    // 3. Enrich with expense IDs + memos from Expenses API
+    const enrichResults = await enrichWithExpenses();
+
+    // 4. Run matching
     const matchResults = await runMatching();
 
     return new Response(JSON.stringify({
@@ -237,6 +421,7 @@ Deno.serve(async (_req: Request) => {
       recordsUpserted: totalUpserted,
       pagesProcessed: pageCount,
       hasMore: !!cursor,
+      enrichment: enrichResults,
       matching: matchResults,
     }), {
       status: 200,

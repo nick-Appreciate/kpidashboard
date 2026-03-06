@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 interface BrexExpense {
   id: number;
   brex_id: string;
+  expense_id: string | null;
   amount: number;
   currency: string;
   merchant_name: string;
@@ -65,6 +66,19 @@ interface ExpenseDraft {
   af_unit_input: string;
 }
 
+/** A potential bill match from ops_bills */
+interface PotentialMatch {
+  id: number;
+  vendor_name: string;
+  amount: number;
+  invoice_date: string | null;
+  invoice_number: string | null;
+  status: string | null;
+  payment_status: string | null;
+  score: number;
+  match_reason: string;
+}
+
 /** Upload queue item */
 interface QueueItem {
   expenseId: number;
@@ -76,13 +90,15 @@ interface QueueItem {
   completedAt?: Date;
 }
 
-const brexExpenseUrl = (brexId: string) => {
-  const encoded = btoa(`Expense:${brexId}`);
+const brexExpenseUrl = (expenseId: string | null, brexId: string) => {
+  // Use expense_id (expense_...) if available; fall back to brex_id (pste_...)
+  const id = expenseId || brexId;
+  const encoded = btoa(`Expense:${id}`);
   return `https://dashboard.brex.com/expenses?expenseId=${encodeURIComponent(encoded)}`;
 };
 
 type SortOption = "pending_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
-type FilterOption = "all" | "pending" | "matched" | "entered" | "corporate";
+type FilterOption = "all" | "pending" | "matched" | "entered" | "corporate" | "payments";
 
 const POLL_INTERVAL = 15_000;
 
@@ -95,8 +111,20 @@ function makeDraft(expense: BrexExpense, prefill?: { vendor_name: string; proper
     defaultDue = d.toISOString().split('T')[0];
   }
 
-  const memoPrefix = expense.is_corporate ? 'Corporate - ' : 'Entered - ';
-  const description = expense.memo ? `${memoPrefix}${expense.memo}` : '';
+  // Use Brex memo as primary description, fall back to prefill description
+  const brexLink = brexExpenseUrl(expense.expense_id, expense.brex_id);
+  let description = '';
+  if (expense.memo) {
+    description = expense.memo;
+  } else if (prefill?.description) {
+    description = prefill.description;
+  }
+  // Append Brex link for AppFolio reference
+  if (description) {
+    description = `${description} | Brex: ${brexLink}`;
+  } else {
+    description = `Brex: ${brexLink}`;
+  }
 
   return {
     vendor_name: expense.af_vendor_name || prefill?.vendor_name || '',
@@ -116,6 +144,7 @@ export default function BrexExpensesDashboard() {
 
   const [expenses, setExpenses] = useState<BrexExpense[]>([]);
   const [corporateExpenses, setCorporateExpenses] = useState<BrexExpense[]>([]);
+  const [collectionExpenses, setCollectionExpenses] = useState<BrexExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<SortOption>("pending_first");
   const [filter, setFilter] = useState<FilterOption>("all");
@@ -142,6 +171,11 @@ export default function BrexExpensesDashboard() {
       return next;
     });
   };
+
+  // Potential matches state: expense.id -> { loading, matches }
+  const [potentialMatches, setPotentialMatches] = useState<Record<number, { loading: boolean; matches: PotentialMatch[] }>>({});
+  const matchFetchedRef = useRef<Set<number>>(new Set());
+  const [linkingId, setLinkingId] = useState<number | null>(null);
 
   // Upload queue state
   const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
@@ -175,8 +209,12 @@ export default function BrexExpensesDashboard() {
       if (!response.ok) throw new Error("Failed to fetch expenses");
       const data: BrexExpense[] = await response.json();
 
-      setExpenses(data.filter((e) => !e.is_corporate) || []);
-      setCorporateExpenses(data.filter((e) => e.is_corporate) || []);
+      // Separate collections (payments) from regular expenses
+      const collections = data.filter((e: BrexExpense) => e.transaction_type === 'COLLECTION');
+      const nonCollections = data.filter((e: BrexExpense) => e.transaction_type !== 'COLLECTION');
+      setCollectionExpenses(collections);
+      setExpenses(nonCollections.filter((e: BrexExpense) => !e.is_corporate) || []);
+      setCorporateExpenses(nonCollections.filter((e: BrexExpense) => e.is_corporate) || []);
       setLastRefresh(new Date());
     } catch (error) {
       console.error("Error fetching expenses:", error);
@@ -265,6 +303,112 @@ export default function BrexExpensesDashboard() {
       return next;
     });
   }, [expenses, prefillMap]);
+
+  // ─── Potential match fetching ──────────────────────────────────────────────
+
+  const fetchPotentialMatches = useCallback(async (expense: BrexExpense) => {
+    if (matchFetchedRef.current.has(expense.id)) return;
+    matchFetchedRef.current.add(expense.id);
+
+    setPotentialMatches(prev => ({
+      ...prev,
+      [expense.id]: { loading: true, matches: [] },
+    }));
+
+    try {
+      const res = await fetch("/api/admin/brex/find-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          merchant_name: expense.merchant_name,
+          amount: expense.amount,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to fetch matches");
+      const data = await res.json();
+      setPotentialMatches(prev => ({
+        ...prev,
+        [expense.id]: { loading: false, matches: data.matches || [] },
+      }));
+    } catch (error) {
+      console.error("Error fetching potential matches:", error);
+      setPotentialMatches(prev => ({
+        ...prev,
+        [expense.id]: { loading: false, matches: [] },
+      }));
+    }
+  }, []);
+
+  const linkExpenseToBill = useCallback(async (expenseId: number, billId: number) => {
+    setLinkingId(expenseId);
+    try {
+      const res = await fetch("/api/admin/brex/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expense_id: expenseId,
+          bill_id: billId,
+          action: 'link',
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to link expense");
+
+      // Clear cached matches for this expense
+      matchFetchedRef.current.delete(expenseId);
+
+      // Refresh expenses to show updated match status
+      await fetchExpenses(true);
+    } catch (error) {
+      console.error("Error linking expense:", error);
+      alert("Failed to link expense to bill");
+    }
+    setLinkingId(null);
+  }, [fetchExpenses]);
+
+  const unlinkExpense = useCallback(async (expenseId: number) => {
+    setLinkingId(expenseId);
+    try {
+      const res = await fetch("/api/admin/brex/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expense_id: expenseId,
+          action: 'reject',
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to unlink expense");
+
+      // Clear cached matches
+      matchFetchedRef.current.delete(expenseId);
+
+      // Refresh expenses to show updated status
+      await fetchExpenses(true);
+    } catch (error) {
+      console.error("Error unlinking expense:", error);
+      alert("Failed to unlink expense");
+    }
+    setLinkingId(null);
+  }, [fetchExpenses]);
+
+  // Auto-fetch potential matches when a pending expense is expanded
+  useEffect(() => {
+    Array.from(expandedIds).forEach(id => {
+      const expense = expenses.find(e => e.id === id);
+      if (expense && !expense.appfolio_synced && !expense.is_corporate && expense.match_status !== 'matched') {
+        fetchPotentialMatches(expense);
+      }
+    });
+  }, [expandedIds, expenses, fetchPotentialMatches]);
+
+  // Pre-fetch matches for all pending expenses on initial load (for badge display)
+  useEffect(() => {
+    const pending = expenses.filter(e => !e.appfolio_synced && !e.is_corporate && e.match_status !== 'matched');
+    // Stagger requests to avoid hammering the API
+    pending.forEach((expense, idx) => {
+      setTimeout(() => fetchPotentialMatches(expense), idx * 100);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenses.length]); // Only re-run when expense count changes
 
   // ─── Queue processor ──────────────────────────────────────────────────────
 
@@ -470,10 +614,15 @@ export default function BrexExpensesDashboard() {
   const pendingList = allNonCorporate.filter(e => !e.appfolio_synced && e.match_status !== 'matched');
   const enteredList = allNonCorporate.filter(e => e.appfolio_synced);
 
-  const displayExpenses = filter === "corporate" ? corporateExpenses : allNonCorporate;
+  const paymentsCount = collectionExpenses.length;
+
+  const displayExpenses = filter === "corporate" ? corporateExpenses
+    : filter === "payments" ? collectionExpenses
+    : allNonCorporate;
 
   const filteredExpenses = displayExpenses.filter((expense) => {
     if (filter === "corporate") return true;
+    if (filter === "payments") return true;
     if (filter === "pending") return !expense.appfolio_synced && expense.match_status !== 'matched';
     if (filter === "matched") return expense.match_status === 'matched' && !expense.appfolio_synced;
     if (filter === "entered") return expense.appfolio_synced;
@@ -511,6 +660,129 @@ export default function BrexExpensesDashboard() {
   const labelCls = "text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-0.5 block";
   const reqStar = <span className="text-red-400 ml-0.5">*</span>;
 
+  const renderPotentialMatches = (expense: BrexExpense) => {
+    const matchData = potentialMatches[expense.id];
+    if (!matchData) return null;
+
+    if (matchData.loading) {
+      return (
+        <div className="bg-cyan-500/5 border border-cyan-500/15 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-cyan-400">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Searching for existing bills...
+          </div>
+        </div>
+      );
+    }
+
+    if (matchData.matches.length === 0) return null;
+
+    // Split into exact amount matches and vendor-only matches
+    const amountMatches = matchData.matches.filter(m => Math.abs(m.amount - Number(expense.amount)) < 0.01);
+    const vendorOnlyMatches = matchData.matches.filter(m => Math.abs(m.amount - Number(expense.amount)) >= 0.01);
+
+    return (
+      <div className="bg-cyan-500/5 border border-cyan-500/15 rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-cyan-400 font-semibold flex items-center gap-1.5">
+            <Link2 className="w-3.5 h-3.5" />
+            Potential Matches ({matchData.matches.length})
+          </p>
+          <p className="text-[10px] text-slate-500">
+            Bills already entered that may match this expense
+          </p>
+        </div>
+
+        {/* Amount + Vendor matches (strong) */}
+        {amountMatches.length > 0 && (
+          <div className="space-y-1">
+            {amountMatches.length > 0 && vendorOnlyMatches.length > 0 && (
+              <p className="text-[10px] text-cyan-500 font-medium uppercase tracking-wide mt-1">Exact Amount Matches</p>
+            )}
+            {amountMatches.map(match => (
+              <div
+                key={match.id}
+                className="flex items-center gap-2 px-2.5 py-2 rounded bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-cyan-300 truncate">{match.vendor_name}</span>
+                    <span className="text-xs font-bold text-cyan-200 tabular-nums">${match.amount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                    {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                    {match.invoice_number && <span>#{match.invoice_number}</span>}
+                    {match.payment_status && (
+                      <span className={match.payment_status === 'paid' ? 'text-emerald-500' : 'text-amber-500'}>
+                        {match.payment_status}
+                      </span>
+                    )}
+                    <span className="text-cyan-500/60">{match.match_reason}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => linkExpenseToBill(expense.id, match.id)}
+                  disabled={linkingId === expense.id}
+                  className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded bg-cyan-600 hover:bg-cyan-500 text-white transition-colors disabled:opacity-50"
+                >
+                  {linkingId === expense.id ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Link2 className="w-3 h-3" />
+                  )}
+                  Link
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Vendor-only matches (weaker) */}
+        {vendorOnlyMatches.length > 0 && (
+          <div className="space-y-1">
+            {amountMatches.length > 0 && (
+              <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-1">Same Vendor (Different Amount)</p>
+            )}
+            {vendorOnlyMatches.slice(0, 5).map(match => (
+              <div
+                key={match.id}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-white/[0.03] border border-[var(--glass-border)] hover:bg-white/[0.06] transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-300 truncate">{match.vendor_name}</span>
+                    <span className="text-xs text-slate-400 tabular-nums">${match.amount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-slate-600 mt-0.5">
+                    {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                    {match.invoice_number && <span>#{match.invoice_number}</span>}
+                    {match.payment_status && (
+                      <span className={match.payment_status === 'paid' ? 'text-emerald-600' : 'text-amber-600'}>
+                        {match.payment_status}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => linkExpenseToBill(expense.id, match.id)}
+                  disabled={linkingId === expense.id}
+                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors border border-[var(--glass-border)] disabled:opacity-50"
+                >
+                  {linkingId === expense.id ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Link2 className="w-3 h-3" />
+                  )}
+                  Link
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderPendingPanel = (expense: BrexExpense) => {
     const draft = drafts[expense.id];
     if (!draft) return null;
@@ -528,6 +800,9 @@ export default function BrexExpensesDashboard() {
 
     return (
       <div className="space-y-3">
+        {/* Potential matches section — shown above the form */}
+        {renderPotentialMatches(expense)}
+
         <p className="text-xs text-amber-400 font-medium">
           Review & approve for AppFolio upload:
         </p>
@@ -748,14 +1023,26 @@ export default function BrexExpensesDashboard() {
           </div>
         </div>
 
-        {expense.matched_at && (
-          <div className="pt-2 border-t border-cyan-500/15 text-[10px] text-cyan-500/70">
-            <p>Matched {new Date(expense.matched_at).toLocaleString()}</p>
+        <div className="pt-2 border-t border-cyan-500/15 flex items-center justify-between">
+          <div className="text-[10px] text-cyan-500/70">
+            {expense.matched_at && <p>Matched {new Date(expense.matched_at).toLocaleString()}</p>}
             {expense.match_confidence && (
-              <p className="capitalize">{expense.match_confidence} confidence</p>
+              <p className="capitalize">{expense.match_confidence} confidence · {expense.matched_by || 'auto'}</p>
             )}
           </div>
-        )}
+          <button
+            onClick={() => unlinkExpense(expense.id)}
+            disabled={linkingId === expense.id}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-white/5 hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors border border-[var(--glass-border)] disabled:opacity-50"
+          >
+            {linkingId === expense.id ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <X className="w-3 h-3" />
+            )}
+            Unlink
+          </button>
+        </div>
       </div>
     );
   };
@@ -857,6 +1144,7 @@ export default function BrexExpensesDashboard() {
                 {matchedCount > 0 && <> · <span className="text-cyan-400">{matchedCount} matched</span></>}
                 {' '}· <span className="text-emerald-400">{enteredCount} entered</span>
                 {corporateCount > 0 && <> · <span className="text-slate-500">{corporateCount} corporate</span></>}
+                {paymentsCount > 0 && <> · <span className="text-purple-400">{paymentsCount} payments</span></>}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -889,7 +1177,7 @@ export default function BrexExpensesDashboard() {
 
           {/* Filter Chips */}
           <div className="flex gap-1.5 mt-3 pt-3 border-t border-[var(--glass-border)]">
-            {(["all", "pending", "matched", "entered", "corporate"] as FilterOption[]).map((f) => (
+            {(["all", "pending", "matched", "entered", "corporate", "payments"] as FilterOption[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -903,6 +1191,8 @@ export default function BrexExpensesDashboard() {
                       ? "bg-emerald-500/15 text-emerald-400"
                       : f === "corporate"
                       ? "bg-slate-500/20 text-slate-300"
+                      : f === "payments"
+                      ? "bg-purple-500/15 text-purple-400"
                       : "bg-accent text-surface-base"
                     : "bg-white/5 text-slate-400 hover:bg-white/10"
                 }`}
@@ -915,7 +1205,9 @@ export default function BrexExpensesDashboard() {
                   ? `Matched (${matchedCount})`
                   : f === "entered"
                   ? `Entered (${enteredCount})`
-                  : `Corporate (${corporateCount})`}
+                  : f === "corporate"
+                  ? `Corporate (${corporateCount})`
+                  : `Payments (${paymentsCount})`}
               </button>
             ))}
           </div>
@@ -1032,10 +1324,11 @@ export default function BrexExpensesDashboard() {
         ) : (
           <div className="space-y-1.5">
             {sortedExpenses.map((expense) => {
+              const isPayment = expense.transaction_type === 'COLLECTION';
               const isEntered = expense.appfolio_synced;
               const isMatchedToBill = expense.match_status === 'matched' && !isEntered;
               const isCorporateView = filter === "corporate" || expense.is_corporate;
-              const isPending = !isEntered && !expense.is_corporate && !isMatchedToBill;
+              const isPending = !isEntered && !expense.is_corporate && !isMatchedToBill && !isPayment;
               const isExpanded = expandedIds.has(expense.id);
               const draft = drafts[expense.id];
               const queueItem = uploadQueue.find(q => q.expenseId === expense.id);
@@ -1045,8 +1338,8 @@ export default function BrexExpensesDashboard() {
               const hasPrefill = !!prefill;
 
               // Status indicator color
-              const statusColor = isEntered ? 'bg-emerald-500' : isMatchedToBill ? 'bg-cyan-500' : isCorporateView ? 'bg-slate-500' : 'bg-amber-500';
-              const statusBorder = isEntered ? 'border-emerald-500/20' : isMatchedToBill ? 'border-cyan-500/20' : isCorporateView ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
+              const statusColor = isPayment ? 'bg-purple-500' : isEntered ? 'bg-emerald-500' : isMatchedToBill ? 'bg-cyan-500' : isCorporateView ? 'bg-slate-500' : 'bg-amber-500';
+              const statusBorder = isPayment ? 'border-purple-500/20' : isEntered ? 'border-emerald-500/20' : isMatchedToBill ? 'border-cyan-500/20' : isCorporateView ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
 
               return (
                 <div
@@ -1083,16 +1376,24 @@ export default function BrexExpensesDashboard() {
                     </div>
 
                     {/* Pre-fill / match indicator */}
-                    <div className="flex-shrink-0 w-16 text-center">
+                    <div className="flex-shrink-0 w-20 text-center">
                       {isMatchedToBill && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-medium">Bill</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-medium">Linked</span>
                       )}
-                      {isPending && hasPrefill && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-medium">Prefill</span>
-                      )}
-                      {isPending && !hasPrefill && missing.length > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium">{missing.length} req</span>
-                      )}
+                      {isPending && (() => {
+                        const pm = potentialMatches[expense.id];
+                        const hasAmountMatch = pm && !pm.loading && pm.matches.some(m => Math.abs(m.amount - Number(expense.amount)) < 0.01);
+                        if (hasAmountMatch) {
+                          return <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-medium animate-pulse">Match!</span>;
+                        }
+                        if (hasPrefill) {
+                          return <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-medium">Prefill</span>;
+                        }
+                        if (missing.length > 0) {
+                          return <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium">{missing.length} req</span>;
+                        }
+                        return null;
+                      })()}
                     </div>
 
                     {/* Amount */}
@@ -1113,7 +1414,11 @@ export default function BrexExpensesDashboard() {
 
                     {/* Status badge */}
                     <div className="flex-shrink-0 w-24">
-                      {isEntered ? (
+                      {isPayment ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-purple-500/15 text-purple-400">
+                          Payment
+                        </span>
+                      ) : isEntered ? (
                         <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-400">
                           <CheckCircle2 className="w-3 h-3" />
                           Entered
@@ -1152,7 +1457,7 @@ export default function BrexExpensesDashboard() {
                     {/* Quick actions (don't expand) */}
                     <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <a
-                        href={brexExpenseUrl(expense.brex_id)}
+                        href={brexExpenseUrl(expense.expense_id, expense.brex_id)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-slate-500 hover:text-accent transition-colors"
@@ -1182,7 +1487,7 @@ export default function BrexExpensesDashboard() {
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Brex Transaction</span>
                           <a
-                            href={brexExpenseUrl(expense.brex_id)}
+                            href={brexExpenseUrl(expense.expense_id, expense.brex_id)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors font-medium"
@@ -1278,8 +1583,9 @@ export default function BrexExpensesDashboard() {
                         </div>
                       </div>
 
-                      {/* RIGHT PANEL: AppFolio / Matched Bill */}
+                      {/* RIGHT PANEL: AppFolio / Matched Bill / Payment */}
                       <div className={`p-4 ${
+                        isPayment ? "bg-purple-500/5" :
                         isEntered ? "bg-emerald-500/5" :
                         isMatchedToBill ? "bg-cyan-500/5" :
                         isCorporateView ? "bg-white/[0.02]" :
@@ -1287,9 +1593,13 @@ export default function BrexExpensesDashboard() {
                       }`}>
                         <div className="flex items-center gap-2 mb-3">
                           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                            {isMatchedToBill ? 'Matched Bill' : 'AppFolio'}
+                            {isPayment ? 'Payment Record' : isMatchedToBill ? 'Matched Bill' : 'AppFolio'}
                           </span>
-                          {isEntered ? (
+                          {isPayment ? (
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-purple-500/20 text-purple-400">
+                              Payment
+                            </span>
+                          ) : isEntered ? (
                             <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400">
                               <CheckCircle2 className="w-3 h-3" />
                               Entered
@@ -1312,10 +1622,32 @@ export default function BrexExpensesDashboard() {
                           )}
                         </div>
 
+                        {isPayment && (
+                          <div className="space-y-2">
+                            <p className="text-sm text-slate-400">
+                              Card payment / collection — for internal records only, not entered in AppFolio.
+                            </p>
+                            {expense.memo && (
+                              <p className="text-xs text-purple-300">
+                                <span className="text-slate-500">Memo: </span>{expense.memo}
+                              </p>
+                            )}
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                              <div>
+                                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Amount</span>
+                                <p className="font-semibold text-purple-300">${Number(expense.amount).toFixed(2)}</p>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Posted</span>
+                                <p className="text-sm text-slate-300">{expense.posted_at || '—'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         {isPending && renderPendingPanel(expense)}
                         {isMatchedToBill && renderMatchedPanel(expense)}
                         {isEntered && renderEnteredPanel(expense)}
-                        {isCorporateView && !isEntered && !isMatchedToBill && renderCorporatePanel(expense)}
+                        {isCorporateView && !isEntered && !isMatchedToBill && !isPayment && renderCorporatePanel(expense)}
                       </div>
                     </div>
                   )}
