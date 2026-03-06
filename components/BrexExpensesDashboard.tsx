@@ -93,9 +93,14 @@ interface QueueItem {
   completedAt?: Date;
 }
 
-const brexExpenseUrl = (expenseId: string | null) => {
-  if (expenseId) return `https://dashboard.brex.com/expenses/card/${expenseId}`;
-  return `https://dashboard.brex.com/expenses/card`;
+const brexExpenseUrl = (expenseId: string | null, merchantName?: string | null) => {
+  if (expenseId) {
+    const encoded = btoa(`Expense:${expenseId}`);
+    const params = new URLSearchParams({ expenseId: encoded });
+    if (merchantName) params.set('filter', `SEARCHQUERY:${merchantName}`);
+    return `https://dashboard.brex.com/expenses?${params.toString()}`;
+  }
+  return `https://dashboard.brex.com/expenses`;
 };
 
 const appfolioBillUrl = (billId: number) =>
@@ -1490,7 +1495,7 @@ export default function BrexExpensesDashboard() {
                     {/* Quick actions (don't expand) */}
                     <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <a
-                        href={brexExpenseUrl(expense.expense_id)}
+                        href={brexExpenseUrl(expense.expense_id, expense.merchant_name)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-slate-500 hover:text-accent transition-colors"
@@ -1531,7 +1536,7 @@ export default function BrexExpensesDashboard() {
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Brex Transaction</span>
                           <a
-                            href={brexExpenseUrl(expense.expense_id)}
+                            href={brexExpenseUrl(expense.expense_id, expense.merchant_name)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors font-medium"
