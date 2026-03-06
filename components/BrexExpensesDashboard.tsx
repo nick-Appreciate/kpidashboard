@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, X, ExternalLink, Upload, Loader2, RefreshCw, Image as ImageIcon, XCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, X, ExternalLink, Upload, Loader2, RefreshCw, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Link2 } from "lucide-react";
 import { LogoLoader } from "./Logo";
 import DarkSelect from "./DarkSelect";
 import { useAuth } from "../contexts/AuthContext";
@@ -82,7 +82,7 @@ const brexExpenseUrl = (brexId: string) => {
 };
 
 type SortOption = "pending_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
-type FilterOption = "all" | "pending" | "entered" | "corporate";
+type FilterOption = "all" | "pending" | "matched" | "entered" | "corporate";
 
 const POLL_INTERVAL = 15_000;
 
@@ -466,14 +466,16 @@ export default function BrexExpensesDashboard() {
   // ─── Filtering & Sorting ────────────────────────────────────────────────────
 
   const allNonCorporate = expenses;
-  const pendingList = allNonCorporate.filter(e => !e.appfolio_synced);
+  const matchedList = allNonCorporate.filter(e => e.match_status === 'matched' && !e.appfolio_synced);
+  const pendingList = allNonCorporate.filter(e => !e.appfolio_synced && e.match_status !== 'matched');
   const enteredList = allNonCorporate.filter(e => e.appfolio_synced);
 
   const displayExpenses = filter === "corporate" ? corporateExpenses : allNonCorporate;
 
   const filteredExpenses = displayExpenses.filter((expense) => {
     if (filter === "corporate") return true;
-    if (filter === "pending") return !expense.appfolio_synced;
+    if (filter === "pending") return !expense.appfolio_synced && expense.match_status !== 'matched';
+    if (filter === "matched") return expense.match_status === 'matched' && !expense.appfolio_synced;
     if (filter === "entered") return expense.appfolio_synced;
     return true; // "all"
   });
@@ -498,15 +500,16 @@ export default function BrexExpensesDashboard() {
 
   // Counts
   const pendingCount = pendingList.length;
+  const matchedCount = matchedList.length;
   const enteredCount = enteredList.length;
   const corporateCount = corporateExpenses.length;
 
   // ─── Render helpers ─────────────────────────────────────────────────────────
 
-  const inputCls = "w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/30";
-  const inputMissingCls = "w-full bg-white border border-red-400 rounded px-2 py-1 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/30";
+  const inputCls = "w-full bg-white/5 border border-[var(--glass-border)] rounded px-2 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30";
+  const inputMissingCls = "w-full bg-white/5 border border-red-500/50 rounded px-2 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/30";
   const labelCls = "text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-0.5 block";
-  const reqStar = <span className="text-red-500 ml-0.5">*</span>;
+  const reqStar = <span className="text-red-400 ml-0.5">*</span>;
 
   const renderPendingPanel = (expense: BrexExpense) => {
     const draft = drafts[expense.id];
@@ -525,17 +528,17 @@ export default function BrexExpensesDashboard() {
 
     return (
       <div className="space-y-3">
-        <p className="text-xs text-amber-700 font-medium">
+        <p className="text-xs text-amber-400 font-medium">
           Review & approve for AppFolio upload:
         </p>
 
         {expense.af_approved_by && expense.af_approved_at && (
-          <p className="text-[10px] text-slate-400">
+          <p className="text-[10px] text-slate-500">
             Previously approved by {expense.af_approved_by} on {new Date(expense.af_approved_at).toLocaleString()}
           </p>
         )}
 
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+        <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div className="col-span-2">
               <label className={labelCls}>Vendor {reqStar}</label>
@@ -546,7 +549,7 @@ export default function BrexExpensesDashboard() {
                 options={vendorOptions}
                 compact
                 searchable
-                className={`w-full ${isFieldMissing(expense.id, 'vendor') ? '[&_div]:!border-red-400' : ''}`}
+                className={`w-full ${isFieldMissing(expense.id, 'vendor') ? '[&_div]:!border-red-500/50' : ''}`}
                 placeholder="Search vendor..."
               />
             </div>
@@ -592,7 +595,7 @@ export default function BrexExpensesDashboard() {
               options={glOptions}
               compact
               searchable
-              className={`w-full ${isFieldMissing(expense.id, 'gl_account') ? '[&_div]:!border-red-400' : ''}`}
+              className={`w-full ${isFieldMissing(expense.id, 'gl_account') ? '[&_div]:!border-red-500/50' : ''}`}
               placeholder="Search GL account..."
             />
           </div>
@@ -638,7 +641,11 @@ export default function BrexExpensesDashboard() {
         </div>
 
         {result && (
-          <div className={`text-xs px-3 py-1.5 rounded ${result.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <div className={`text-xs px-3 py-2 rounded ${
+            result.success
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+              : 'bg-red-500/15 text-red-400 border border-red-500/20'
+          }`}>
             {result.message}
             {!result.success && (
               <button onClick={() => retryUpload(expense.id)} className="ml-2 underline font-medium">
@@ -648,19 +655,30 @@ export default function BrexExpensesDashboard() {
           </div>
         )}
 
+        {/* Missing fields warning */}
+        {!canSubmit && missing.length > 0 && !isLocked && (
+          <p className="text-[11px] text-red-400">
+            Required: {missing.map(f => f === 'gl_account' ? 'GL Account' : f === 'invoice_date' ? 'Invoice Date' : f.charAt(0).toUpperCase() + f.slice(1)).join(', ')}
+          </p>
+        )}
+
         <button
           onClick={() => enqueueUpload(expense)}
           disabled={!canSubmit}
-          className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-            canSubmit
-              ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
-              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+          className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+            isUploading
+              ? 'bg-cyan-900/40 text-cyan-400 cursor-wait border border-cyan-500/20'
+              : isQueued
+              ? 'bg-slate-700 text-slate-400 cursor-wait'
+              : !canSubmit
+              ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
           }`}
         >
           {isUploading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Uploading...
+              Uploading to AppFolio...
             </>
           ) : isQueued ? (
             <>
@@ -674,11 +692,69 @@ export default function BrexExpensesDashboard() {
             </>
           )}
         </button>
+      </div>
+    );
+  };
 
-        {missing.length > 0 && !isLocked && (
-          <p className="text-[10px] text-red-500">
-            Missing: {missing.join(', ')}
-          </p>
+  const renderMatchedPanel = (expense: BrexExpense) => {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-cyan-400 font-medium">
+          Matched to existing bill in system:
+        </p>
+
+        <div className="bg-cyan-500/5 border border-cyan-500/15 rounded-lg p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            {expense.bill_vendor_name && (
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Bill Vendor</span>
+                <p className="font-semibold text-sm text-cyan-300">{expense.bill_vendor_name}</p>
+              </div>
+            )}
+            {expense.bill_amount != null && (
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Bill Amount</span>
+                <p className="font-semibold text-sm text-cyan-300">${Number(expense.bill_amount).toFixed(2)}</p>
+              </div>
+            )}
+            {expense.bill_invoice_date && (
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Invoice Date</span>
+                <p className="font-mono text-sm text-slate-300">{expense.bill_invoice_date}</p>
+              </div>
+            )}
+            {expense.bill_invoice_number && (
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Invoice #</span>
+                <p className="font-mono text-sm text-slate-300">{expense.bill_invoice_number}</p>
+              </div>
+            )}
+            {expense.bill_status && (
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Bill Status</span>
+                <p className="text-sm text-slate-300">{expense.bill_status}</p>
+              </div>
+            )}
+            {expense.bill_payment_status && (
+              <div>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Payment</span>
+                <p className={`text-sm font-medium ${
+                  expense.bill_payment_status === 'paid' ? 'text-emerald-400' :
+                  expense.bill_payment_status === 'unpaid' ? 'text-amber-400' :
+                  'text-slate-400'
+                }`}>{expense.bill_payment_status}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {expense.matched_at && (
+          <div className="pt-2 border-t border-cyan-500/15 text-[10px] text-cyan-500/70">
+            <p>Matched {new Date(expense.matched_at).toLocaleString()}</p>
+            {expense.match_confidence && (
+              <p className="capitalize">{expense.match_confidence} confidence</p>
+            )}
+          </div>
         )}
       </div>
     );
@@ -690,42 +766,42 @@ export default function BrexExpensesDashboard() {
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           {expense.af_vendor_name && (
             <div>
-              <span className="text-xs text-slate-400">AF Vendor</span>
-              <p className="font-semibold text-sm text-green-800">{expense.af_vendor_name}</p>
+              <span className="text-xs text-slate-500">AF Vendor</span>
+              <p className="font-semibold text-sm text-emerald-400">{expense.af_vendor_name}</p>
             </div>
           )}
           <div>
-            <span className="text-xs text-slate-400">Amount</span>
-            <p className="font-semibold text-sm text-green-800">${Number(expense.amount).toFixed(2)}</p>
+            <span className="text-xs text-slate-500">Amount</span>
+            <p className="font-semibold text-sm text-emerald-400">${Number(expense.amount).toFixed(2)}</p>
           </div>
           {expense.af_property_input && (
             <div>
-              <span className="text-xs text-slate-400">Property</span>
-              <p className="text-sm text-green-700">{expense.af_property_input}</p>
+              <span className="text-xs text-slate-500">Property</span>
+              <p className="text-sm text-emerald-300/80">{expense.af_property_input}</p>
             </div>
           )}
           {expense.af_gl_account_input && (
             <div>
-              <span className="text-xs text-slate-400">GL Account</span>
-              <p className="text-sm text-green-700 truncate" title={expense.af_gl_account_input}>{expense.af_gl_account_input}</p>
+              <span className="text-xs text-slate-500">GL Account</span>
+              <p className="text-sm text-emerald-300/80 truncate" title={expense.af_gl_account_input}>{expense.af_gl_account_input}</p>
             </div>
           )}
           {expense.af_unit_input && (
             <div>
-              <span className="text-xs text-slate-400">Unit</span>
-              <p className="text-sm text-green-700">{expense.af_unit_input}</p>
+              <span className="text-xs text-slate-500">Unit</span>
+              <p className="text-sm text-emerald-300/80">{expense.af_unit_input}</p>
             </div>
           )}
           {expense.appfolio_bill_id && (
             <div>
-              <span className="text-xs text-slate-400">AF Bill ID</span>
-              <p className="text-sm text-green-700 font-mono">{expense.appfolio_bill_id}</p>
+              <span className="text-xs text-slate-500">AF Bill ID</span>
+              <p className="text-sm text-emerald-300/80 font-mono">{expense.appfolio_bill_id}</p>
             </div>
           )}
         </div>
 
         {expense.af_approved_by && (
-          <div className="pt-2 border-t border-green-200 text-[10px] text-green-600">
+          <div className="pt-2 border-t border-emerald-500/15 text-[10px] text-emerald-500/70">
             <p>Approved by <span className="font-medium">{expense.af_approved_by}</span></p>
             {expense.af_approved_at && (
               <p>{new Date(expense.af_approved_at).toLocaleString()}</p>
@@ -739,7 +815,7 @@ export default function BrexExpensesDashboard() {
   const renderCorporatePanel = (expense: BrexExpense) => {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-400">
           This expense was marked as a corporate expense — not entered in AppFolio.
         </p>
         {expense.corporate_note && (
@@ -748,7 +824,7 @@ export default function BrexExpensesDashboard() {
           </p>
         )}
         {expense.corporate_at && (
-          <p className="text-[10px] text-slate-400">
+          <p className="text-[10px] text-slate-600">
             Archived {new Date(expense.corporate_at).toLocaleDateString()}
           </p>
         )}
@@ -760,7 +836,7 @@ export default function BrexExpensesDashboard() {
 
   if (authLoading || loading || appUser?.role !== 'admin') {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <LogoLoader text="Loading Brex expenses..." />
       </div>
     );
@@ -769,26 +845,29 @@ export default function BrexExpensesDashboard() {
   const finishedCount = uploadQueue.filter(q => q.status === 'success' || q.status === 'failed').length;
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4">
+    <div className="min-h-screen p-4">
       <div className="max-w-full mx-auto">
         {/* Header Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+        <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-semibold text-slate-800">Brex Expenses</h1>
-              <p className="text-sm text-slate-500">
-                {allNonCorporate.length} expenses · <span className="text-amber-600">{pendingCount} pending</span> · <span className="text-green-600">{enteredCount} entered</span>
-                {corporateCount > 0 && <> · <span className="text-slate-400">{corporateCount} corporate</span></>}
+              <h1 className="text-xl font-semibold text-slate-100">Brex Expenses</h1>
+              <p className="text-sm text-slate-400">
+                {allNonCorporate.length} expenses · <span className="text-amber-400">{pendingCount} pending</span>
+                {matchedCount > 0 && <> · <span className="text-cyan-400">{matchedCount} matched</span></>}
+                {' '}· <span className="text-emerald-400">{enteredCount} entered</span>
+                {corporateCount > 0 && <> · <span className="text-slate-500">{corporateCount} corporate</span></>}
               </p>
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => fetchExpenses()}
                 disabled={refreshing}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-slate-700 transition-colors"
-                title={`Last refresh: ${lastRefresh.toLocaleTimeString()}`}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                title="Refresh now"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                {lastRefresh.toLocaleTimeString()}
               </button>
               {/* @ts-ignore — untyped JS component */}
               <DarkSelect
@@ -809,27 +888,31 @@ export default function BrexExpensesDashboard() {
           </div>
 
           {/* Filter Chips */}
-          <div className="flex gap-1.5 mt-3 pt-3 border-t border-slate-100">
-            {(["all", "pending", "entered", "corporate"] as FilterOption[]).map((f) => (
+          <div className="flex gap-1.5 mt-3 pt-3 border-t border-[var(--glass-border)]">
+            {(["all", "pending", "matched", "entered", "corporate"] as FilterOption[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
                 className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
                   filter === f
                     ? f === "pending"
-                      ? "bg-amber-100 text-amber-800"
+                      ? "bg-amber-500/15 text-amber-400"
+                      : f === "matched"
+                      ? "bg-cyan-500/15 text-cyan-400"
                       : f === "entered"
-                      ? "bg-green-100 text-green-800"
+                      ? "bg-emerald-500/15 text-emerald-400"
                       : f === "corporate"
-                      ? "bg-slate-300 text-slate-800"
-                      : "bg-slate-800 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      ? "bg-slate-500/20 text-slate-300"
+                      : "bg-accent text-surface-base"
+                    : "bg-white/5 text-slate-400 hover:bg-white/10"
                 }`}
               >
                 {f === "all"
                   ? `All (${allNonCorporate.length})`
                   : f === "pending"
                   ? `Pending (${pendingCount})`
+                  : f === "matched"
+                  ? `Matched (${matchedCount})`
                   : f === "entered"
                   ? `Entered (${enteredCount})`
                   : `Corporate (${corporateCount})`}
@@ -838,57 +921,102 @@ export default function BrexExpensesDashboard() {
           </div>
         </div>
 
-        {/* Activity Tracker */}
+        {/* Upload Activity Tracker */}
         {uploadQueue.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <Upload className="w-4 h-4" />
+          <div className="glass-card p-4 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                <Upload className="w-4 h-4 text-accent" />
                 Upload Activity
-                {uploadQueue.some(q => q.status === 'uploading') && (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                {uploadQueue.some(q => q.status === 'uploading' || q.status === 'queued') && (
+                  <span className="text-xs font-normal text-slate-500">
+                    ({uploadQueue.filter(q => q.status === 'queued').length} queued
+                    {uploadQueue.some(q => q.status === 'uploading') ? ', 1 uploading' : ''})
+                  </span>
                 )}
-              </h3>
-              {finishedCount > 0 && (
+              </h2>
+              {uploadQueue.every(q => q.status === 'success' || q.status === 'failed') && (
                 <button
                   onClick={clearFinished}
-                  className="text-xs text-slate-400 hover:text-slate-600"
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
                 >
-                  Clear finished
+                  Clear all
                 </button>
               )}
             </div>
-            <div className="space-y-1">
-              {uploadQueue.map((item) => (
-                <div
-                  key={item.expenseId}
-                  className={`flex items-center justify-between px-2 py-1.5 rounded text-xs ${
-                    item.status === 'uploading' ? 'bg-blue-50 text-blue-700' :
-                    item.status === 'queued' ? 'bg-slate-50 text-slate-500' :
-                    item.status === 'success' ? 'bg-green-50 text-green-700' :
-                    'bg-red-50 text-red-700'
-                  }`}
-                >
+            <div className="space-y-1.5">
+              {/* Uploading (currently processing) */}
+              {uploadQueue.filter(q => q.status === 'uploading').map(q => (
+                <div key={q.expenseId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
                   <div className="flex items-center gap-2">
-                    {item.status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {item.status === 'queued' && <span className="w-3 h-3 rounded-full border-2 border-slate-300" />}
-                    {item.status === 'success' && <CheckCircle2 className="w-3 h-3" />}
-                    {item.status === 'failed' && <XCircle className="w-3 h-3" />}
-                    <span className="font-medium">{item.vendorName}</span>
-                    <span className="text-slate-400">${item.amount.toFixed(2)}</span>
+                    <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                    <span className="text-xs text-slate-200 font-medium">{q.vendorName}</span>
+                    <span className="text-xs text-slate-500">${q.amount.toFixed(2)}</span>
                   </div>
+                  <span className="text-[10px] text-cyan-400 font-medium uppercase">Uploading</span>
+                </div>
+              ))}
+
+              {/* Queued (waiting) */}
+              {uploadQueue.filter(q => q.status === 'queued').map((q, idx) => (
+                <div key={q.expenseId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] border border-[var(--glass-border)]">
                   <div className="flex items-center gap-2">
-                    {item.message && <span className="text-[10px] max-w-[200px] truncate">{item.message}</span>}
-                    {item.status === 'failed' && (
-                      <button onClick={() => retryUpload(item.expenseId)} className="text-red-600 hover:text-red-800 underline text-[10px]">
-                        Retry
-                      </button>
-                    )}
-                    {(item.status === 'success' || item.status === 'failed') && (
-                      <button onClick={() => dismissQueueItem(item.expenseId)} className="text-slate-400 hover:text-slate-600">
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
+                    <span className="w-4 h-4 flex items-center justify-center rounded-full bg-slate-700 text-[10px] text-slate-400 font-bold">{idx + 1}</span>
+                    <span className="text-xs text-slate-300">{q.vendorName}</span>
+                    <span className="text-xs text-slate-500">${q.amount.toFixed(2)}</span>
+                  </div>
+                  <button
+                    onClick={() => dismissQueueItem(q.expenseId)}
+                    className="text-slate-600 hover:text-slate-400 transition-colors"
+                    title="Cancel"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+
+              {/* Successes */}
+              {uploadQueue.filter(q => q.status === 'success').map(q => (
+                <div key={q.expenseId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-xs text-slate-200">{q.vendorName}</span>
+                    <span className="text-xs text-slate-500">${q.amount.toFixed(2)}</span>
+                    <span className="text-[10px] text-emerald-400">Done</span>
+                  </div>
+                  <button
+                    onClick={() => dismissQueueItem(q.expenseId)}
+                    className="text-slate-600 hover:text-slate-400 transition-colors"
+                    title="Dismiss"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+
+              {/* Failures */}
+              {uploadQueue.filter(q => q.status === 'failed').map(q => (
+                <div key={q.expenseId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                    <span className="text-xs text-slate-200">{q.vendorName}</span>
+                    <span className="text-xs text-red-400/80 truncate">{q.message}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => retryUpload(q.expenseId)}
+                      className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Retry
+                    </button>
+                    <button
+                      onClick={() => dismissQueueItem(q.expenseId)}
+                      className="text-slate-600 hover:text-slate-400 transition-colors"
+                      title="Dismiss"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -898,15 +1026,16 @@ export default function BrexExpensesDashboard() {
 
         {/* Expense Cards */}
         {sortedExpenses.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center text-slate-500">
+          <div className="glass-card p-8 text-center text-slate-400">
             {filter === "corporate" ? "No corporate expenses." : "No expenses found for the current filter."}
           </div>
         ) : (
           <div className="space-y-1.5">
             {sortedExpenses.map((expense) => {
               const isEntered = expense.appfolio_synced;
+              const isMatchedToBill = expense.match_status === 'matched' && !isEntered;
               const isCorporateView = filter === "corporate" || expense.is_corporate;
-              const isPending = !isEntered && !expense.is_corporate;
+              const isPending = !isEntered && !expense.is_corporate && !isMatchedToBill;
               const isExpanded = expandedIds.has(expense.id);
               const draft = drafts[expense.id];
               const queueItem = uploadQueue.find(q => q.expenseId === expense.id);
@@ -916,25 +1045,25 @@ export default function BrexExpensesDashboard() {
               const hasPrefill = !!prefill;
 
               // Status indicator color
-              const statusColor = isEntered ? 'bg-green-500' : isCorporateView ? 'bg-slate-400' : 'bg-amber-500';
-              const statusBorder = isEntered ? 'border-green-200' : isCorporateView ? 'border-slate-300' : queueItem?.status === 'uploading' ? 'border-blue-300' : queueItem?.status === 'failed' ? 'border-red-300' : 'border-slate-200';
+              const statusColor = isEntered ? 'bg-emerald-500' : isMatchedToBill ? 'bg-cyan-500' : isCorporateView ? 'bg-slate-500' : 'bg-amber-500';
+              const statusBorder = isEntered ? 'border-emerald-500/20' : isMatchedToBill ? 'border-cyan-500/20' : isCorporateView ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
 
               return (
                 <div
                   key={expense.id}
-                  className={`bg-white rounded-lg shadow-sm border overflow-hidden transition-all ${statusBorder} ${
-                    isCorporateView && !isExpanded ? 'opacity-70' : ''
+                  className={`glass-card overflow-hidden transition-all ${statusBorder} ${
+                    isCorporateView && !isExpanded ? 'opacity-60' : ''
                   }`}
                 >
                   {/* ── SLIM PREVIEW ROW ── */}
                   <div
-                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors select-none ${
-                      isExpanded ? 'border-b border-slate-100' : ''
+                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors select-none ${
+                      isExpanded ? 'border-b border-[var(--glass-border)]' : ''
                     }`}
                     onClick={() => toggleExpand(expense.id)}
                   >
                     {/* Expand chevron */}
-                    <div className="flex-shrink-0 text-slate-400">
+                    <div className="flex-shrink-0 text-slate-500">
                       {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </div>
 
@@ -943,29 +1072,32 @@ export default function BrexExpensesDashboard() {
 
                     {/* Merchant name */}
                     <div className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-slate-800 truncate block">{expense.merchant_name}</span>
+                      <span className="text-sm font-semibold text-slate-100 truncate block">{expense.merchant_name}</span>
                     </div>
 
                     {/* Memo snippet */}
                     <div className="hidden md:block min-w-0 flex-1 max-w-[200px]">
                       {expense.memo && (
-                        <span className="text-xs text-slate-400 truncate block">{expense.memo}</span>
+                        <span className="text-xs text-slate-500 truncate block">{expense.memo}</span>
                       )}
                     </div>
 
-                    {/* Pre-fill indicator */}
+                    {/* Pre-fill / match indicator */}
                     <div className="flex-shrink-0 w-16 text-center">
+                      {isMatchedToBill && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-medium">Bill</span>
+                      )}
                       {isPending && hasPrefill && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium">Matched</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-medium">Prefill</span>
                       )}
                       {isPending && !hasPrefill && missing.length > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-400 font-medium">{missing.length} req</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium">{missing.length} req</span>
                       )}
                     </div>
 
                     {/* Amount */}
                     <div className="flex-shrink-0 w-24 text-right">
-                      <span className="text-sm font-bold text-slate-900 tabular-nums">${Number(expense.amount).toFixed(2)}</span>
+                      <span className="text-sm font-bold text-slate-100 tabular-nums">${Number(expense.amount).toFixed(2)}</span>
                     </div>
 
                     {/* Date */}
@@ -980,33 +1112,38 @@ export default function BrexExpensesDashboard() {
                     </div>
 
                     {/* Status badge */}
-                    <div className="flex-shrink-0 w-20">
+                    <div className="flex-shrink-0 w-24">
                       {isEntered ? (
-                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-green-100 text-green-700">
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-400">
                           <CheckCircle2 className="w-3 h-3" />
                           Entered
                         </span>
+                      ) : isMatchedToBill ? (
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-500/15 text-cyan-400">
+                          <Link2 className="w-3 h-3" />
+                          Matched
+                        </span>
                       ) : isCorporateView ? (
-                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-200 text-slate-600">
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-500/15 text-slate-400">
                           <Archive className="w-3 h-3" />
                           Corp
                         </span>
                       ) : queueItem?.status === 'uploading' ? (
-                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-600">
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-500/15 text-cyan-400">
                           <Loader2 className="w-3 h-3 animate-spin" />
                           Sending
                         </span>
                       ) : queueItem?.status === 'queued' ? (
-                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-500">
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-500/15 text-slate-400">
                           Queued
                         </span>
                       ) : result?.success === false ? (
-                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-600">
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-500/15 text-red-400">
                           <XCircle className="w-3 h-3" />
                           Failed
                         </span>
                       ) : (
-                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-100 text-amber-700">
+                        <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-500/15 text-amber-400">
                           Pending
                         </span>
                       )}
@@ -1018,7 +1155,7 @@ export default function BrexExpensesDashboard() {
                         href={brexExpenseUrl(expense.brex_id)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1 text-slate-400 hover:text-blue-500 transition-colors"
+                        className="p-1 text-slate-500 hover:text-accent transition-colors"
                         title="Open in Brex"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
@@ -1028,7 +1165,7 @@ export default function BrexExpensesDashboard() {
                           href={`/api/admin/brex/receipt?receipt_id=${expense.receipt_ids[0]}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                          className="p-1 text-slate-500 hover:text-accent transition-colors"
                           title="View receipt"
                         >
                           <ImageIcon className="w-3.5 h-3.5" />
@@ -1039,23 +1176,23 @@ export default function BrexExpensesDashboard() {
 
                   {/* ── EXPANDED CONTENT ── */}
                   {isExpanded && (
-                    <div className="grid grid-cols-2 divide-x divide-slate-200">
+                    <div className="grid grid-cols-2 divide-x divide-[var(--glass-border)]">
                       {/* LEFT PANEL: Brex Transaction */}
                       <div className="p-4">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Brex Transaction</span>
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Brex Transaction</span>
                           <a
                             href={brexExpenseUrl(expense.brex_id)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors font-medium"
+                            className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors font-medium"
                             title="Open in Brex Dashboard"
                           >
                             <ExternalLink className="w-3 h-3" />
                             Open in Brex
                           </a>
                         </div>
-                        <h2 className="text-base font-semibold text-slate-800 mb-0.5">{expense.merchant_name}</h2>
+                        <h2 className="text-base font-semibold text-slate-100 mb-0.5">{expense.merchant_name}</h2>
                         <p className="text-xs text-slate-500 mb-3">
                           {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name
                             ? `${expense.merchant_raw_descriptor} · `
@@ -1069,26 +1206,26 @@ export default function BrexExpensesDashboard() {
 
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
                           <div>
-                            <span className="text-xs text-slate-400">Amount</span>
-                            <p className="font-bold text-slate-900 text-base">${Number(expense.amount).toFixed(2)}</p>
+                            <span className="text-xs text-slate-500">Amount</span>
+                            <p className="font-bold text-slate-100 text-base">${Number(expense.amount).toFixed(2)}</p>
                           </div>
                           <div>
-                            <span className="text-xs text-slate-400">Posted Date</span>
-                            <p className="font-mono text-sm text-slate-700">
+                            <span className="text-xs text-slate-500">Posted Date</span>
+                            <p className="font-mono text-sm text-slate-300">
                               {expense.posted_at || "Pending"}
                             </p>
                           </div>
                           {expense.transaction_type && (
                             <div>
-                              <span className="text-xs text-slate-400">Type</span>
-                              <p className="text-sm text-slate-700">{expense.transaction_type}</p>
+                              <span className="text-xs text-slate-500">Type</span>
+                              <p className="text-sm text-slate-300">{expense.transaction_type}</p>
                             </div>
                           )}
                         </div>
 
                         {expense.memo && (
-                          <p className="text-xs text-slate-500 mb-2 line-clamp-2">
-                            <span className="text-slate-400">Memo: </span>{expense.memo}
+                          <p className="text-xs text-slate-400 mb-2 line-clamp-2">
+                            <span className="text-slate-500">Memo: </span>{expense.memo}
                           </p>
                         )}
 
@@ -1101,7 +1238,7 @@ export default function BrexExpensesDashboard() {
                                 href={`/api/admin/brex/receipt?receipt_id=${receiptId}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-500 rounded text-[10px] hover:bg-slate-200 transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 bg-white/5 text-slate-400 rounded text-[10px] hover:bg-white/10 transition-colors"
                                 title={`View receipt ${idx + 1}`}
                               >
                                 <ImageIcon className="w-3 h-3" />
@@ -1113,8 +1250,8 @@ export default function BrexExpensesDashboard() {
 
                         {/* Corporate note */}
                         {isCorporateView && expense.corporate_note && (
-                          <p className="text-xs text-orange-600 mb-2 italic">
-                            <span className="text-orange-400">Corporate: </span>{expense.corporate_note}
+                          <p className="text-xs text-orange-400 mb-2 italic">
+                            <span className="text-orange-500">Corporate: </span>{expense.corporate_note}
                           </p>
                         )}
 
@@ -1124,7 +1261,7 @@ export default function BrexExpensesDashboard() {
                             <button
                               onClick={() => unarchiveCorporate(expense.id)}
                               disabled={actionId === expense.id}
-                              className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 disabled:opacity-50"
+                              className="flex items-center gap-1 text-xs px-2 py-1 bg-white/5 text-slate-400 rounded hover:bg-white/10 disabled:opacity-50"
                             >
                               <ArchiveRestore className="w-3.5 h-3.5" />
                               {actionId === expense.id ? "..." : "Unarchive"}
@@ -1132,7 +1269,7 @@ export default function BrexExpensesDashboard() {
                           ) : !isEntered ? (
                             <button
                               onClick={() => setArchiveModal({ expense, note: "" })}
-                              className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
+                              className="flex items-center gap-1 text-xs px-2 py-1 bg-white/5 text-slate-400 rounded hover:bg-white/10"
                             >
                               <Archive className="w-3.5 h-3.5" />
                               Archive as Corporate
@@ -1141,26 +1278,34 @@ export default function BrexExpensesDashboard() {
                         </div>
                       </div>
 
-                      {/* RIGHT PANEL: AppFolio */}
+                      {/* RIGHT PANEL: AppFolio / Matched Bill */}
                       <div className={`p-4 ${
-                        isEntered ? "bg-green-50" :
-                        isCorporateView ? "bg-slate-50" :
-                        "bg-amber-50/50"
+                        isEntered ? "bg-emerald-500/5" :
+                        isMatchedToBill ? "bg-cyan-500/5" :
+                        isCorporateView ? "bg-white/[0.02]" :
+                        "bg-amber-500/5"
                       }`}>
                         <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">AppFolio</span>
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                            {isMatchedToBill ? 'Matched Bill' : 'AppFolio'}
+                          </span>
                           {isEntered ? (
-                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-green-200 text-green-800">
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400">
                               <CheckCircle2 className="w-3 h-3" />
                               Entered
                             </span>
+                          ) : isMatchedToBill ? (
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-cyan-500/20 text-cyan-400">
+                              <Link2 className="w-3 h-3" />
+                              Matched
+                            </span>
                           ) : isCorporateView ? (
-                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-200 text-slate-700">
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-500/20 text-slate-400">
                               <Archive className="w-3 h-3" />
                               Corporate
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-200 text-amber-800">
+                            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-500/20 text-amber-400">
                               <AlertCircle className="w-3 h-3" />
                               Pending
                             </span>
@@ -1168,8 +1313,9 @@ export default function BrexExpensesDashboard() {
                         </div>
 
                         {isPending && renderPendingPanel(expense)}
+                        {isMatchedToBill && renderMatchedPanel(expense)}
                         {isEntered && renderEnteredPanel(expense)}
-                        {isCorporateView && !isEntered && renderCorporatePanel(expense)}
+                        {isCorporateView && !isEntered && !isMatchedToBill && renderCorporatePanel(expense)}
                       </div>
                     </div>
                   )}
@@ -1182,32 +1328,32 @@ export default function BrexExpensesDashboard() {
 
       {/* Archive Corporate Modal */}
       {archiveModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass-card max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Archive as Corporate</h3>
-              <button onClick={() => setArchiveModal(null)} className="text-gray-400 hover:text-gray-600">
+              <h3 className="text-lg font-semibold text-slate-100">Archive as Corporate</h3>
+              <button onClick={() => setArchiveModal(null)} className="text-slate-500 hover:text-slate-300">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-sm text-gray-600 mb-1">
+            <p className="text-sm text-slate-300 mb-1">
               <span className="font-medium">{archiveModal.expense.merchant_name}</span> — ${Number(archiveModal.expense.amount).toFixed(2)}
             </p>
-            <p className="text-xs text-gray-400 mb-4">
+            <p className="text-xs text-slate-500 mb-4">
               {archiveModal.expense.posted_at
                 ? `Posted ${new Date(archiveModal.expense.posted_at).toLocaleDateString()}`
                 : ""}
             </p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Note <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Note <span className="text-slate-500 font-normal">(optional)</span>
               </label>
               <textarea
                 value={archiveModal.note}
                 onChange={(e) => setArchiveModal((prev) => prev ? { ...prev, note: e.target.value } : null)}
                 placeholder="e.g., Office supplies, team dinner, software subscription"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-slate-500 focus:border-slate-500"
+                className="w-full px-3 py-2 bg-white/5 border border-[var(--glass-border)] rounded-lg text-sm text-slate-200 placeholder:text-slate-500 focus:ring-1 focus:ring-accent focus:border-accent"
                 rows={2}
               />
             </div>
@@ -1215,14 +1361,14 @@ export default function BrexExpensesDashboard() {
             <div className="flex gap-3">
               <button
                 onClick={() => setArchiveModal(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+                className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-300 rounded-lg hover:bg-white/5 text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={() => archiveCorporate(archiveModal.expense.id, archiveModal.note)}
                 disabled={actionId === archiveModal.expense.id}
-                className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 text-sm font-medium disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-accent text-surface-base rounded-lg hover:bg-accent/90 text-sm font-medium disabled:opacity-50"
               >
                 {actionId === archiveModal.expense.id ? "Archiving..." : "Archive"}
               </button>
