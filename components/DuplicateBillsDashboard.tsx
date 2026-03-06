@@ -151,7 +151,7 @@ export default function DuplicateBillsDashboard() {
     `https://appreciateinc.appfolio.com/accounting/payable_invoices/${billId}`;
 
   // Group by month for display
-  const months = [...new Set(groups.map(g => g.bill_month))].sort((a, b) => b.localeCompare(a));
+  const months = Array.from(new Set(groups.map(g => g.bill_month))).sort((a, b) => b.localeCompare(a));
 
   if (authLoading || (!authLoading && appUser?.role !== 'admin')) {
     return (
