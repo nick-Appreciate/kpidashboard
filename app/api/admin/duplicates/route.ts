@@ -169,7 +169,7 @@ export async function GET(request: Request) {
 
     // Enrich with bill details from af_bill_detail
     const allBillIds = (groupRows || []).flatMap(g => g.bill_ids);
-    const uniqueBillIds = [...new Set(allBillIds)];
+    const uniqueBillIds = Array.from(new Set(allBillIds));
 
     let billDetails: Record<string, BillRow[]> = {};
     if (uniqueBillIds.length > 0) {
