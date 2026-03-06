@@ -93,15 +93,35 @@ interface QueueItem {
   completedAt?: Date;
 }
 
-const brexExpenseUrl = (expenseId: string | null) => {
-  // Always link to the Brex expenses page — Brex deep links using expenseId
-  // query params no longer persist (SPA redirects to main view).
-  // Users can search by amount/merchant in the Brex dashboard.
-  return `https://dashboard.brex.com/expenses/card`;
+const brexExpenseUrl = (expenseId: string | null, merchantName?: string | null) => {
+  if (expenseId) {
+    const encoded = btoa(`Expense:${expenseId}`);
+    const params = new URLSearchParams({ expenseId: encoded });
+    if (merchantName) params.set('filter', `SEARCHQUERY:${merchantName}`);
+    return `https://dashboard.brex.com/expenses?${params.toString()}`;
+  }
+  return `https://dashboard.brex.com/expenses`;
 };
 
 const appfolioBillUrl = (billId: number) =>
   `https://appreciate.appfolio.com/accounting/bills/${billId}`;
+
+// Clean up raw card descriptors for display (e.g. "LOWE'S #1830" → "Lowe's")
+const formatMerchantName = (name: string): string => {
+  let clean = name
+    .replace(/\s*#\d+\*?\s*/g, '')           // strip store numbers (#1830, #2202*)
+    .replace(/\s*\*\s*/g, ' ')               // strip asterisks
+    .replace(/\s+\d{5,}$/g, '')              // strip trailing zip codes
+    .replace(/\s+[A-Z]{2}\s*$/g, '')         // strip trailing state codes
+    .trim();
+  // Title-case: "THE HOME DEPOT" → "The Home Depot"
+  if (clean === clean.toUpperCase()) {
+    clean = clean.toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase());
+    // Fix common contractions: "Lowe'S" → "Lowe's"
+    clean = clean.replace(/'S\b/g, "'s");
+  }
+  return clean || name;
+};
 
 type SortOption = "pending_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
 type FilterOption = "all" | "pending" | "matched" | "entered" | "corporate" | "payments";
@@ -150,7 +170,6 @@ export default function BrexExpensesDashboard() {
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<SortOption>("pending_first");
   const [filter, setFilter] = useState<FilterOption>("all");
-  const [archiveModal, setArchiveModal] = useState<{ expense: BrexExpense; note: string } | null>(null);
   const [actionId, setActionId] = useState<number | null>(null);
 
   // AF options for dropdowns
@@ -308,8 +327,9 @@ export default function BrexExpensesDashboard() {
 
   // ─── Potential match fetching ──────────────────────────────────────────────
 
-  const fetchPotentialMatches = useCallback(async (expense: BrexExpense) => {
-    if (matchFetchedRef.current.has(expense.id)) return;
+  const fetchPotentialMatches = useCallback(async (expense: BrexExpense, vendorOverride?: string) => {
+    // Skip cache when vendor override is provided (user changed vendor dropdown)
+    if (!vendorOverride && matchFetchedRef.current.has(expense.id)) return;
     matchFetchedRef.current.add(expense.id);
 
     setPotentialMatches(prev => ({
@@ -322,7 +342,7 @@ export default function BrexExpensesDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          merchant_name: expense.merchant_name,
+          merchant_name: vendorOverride || expense.merchant_name,
           amount: expense.amount,
         }),
       });
@@ -507,6 +527,11 @@ export default function BrexExpensesDashboard() {
       ...prev,
       [expenseId]: { ...prev[expenseId], [field]: value },
     }));
+    // Re-fetch potential matches when vendor changes
+    if (field === 'vendor_name' && value) {
+      const expense = expenses.find(e => e.id === expenseId);
+      if (expense) fetchPotentialMatches(expense, value);
+    }
   };
 
   // ─── Validation ─────────────────────────────────────────────────────────────
@@ -564,22 +589,21 @@ export default function BrexExpensesDashboard() {
     setUploadQueue(prev => prev.filter(q => q.status === 'queued' || q.status === 'uploading'));
   };
 
-  const archiveCorporate = async (expenseId: number, note: string) => {
+  const archiveCorporate = async (expenseId: number) => {
     setActionId(expenseId);
     try {
       const response = await fetch("/api/admin/brex/corporate", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: expenseId, is_corporate: true, note }),
+        body: JSON.stringify({ id: expenseId, is_corporate: true, note: "" }),
       });
       if (!response.ok) throw new Error("Failed to archive expense");
 
       const expense = expenses.find((e) => e.id === expenseId);
       if (expense) {
         setExpenses((prev) => prev.filter((e) => e.id !== expenseId));
-        setCorporateExpenses((prev) => [...prev, { ...expense, is_corporate: true, corporate_note: note, corporate_at: new Date().toISOString(), match_status: "corporate" }]);
+        setCorporateExpenses((prev) => [...prev, { ...expense, is_corporate: true, corporate_note: null, corporate_at: new Date().toISOString(), match_status: "corporate" }]);
       }
-      setArchiveModal(null);
     } catch (error) {
       console.error("Error archiving expense:", error);
       alert("Failed to archive expense");
@@ -1140,11 +1164,6 @@ export default function BrexExpensesDashboard() {
         <p className="text-sm text-slate-400">
           This expense was marked as a corporate expense — not entered in AppFolio.
         </p>
-        {expense.corporate_note && (
-          <p className="text-xs text-slate-500 italic">
-            Note: {expense.corporate_note}
-          </p>
-        )}
         {expense.corporate_at && (
           <p className="text-[10px] text-slate-600">
             Archived {new Date(expense.corporate_at).toLocaleDateString()}
@@ -1400,7 +1419,7 @@ export default function BrexExpensesDashboard() {
 
                     {/* Merchant name */}
                     <div className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-slate-100 truncate block">{expense.merchant_name}</span>
+                      <span className="text-sm font-semibold text-slate-100 truncate block">{formatMerchantName(expense.merchant_name)}</span>
                     </div>
 
                     {/* Memo snippet */}
@@ -1492,7 +1511,7 @@ export default function BrexExpensesDashboard() {
                     {/* Quick actions (don't expand) */}
                     <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <a
-                        href={brexExpenseUrl(expense.expense_id)}
+                        href={brexExpenseUrl(expense.expense_id, expense.merchant_name)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-slate-500 hover:text-accent transition-colors"
@@ -1522,6 +1541,17 @@ export default function BrexExpensesDashboard() {
                           <ImageIcon className="w-3.5 h-3.5" />
                         </a>
                       )}
+                      {!expense.is_corporate && !expense.appfolio_synced && (
+                        <button
+                          onClick={() => archiveCorporate(expense.id)}
+                          disabled={actionId === expense.id}
+                          className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-amber-400 hover:bg-white/5 rounded transition-colors disabled:opacity-50"
+                          title="Archive as corporate"
+                        >
+                          <Archive className="w-3 h-3" />
+                          {actionId === expense.id ? "..." : "Corp"}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1533,7 +1563,7 @@ export default function BrexExpensesDashboard() {
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Brex Transaction</span>
                           <a
-                            href={brexExpenseUrl(expense.expense_id)}
+                            href={brexExpenseUrl(expense.expense_id, expense.merchant_name)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors font-medium"
@@ -1543,7 +1573,7 @@ export default function BrexExpensesDashboard() {
                             Open in Brex
                           </a>
                         </div>
-                        <h2 className="text-base font-semibold text-slate-100 mb-0.5">{expense.merchant_name}</h2>
+                        <h2 className="text-base font-semibold text-slate-100 mb-0.5">{formatMerchantName(expense.merchant_name)}</h2>
                         <p className="text-xs text-slate-500 mb-3">
                           {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name
                             ? `${expense.merchant_raw_descriptor} · `
@@ -1599,12 +1629,6 @@ export default function BrexExpensesDashboard() {
                           </div>
                         )}
 
-                        {/* Corporate note */}
-                        {isCorporateView && expense.corporate_note && (
-                          <p className="text-xs text-orange-400 mb-2 italic">
-                            <span className="text-orange-500">Corporate: </span>{expense.corporate_note}
-                          </p>
-                        )}
 
                         {/* Action Buttons */}
                         <div className="flex gap-2 flex-wrap">
@@ -1619,11 +1643,12 @@ export default function BrexExpensesDashboard() {
                             </button>
                           ) : !isEntered ? (
                             <button
-                              onClick={() => setArchiveModal({ expense, note: "" })}
-                              className="flex items-center gap-1 text-xs px-2 py-1 bg-white/5 text-slate-400 rounded hover:bg-white/10"
+                              onClick={() => archiveCorporate(expense.id)}
+                              disabled={actionId === expense.id}
+                              className="flex items-center gap-1 text-xs px-2 py-1 bg-white/5 text-slate-400 rounded hover:bg-white/10 disabled:opacity-50"
                             >
                               <Archive className="w-3.5 h-3.5" />
-                              Archive as Corporate
+                              {actionId === expense.id ? "Archiving..." : "Archive as Corporate"}
                             </button>
                           ) : null}
                         </div>
@@ -1704,56 +1729,6 @@ export default function BrexExpensesDashboard() {
         )}
       </div>
 
-      {/* Archive Corporate Modal */}
-      {archiveModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-100">Archive as Corporate</h3>
-              <button onClick={() => setArchiveModal(null)} className="text-slate-500 hover:text-slate-300">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-sm text-slate-300 mb-1">
-              <span className="font-medium">{archiveModal.expense.merchant_name}</span> — ${Number(archiveModal.expense.amount).toFixed(2)}
-            </p>
-            <p className="text-xs text-slate-500 mb-4">
-              {archiveModal.expense.posted_at
-                ? `Posted ${new Date(archiveModal.expense.posted_at).toLocaleDateString()}`
-                : ""}
-            </p>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Note <span className="text-slate-500 font-normal">(optional)</span>
-              </label>
-              <textarea
-                value={archiveModal.note}
-                onChange={(e) => setArchiveModal((prev) => prev ? { ...prev, note: e.target.value } : null)}
-                placeholder="e.g., Office supplies, team dinner, software subscription"
-                className="w-full px-3 py-2 bg-white/5 border border-[var(--glass-border)] rounded-lg text-sm text-slate-200 placeholder:text-slate-500 focus:ring-1 focus:ring-accent focus:border-accent"
-                rows={2}
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setArchiveModal(null)}
-                className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-300 rounded-lg hover:bg-white/5 text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => archiveCorporate(archiveModal.expense.id, archiveModal.note)}
-                disabled={actionId === archiveModal.expense.id}
-                className="flex-1 px-4 py-2 bg-accent text-surface-base rounded-lg hover:bg-accent/90 text-sm font-medium disabled:opacity-50"
-              >
-                {actionId === archiveModal.expense.id ? "Archiving..." : "Archive"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

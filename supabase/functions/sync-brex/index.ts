@@ -90,9 +90,9 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
     const params = new URLSearchParams();
     if (cursor) params.set('cursor', cursor);
     params.set('limit', '100');
-    // Expand to get full details
-    params.set('expand[]', 'merchant');
-    params.set('expand[]', 'receipts');
+    // Expand to get full details (use append, not set, for repeated keys)
+    params.append('expand[]', 'merchant');
+    params.append('expand[]', 'receipts');
 
     const url = `https://platform.brexapis.com/v1/expenses/card?${params.toString()}`;
     console.log(`Fetching expenses page ${pageCount + 1}: ${url}`);
@@ -124,6 +124,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
         id: sample.id,
         memo: sample.memo,
         merchant_name: sample.merchant_name,
+        merchant: sample.merchant,
         purchased_at: sample.purchased_at,
         updated_at: sample.updated_at,
         card_expense_id: sample.card_expense?.id,
@@ -227,6 +228,7 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
           }
         }
       }
+
     }
 
     cursor = data.next_cursor || null;
