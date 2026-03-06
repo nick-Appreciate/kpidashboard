@@ -224,18 +224,18 @@ export async function POST(request: Request) {
       return NextResponse.json({});
     }
 
-    // Fetch distinct vendors with their most common property/GL from af_bill_detail
+    // Fetch distinct vendors with their most common property/GL/memo from af_bill_detail
     const { data: billDetails, error: bdErr } = await supabase
       .from('af_bill_detail')
-      .select('vendor_name, property_name, gl_account_id')
+      .select('vendor_name, property_name, gl_account_id, memo')
       .not('vendor_name', 'is', null);
 
     if (bdErr) {
       return NextResponse.json({ error: bdErr.message }, { status: 500 });
     }
 
-    // Build a lookup: normalized AF vendor name -> { vendor_name, property, gl_account, count }
-    const vendorMap = new Map<string, Map<string, { vendor_name: string; property: string; gl_account: string; count: number }>>();
+    // Build a lookup: normalized AF vendor name -> { vendor_name, property, gl_account, description, count }
+    const vendorMap = new Map<string, Map<string, { vendor_name: string; property: string; gl_account: string; description: string; count: number }>>();
 
     for (const row of billDetails || []) {
       if (!row.vendor_name) continue;
@@ -248,11 +248,16 @@ export async function POST(request: Request) {
       const existing = combos.get(key);
       if (existing) {
         existing.count++;
+        // Keep the most recent non-empty memo
+        if (row.memo && !existing.description) {
+          existing.description = row.memo;
+        }
       } else {
         combos.set(key, {
           vendor_name: row.vendor_name,
           property: row.property_name || '',
           gl_account: row.gl_account_id || '',
+          description: row.memo || '',
           count: 1,
         });
       }
@@ -261,13 +266,13 @@ export async function POST(request: Request) {
     const vendorEntries = Array.from(vendorMap.entries());
 
     // For each merchant, find the best match
-    const result: Record<string, { vendor_name: string; property: string; gl_account: string } | null> = {};
+    const result: Record<string, { vendor_name: string; property: string; gl_account: string; description: string } | null> = {};
 
     for (const merchant of merchants) {
       const merchantNorm = normalizeMerchant(merchant);
 
       let bestScore = 0;
-      let bestCombos: Map<string, { vendor_name: string; property: string; gl_account: string; count: number }> | null = null;
+      let bestCombos: Map<string, { vendor_name: string; property: string; gl_account: string; description: string; count: number }> | null = null;
 
       // 1. Exact normalized match (score = 1.0)
       if (vendorMap.has(merchantNorm)) {
@@ -289,8 +294,8 @@ export async function POST(request: Request) {
 
       if (bestCombos) {
         // Pick the combo with the highest count
-        let best: { vendor_name: string; property: string; gl_account: string; count: number } | null = null;
         const comboValues = Array.from(bestCombos.values());
+        let best: (typeof comboValues)[number] | null = null;
         for (const combo of comboValues) {
           if (!best || combo.count > best.count) {
             best = combo;
@@ -301,6 +306,7 @@ export async function POST(request: Request) {
             vendor_name: best.vendor_name,
             property: best.property,
             gl_account: best.gl_account,
+            description: best.description,
           };
         } else {
           result[merchant] = null;
