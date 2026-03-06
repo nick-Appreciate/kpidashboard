@@ -19,6 +19,9 @@ function normalizeVendorName(name: string): string {
   n = n.replace(/,?\s*(inc\.?|llc\.?|l\.?l\.?c\.?|corp\.?|co\.?|ltd\.?|company|enterprises?)$/i, '');
   // Strip card descriptor artifacts (asterisks, hash marks)
   n = n.replace(/[*#]/g, '');
+  // Normalize smart/curly quotes to straight versions for consistent matching
+  n = n.replace(/[\u2018\u2019\u201A\u2032\u0060]/g, "'"); // single quotes → '
+  n = n.replace(/[\u201C\u201D\u201E\u2033]/g, '"');        // double quotes → "
   // Strip trailing city/state/zip patterns common in card transactions
   n = n.replace(/\s+[a-z]+\s+[a-z]{2}\s*\d{0,5}$/i, '');
   // Collapse whitespace
@@ -269,70 +272,86 @@ async function runMatching(): Promise<{ highConfidence: number; lowConfidence: n
   let lowCount = 0;
 
   for (const expense of unmatched) {
-    // Find ops_bills with exact amount match
-    const { data: candidates } = await supabase
+    let bestMatch: { billId: number; confidence: 'high' | 'low'; source: string } | null = null;
+
+    // --- Helper: determine vendor match level ---
+    // Returns 'exact', 'strong' (contains match, ≥4 chars), 'weak' (first-word match), or null
+    function vendorMatchLevel(billNormalized: string, expenseNormalized: string): 'exact' | 'strong' | 'weak' | null {
+      if (billNormalized === expenseNormalized) return 'exact';
+      // "contains" match — e.g. "lowe's" inside "lowe's 1830", at least 4 chars
+      const shorter = billNormalized.length <= expenseNormalized.length ? billNormalized : expenseNormalized;
+      if (shorter.length >= 4 && (billNormalized.includes(expenseNormalized) || expenseNormalized.includes(billNormalized))) {
+        return 'strong';
+      }
+      // First-word match — e.g. both start with "arrow" (>2 chars)
+      const billFirst = billNormalized.split(' ')[0];
+      const expFirst = expenseNormalized.split(' ')[0];
+      if (billFirst.length > 2 && billFirst === expFirst) return 'weak';
+      return null;
+    }
+
+    // --- Search ops_bills for exact amount match ---
+    const { data: opsCandidates } = await supabase
       .from('ops_bills')
       .select('id, vendor_name, amount, invoice_date')
       .eq('amount', expense.amount)
       .eq('is_hidden', false);
 
-    if (!candidates || candidates.length === 0) continue;
-
-    let bestMatch: { billId: number; confidence: 'high' | 'low' } | null = null;
-
-    for (const bill of candidates) {
+    for (const bill of opsCandidates || []) {
       const billNormalized = normalizeVendorName(bill.vendor_name);
-      const expenseNormalized = expense.vendor_name_normalized;
+      const level = vendorMatchLevel(billNormalized, expense.vendor_name_normalized);
+      if (!level) continue;
 
-      // Check vendor name match
-      const exactVendor = billNormalized === expenseNormalized;
-      const fuzzyVendor = !exactVendor && (
-        billNormalized.includes(expenseNormalized) ||
-        expenseNormalized.includes(billNormalized) ||
-        (billNormalized.split(' ')[0].length > 2 &&
-         billNormalized.split(' ')[0] === expenseNormalized.split(' ')[0])
-      );
-
-      if (!exactVendor && !fuzzyVendor) continue;
-
-      // Check date proximity (optional, boosts confidence)
-      let dateClose = false;
-      if (expense.posted_at && bill.invoice_date) {
-        const brexDate = new Date(expense.posted_at);
-        const billDate = new Date(bill.invoice_date);
-        const daysDiff = Math.abs(brexDate.getTime() - billDate.getTime()) / (1000 * 60 * 60 * 24);
-        dateClose = daysDiff <= 7;
+      // Exact or strong vendor + exact amount = HIGH confidence
+      if (level === 'exact' || level === 'strong') {
+        bestMatch = { billId: bill.id, confidence: 'high', source: 'ops_bills' };
+        break;
+      } else if (!bestMatch) {
+        bestMatch = { billId: bill.id, confidence: 'low', source: 'ops_bills' };
       }
+    }
 
-      // Determine confidence
-      if (exactVendor && dateClose) {
-        bestMatch = { billId: bill.id, confidence: 'high' };
-        break; // Can't do better than this
-      } else if (exactVendor && !dateClose) {
-        if (!bestMatch || bestMatch.confidence !== 'high') {
-          bestMatch = { billId: bill.id, confidence: 'low' };
-        }
-      } else if (fuzzyVendor) {
-        if (!bestMatch) {
-          bestMatch = { billId: bill.id, confidence: 'low' };
+    // --- If no HIGH match from ops_bills, also search af_bill_detail ---
+    if (!bestMatch || bestMatch.confidence !== 'high') {
+      const { data: afCandidates } = await supabase
+        .from('af_bill_detail')
+        .select('id, vendor_name, amount, bill_date, bill_number')
+        .eq('amount', expense.amount);
+
+      for (const bill of afCandidates || []) {
+        const billNormalized = normalizeVendorName(bill.vendor_name || '');
+        const level = vendorMatchLevel(billNormalized, expense.vendor_name_normalized);
+        if (!level) continue;
+
+        if (level === 'exact' || level === 'strong') {
+          bestMatch = { billId: bill.id, confidence: 'high', source: 'af_bill_detail' };
+          break;
+        } else if (!bestMatch || bestMatch.confidence !== 'high') {
+          bestMatch = { billId: bill.id, confidence: 'low', source: 'af_bill_detail' };
         }
       }
     }
 
     if (bestMatch) {
-      await supabase
+      const { error: matchErr } = await supabase
         .from('brex_expenses')
         .update({
           match_status: 'matched',
           match_confidence: bestMatch.confidence,
           matched_bill_id: bestMatch.billId,
+          matched_bill_source: bestMatch.source,
           matched_at: new Date().toISOString(),
           matched_by: 'auto',
         })
         .eq('id', expense.id);
 
-      if (bestMatch.confidence === 'high') highCount++;
-      else lowCount++;
+      if (matchErr) {
+        console.error(`  ❌ Failed to update expense #${expense.id} → ${bestMatch.source} #${bestMatch.billId}: ${matchErr.message}`);
+      } else {
+        console.log(`  ✅ Matched expense #${expense.id} (${expense.merchant_name}) → ${bestMatch.source} #${bestMatch.billId} [${bestMatch.confidence}]`);
+        if (bestMatch.confidence === 'high') highCount++;
+        else lowCount++;
+      }
     }
   }
 
