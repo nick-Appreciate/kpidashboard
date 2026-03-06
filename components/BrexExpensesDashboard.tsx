@@ -106,6 +106,23 @@ const brexExpenseUrl = (expenseId: string | null, merchantName?: string | null) 
 const appfolioBillUrl = (billId: number) =>
   `https://appreciate.appfolio.com/accounting/bills/${billId}`;
 
+// Clean up raw card descriptors for display (e.g. "LOWE'S #1830" → "Lowe's")
+const formatMerchantName = (name: string): string => {
+  let clean = name
+    .replace(/\s*#\d+\*?\s*/g, '')           // strip store numbers (#1830, #2202*)
+    .replace(/\s*\*\s*/g, ' ')               // strip asterisks
+    .replace(/\s+\d{5,}$/g, '')              // strip trailing zip codes
+    .replace(/\s+[A-Z]{2}\s*$/g, '')         // strip trailing state codes
+    .trim();
+  // Title-case: "THE HOME DEPOT" → "The Home Depot"
+  if (clean === clean.toUpperCase()) {
+    clean = clean.toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase());
+    // Fix common contractions: "Lowe'S" → "Lowe's"
+    clean = clean.replace(/'S\b/g, "'s");
+  }
+  return clean || name;
+};
+
 type SortOption = "pending_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
 type FilterOption = "all" | "pending" | "matched" | "entered" | "corporate" | "payments";
 
@@ -311,8 +328,9 @@ export default function BrexExpensesDashboard() {
 
   // ─── Potential match fetching ──────────────────────────────────────────────
 
-  const fetchPotentialMatches = useCallback(async (expense: BrexExpense) => {
-    if (matchFetchedRef.current.has(expense.id)) return;
+  const fetchPotentialMatches = useCallback(async (expense: BrexExpense, vendorOverride?: string) => {
+    // Skip cache when vendor override is provided (user changed vendor dropdown)
+    if (!vendorOverride && matchFetchedRef.current.has(expense.id)) return;
     matchFetchedRef.current.add(expense.id);
 
     setPotentialMatches(prev => ({
@@ -325,7 +343,7 @@ export default function BrexExpensesDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          merchant_name: expense.merchant_name,
+          merchant_name: vendorOverride || expense.merchant_name,
           amount: expense.amount,
         }),
       });
@@ -510,6 +528,11 @@ export default function BrexExpensesDashboard() {
       ...prev,
       [expenseId]: { ...prev[expenseId], [field]: value },
     }));
+    // Re-fetch potential matches when vendor changes
+    if (field === 'vendor_name' && value) {
+      const expense = expenses.find(e => e.id === expenseId);
+      if (expense) fetchPotentialMatches(expense, value);
+    }
   };
 
   // ─── Validation ─────────────────────────────────────────────────────────────
@@ -1403,7 +1426,7 @@ export default function BrexExpensesDashboard() {
 
                     {/* Merchant name */}
                     <div className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-slate-100 truncate block">{expense.merchant_name}</span>
+                      <span className="text-sm font-semibold text-slate-100 truncate block">{formatMerchantName(expense.merchant_name)}</span>
                     </div>
 
                     {/* Memo snippet */}
@@ -1525,6 +1548,16 @@ export default function BrexExpensesDashboard() {
                           <ImageIcon className="w-3.5 h-3.5" />
                         </a>
                       )}
+                      {!expense.is_corporate && !expense.appfolio_synced && (
+                        <button
+                          onClick={() => setArchiveModal({ expense, note: "" })}
+                          className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:text-amber-400 hover:bg-white/5 rounded transition-colors"
+                          title="Archive as corporate"
+                        >
+                          <Archive className="w-3 h-3" />
+                          Corp
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1546,7 +1579,7 @@ export default function BrexExpensesDashboard() {
                             Open in Brex
                           </a>
                         </div>
-                        <h2 className="text-base font-semibold text-slate-100 mb-0.5">{expense.merchant_name}</h2>
+                        <h2 className="text-base font-semibold text-slate-100 mb-0.5">{formatMerchantName(expense.merchant_name)}</h2>
                         <p className="text-xs text-slate-500 mb-3">
                           {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name
                             ? `${expense.merchant_raw_descriptor} · `
@@ -1718,7 +1751,7 @@ export default function BrexExpensesDashboard() {
               </button>
             </div>
             <p className="text-sm text-slate-300 mb-1">
-              <span className="font-medium">{archiveModal.expense.merchant_name}</span> — ${Number(archiveModal.expense.amount).toFixed(2)}
+              <span className="font-medium">{formatMerchantName(archiveModal.expense.merchant_name)}</span> — ${Number(archiveModal.expense.amount).toFixed(2)}
             </p>
             <p className="text-xs text-slate-500 mb-4">
               {archiveModal.expense.posted_at
