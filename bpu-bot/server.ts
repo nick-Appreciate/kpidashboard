@@ -9,6 +9,14 @@ import {
   scrapeUsageData,
   MeterReading,
 } from './browser';
+import {
+  ensureComoBrowser,
+  closeComoBrowser,
+  isComoLoggedIn,
+  interactiveComoLogin,
+  scrapeComoData,
+  ComoMeterReading,
+} from './como-browser';
 
 const app = express();
 app.use(express.json());
@@ -17,6 +25,8 @@ const PORT = parseInt(process.env.PORT || '3101');
 const API_SECRET = process.env.API_SECRET || 'changeme';
 const BPU_USERNAME = process.env.BPU_USERNAME || '';
 const BPU_PASSWORD = process.env.BPU_PASSWORD || '';
+const COMO_USERNAME = process.env.COMO_USERNAME || '';
+const COMO_PASSWORD = process.env.COMO_PASSWORD || '';
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 
@@ -50,15 +60,21 @@ app.use('/api', requireAuth);
 
 /**
  * GET /api/health
- * Check if browser is running and session is valid.
+ * Check if both BPU and COMO browsers are running and sessions are valid.
  */
 app.get('/api/health', async (_req, res) => {
   try {
-    const status = await isLoggedIn();
+    const [bpuStatus, comoStatus] = await Promise.all([
+      isLoggedIn(),
+      isComoLoggedIn().catch((err: any) => ({ loggedIn: false, url: `error: ${err.message}` })),
+    ]);
     res.json({
       ok: true,
-      logged_in: status.loggedIn,
-      current_url: status.url,
+      bpu: { logged_in: bpuStatus.loggedIn, current_url: bpuStatus.url },
+      como: { logged_in: comoStatus.loggedIn, current_url: comoStatus.url },
+      // Legacy fields for backward compat
+      logged_in: bpuStatus.loggedIn,
+      current_url: bpuStatus.url,
     });
   } catch (err: any) {
     res.json({ ok: false, error: err.message });
@@ -161,7 +177,132 @@ app.post('/api/scrape', async (req, res) => {
   }
 });
 
+// ─── COMO Routes ─────────────────────────────────────────────────────────
+
+/**
+ * POST /api/como/login
+ * Start interactive login for COMO MyMeter portal.
+ */
+app.post('/api/como/login', async (_req, res) => {
+  try {
+    const email = _req.body?.email || COMO_USERNAME;
+    const password = _req.body?.password || COMO_PASSWORD;
+
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ error: 'Missing email/password in body or COMO_USERNAME/COMO_PASSWORD env vars' });
+    }
+
+    console.log('[api] Starting COMO interactive login...');
+    const result = await interactiveComoLogin(email, password);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/como/scrape
+ * Scrape all COMO properties: iterate properties → download CSV → parse → upload.
+ *
+ * Body (optional):
+ * {
+ *   start_date?: "YYYY-MM-DD",  // default: 3 years ago
+ *   end_date?: "YYYY-MM-DD",    // default: today
+ *   dry_run?: boolean
+ * }
+ */
+app.post('/api/como/scrape', async (req, res) => {
+  try {
+    const comoStatus = await isComoLoggedIn();
+    if (!comoStatus.loggedIn) {
+      return res.status(400).json({
+        error: 'COMO not logged in. POST /api/como/login first.',
+        current_url: comoStatus.url,
+      });
+    }
+
+    const { start_date, end_date, dry_run } = req.body || {};
+
+    console.log('[api] Starting COMO scrape...');
+    const scrapeResult = await scrapeComoData(start_date, end_date);
+
+    if (!scrapeResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: scrapeResult.error,
+        records_parsed: scrapeResult.records.length,
+        properties_scraped: scrapeResult.properties_scraped,
+        records_uploaded: 0,
+      });
+    }
+
+    const records = scrapeResult.records;
+    console.log(`[api] COMO: Parsed ${records.length} records from ${scrapeResult.properties_scraped} properties.`);
+
+    let recordsUploaded = 0;
+    let uploadError: string | undefined;
+
+    if (dry_run) {
+      console.log('[api] Dry run — skipping Supabase upload.');
+    } else if (!supabase) {
+      uploadError = 'Supabase not configured.';
+    } else if (records.length > 0) {
+      try {
+        recordsUploaded = await uploadComoToSupabase(records);
+        console.log(`[api] COMO: Uploaded ${recordsUploaded} records to Supabase.`);
+      } catch (err: any) {
+        uploadError = `Supabase upload error: ${err.message}`;
+        console.error('[api]', uploadError);
+      }
+    }
+
+    res.json({
+      success: true,
+      records_parsed: records.length,
+      properties_scraped: scrapeResult.properties_scraped,
+      records_uploaded: recordsUploaded,
+      upload_error: uploadError,
+      sample: records.slice(0, 5),
+    });
+  } catch (err: any) {
+    console.error('[api] COMO scrape error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Supabase Upload ──────────────────────────────────────────────────────
+
+async function uploadComoToSupabase(records: ComoMeterReading[]): Promise<number> {
+  if (!supabase) throw new Error('Supabase not configured');
+
+  const BATCH_SIZE = 100;
+  let totalUploaded = 0;
+
+  for (let i = 0; i < records.length; i += BATCH_SIZE) {
+    const batch = records.slice(i, i + BATCH_SIZE);
+
+    const { data, error } = await (supabase as any)
+      .from('como_meter_readings')
+      .upsert(batch, {
+        onConflict: 'reading_timestamp,meter,account_number',
+      })
+      .select();
+
+    if (error) {
+      console.error(`[supabase] COMO batch ${i / BATCH_SIZE + 1} error:`, error.message);
+      throw error;
+    }
+
+    totalUploaded += data?.length || batch.length;
+    console.log(
+      `[supabase] COMO batch ${i / BATCH_SIZE + 1}: upserted ${data?.length || batch.length} records`
+    );
+  }
+
+  return totalUploaded;
+}
 
 async function uploadToSupabase(records: MeterReading[]): Promise<number> {
   if (!supabase) throw new Error('Supabase not configured');
@@ -197,43 +338,51 @@ async function uploadToSupabase(records: MeterReading[]): Promise<number> {
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────
 
-process.on('SIGINT', async () => {
+async function shutdownAll() {
   console.log('\nShutting down...');
-  try {
-    await closeBrowser();
-  } catch {}
+  await Promise.all([
+    closeBrowser().catch(() => {}),
+    closeComoBrowser().catch(() => {}),
+  ]);
+}
+
+process.on('SIGINT', async () => {
+  await shutdownAll();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\nShutting down...');
-  try {
-    await closeBrowser();
-  } catch {}
+  await shutdownAll();
   process.exit(0);
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────
 
 app.listen(PORT, async () => {
-  console.log(`\n🏢 BPU Bot running on port ${PORT}`);
+  console.log(`\n🏢 Utility Bot running on port ${PORT}`);
   console.log(
     `   API Secret: ${API_SECRET === 'changeme' ? '⚠️  DEFAULT (set API_SECRET env var!)' : '✓ set'}`
   );
   console.log(`   BPU Username: ${BPU_USERNAME || '⚠️  not set'}`);
+  console.log(`   COMO Username: ${COMO_USERNAME || '⚠️  not set'}`);
   console.log('');
 
-  // Pre-warm the browser
-  await ensureBrowser();
+  // Pre-warm both browsers in parallel
+  await Promise.all([
+    ensureBrowser(),
+    ensureComoBrowser().catch((err: any) => {
+      console.log(`   COMO browser error: ${err.message}`);
+    }),
+  ]);
 
-  // Check session status
-  const status = await isLoggedIn();
-  if (status.loggedIn) {
-    console.log('   ✅ Session is active — ready to scrape.');
-  } else {
-    console.log('   ⚠️  Not logged in. Run `npm run login` or POST /api/login to authenticate.');
-    console.log(`   (currently at: ${status.url})`);
-  }
+  // Check session status for both
+  const [bpuStatus, comoStatus] = await Promise.all([
+    isLoggedIn(),
+    isComoLoggedIn().catch(() => ({ loggedIn: false, url: 'error' })),
+  ]);
+
+  console.log(`   BPU:  ${bpuStatus.loggedIn ? '✅ Session active' : '⚠️  Not logged in → POST /api/login'}`);
+  console.log(`   COMO: ${comoStatus.loggedIn ? '✅ Session active' : '⚠️  Not logged in → POST /api/como/login'}`);
   console.log('');
 });
 

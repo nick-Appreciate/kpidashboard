@@ -1,55 +1,98 @@
 /**
- * BPU Login Helper
+ * Login Helper — supports both BPU and COMO MyMeter portals.
  *
- * Interactive CLI tool to log in to mymeter.bpu.com.
- * Opens a visible browser window where you can solve the CAPTCHA manually.
- * On successful login, saves the session to .session-state.json.
- *
- * Usage: npm run login
+ * Usage:
+ *   npm run login              # login to BPU (default)
+ *   npm run login -- --como    # login to COMO
+ *   npm run login -- --both    # login to both sequentially
  */
 import 'dotenv/config';
 import { interactiveLogin, closeBrowser } from './browser';
+import { interactiveComoLogin, closeComoBrowser } from './como-browser';
 
 const BPU_USERNAME = process.env.BPU_USERNAME || '';
 const BPU_PASSWORD = process.env.BPU_PASSWORD || '';
+const COMO_USERNAME = process.env.COMO_USERNAME || '';
+const COMO_PASSWORD = process.env.COMO_PASSWORD || '';
 
-async function main() {
+async function loginBpu(): Promise<boolean> {
   console.log('');
-  console.log('🔐 BPU Login Helper');
-  console.log('═══════════════════');
-  console.log('');
+  console.log('🔐 BPU Login (mymeter.bpu.com)');
+  console.log('═══════════════════════════════');
 
   if (!BPU_USERNAME || !BPU_PASSWORD) {
-    console.error('❌ BPU_USERNAME and BPU_PASSWORD must be set in .env file');
-    console.error('   Copy .env.example to .env and fill in your credentials.');
-    process.exit(1);
+    console.error('❌ BPU_USERNAME and BPU_PASSWORD must be set in .env');
+    return false;
   }
 
   console.log(`   Username: ${BPU_USERNAME}`);
-  console.log('   Password: ********');
   console.log('');
-  console.log('   A browser window will open. Steps:');
-  console.log('   1. Credentials will be auto-filled');
-  console.log('   2. Solve the CAPTCHA');
-  console.log('   3. Click the Login button');
-  console.log('   4. Session will be saved automatically');
+  console.log('   A browser window will open. Solve CAPTCHA and click Login.');
   console.log('');
 
   const result = await interactiveLogin(BPU_USERNAME, BPU_PASSWORD);
+  await closeBrowser();
 
   if (result.success) {
-    console.log('');
-    console.log('✅ ' + result.message);
-    console.log('   You can now start the server with `npm run dev` or `npm start`.');
-    console.log('   The session will persist across restarts.');
+    console.log('✅ BPU: ' + result.message);
   } else {
-    console.log('');
-    console.log('❌ ' + result.message);
-    console.log('   Please try again.');
+    console.log('❌ BPU: ' + result.message);
+  }
+  return result.success;
+}
+
+async function loginComo(): Promise<boolean> {
+  console.log('');
+  console.log('🔐 COMO Login (myutilitybill.como.gov)');
+  console.log('═══════════════════════════════════════');
+
+  if (!COMO_USERNAME || !COMO_PASSWORD) {
+    console.error('❌ COMO_USERNAME and COMO_PASSWORD must be set in .env');
+    return false;
   }
 
-  await closeBrowser();
-  process.exit(result.success ? 0 : 1);
+  console.log(`   Username: ${COMO_USERNAME}`);
+  console.log('');
+  console.log('   A browser window will open. Solve CAPTCHA and click Login.');
+  console.log('');
+
+  const result = await interactiveComoLogin(COMO_USERNAME, COMO_PASSWORD);
+  await closeComoBrowser();
+
+  if (result.success) {
+    console.log('✅ COMO: ' + result.message);
+  } else {
+    console.log('❌ COMO: ' + result.message);
+  }
+  return result.success;
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const wantComo = args.includes('--como');
+  const wantBoth = args.includes('--both');
+  const wantBpu = !wantComo || wantBoth; // default to BPU
+
+  let success = true;
+
+  if (wantBpu || wantBoth) {
+    const ok = await loginBpu();
+    if (!ok) success = false;
+  }
+
+  if (wantComo || wantBoth) {
+    const ok = await loginComo();
+    if (!ok) success = false;
+  }
+
+  console.log('');
+  if (success) {
+    console.log('You can now start the server with `npm run dev` or `npm start`.');
+  } else {
+    console.log('Some logins failed. Please try again.');
+  }
+
+  process.exit(success ? 0 : 1);
 }
 
 main().catch((err) => {

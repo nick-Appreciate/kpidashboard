@@ -6,7 +6,9 @@
     "start": "node dist/server.js",
     "dev": "tsx watch server.ts",
     "build": "tsc",
-    "login": "tsx login-helper.ts"
+    "login": "tsx login-helper.ts",
+    "login:como": "tsx login-helper.ts --como",
+    "login:both": "tsx login-helper.ts --both"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
