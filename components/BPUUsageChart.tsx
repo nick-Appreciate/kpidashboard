@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { CHART_PALETTE } from '../lib/chartTheme';
 
@@ -122,7 +122,6 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
             tickFormatter={(v: number) => v.toFixed(1)}
           />
           <Tooltip content={<CustomTooltip />} />
-          <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
           {meterKeys.map((key, i) => (
             <Line
               key={key}

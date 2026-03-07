@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { CHART_PALETTE } from '../lib/chartTheme';
 
@@ -109,7 +109,6 @@ export default function BPUBaselineChart({ baselineDeviation, timeRange, loading
             tickFormatter={(v: number) => `${v.toFixed(1)}x`}
           />
           <Tooltip content={<CustomTooltip />} />
-          <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
           <ReferenceLine
             y={1}
             stroke="#fbbf24"

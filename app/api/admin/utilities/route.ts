@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../../../lib/supabase';
+import { supabase, supabaseAdmin } from '../../../../lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -74,34 +74,70 @@ export async function GET(request: Request) {
       startDateStr = startDate.toISOString().split('T')[0];
     }
 
-    // Paginated fetch (same as Mercury pattern)
+    const days = daysParam === 'all' ? Infinity : parseInt(daysParam, 10);
     let allData: Reading[] = [];
-    let from = 0;
-    const pageSize = 1000;
-    let hasMore = true;
 
-    while (hasMore) {
-      let query = supabase
-        .from('bpu_meter_readings')
-        .select('*')
-        .order('reading_timestamp', { ascending: true })
-        .range(from, from + pageSize - 1);
+    if (days > 90) {
+      // Use SQL aggregation for large ranges to avoid fetching 600K+ rows
+      // RPC returns a single JSON array (bypasses PostgREST row limits)
+      const { data: aggResult, error: aggError } = await supabaseAdmin
+        .rpc('get_daily_meter_usage', {
+          start_date: startDateStr || null,
+          end_date: null,
+          meter_filter: meterParam || null,
+        })
+        .single();
 
-      if (startDateStr) {
-        query = query.gte('reading_timestamp', startDateStr);
+      const aggData = aggResult as any[] | null;
+
+      if (!aggError && aggData) {
+        for (const row of aggData) {
+          allData.push({
+            reading_timestamp: row.day + 'T12:00:00',
+            account_number: row.account_number,
+            name: row.name,
+            meter: row.meter,
+            location: null,
+            address: row.address,
+            estimated_indicator: '',
+            ccf: row.total_ccf,
+            cost: '$0.00',
+          });
+        }
+      } else if (aggError) {
+        console.warn('RPC failed, falling back to paginated fetch:', aggError.message);
       }
-      if (meterParam) {
-        query = query.eq('meter', meterParam);
-      }
+    }
 
-      const { data, error } = await query;
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
+    // For short ranges (<=90 days) or if aggregation failed, use paginated fetch
+    if (allData.length === 0) {
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      allData = allData.concat((data || []) as Reading[]);
-      hasMore = (data?.length || 0) === pageSize;
-      from += pageSize;
+      while (hasMore) {
+        let query = supabase
+          .from('bpu_meter_readings')
+          .select('*')
+          .order('reading_timestamp', { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (startDateStr) {
+          query = query.gte('reading_timestamp', startDateStr);
+        }
+        if (meterParam) {
+          query = query.eq('meter', meterParam);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        allData = allData.concat((data || []) as Reading[]);
+        hasMore = (data?.length || 0) === pageSize;
+        from += pageSize;
+      }
     }
 
     // Process data
