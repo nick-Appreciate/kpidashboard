@@ -71,6 +71,23 @@ export async function ensureComoBrowser(): Promise<BrowserContext> {
 export async function ensureComoBrowserVisible(): Promise<BrowserContext> {
   await closeComoBrowser();
 
+  // On headless servers, use xvfb virtual display if available
+  const isHeadlessServer = !process.env.DISPLAY && process.platform === 'linux';
+  if (isHeadlessServer) {
+    try {
+      const { execSync } = require('child_process');
+      execSync('which Xvfb', { stdio: 'ignore' });
+      // Start xvfb on display :99 if not already running
+      try {
+        execSync('Xvfb :99 -screen 0 1280x900x24 &', { stdio: 'ignore' });
+      } catch {}
+      process.env.DISPLAY = ':99';
+      console.log('[como] Using Xvfb virtual display :99');
+    } catch {
+      console.log('[como] No Xvfb available, trying headless=false anyway...');
+    }
+  }
+
   console.log('[como] Launching Chromium (visible for login)...');
   browser = await chromium.launch({
     headless: false,
@@ -172,18 +189,36 @@ export async function isComoLoggedIn(): Promise<{ loggedIn: boolean; url: string
 // ─── Login Flow ───────────────────────────────────────────────────────────
 
 /**
- * Interactive login for COMO MyMeter portal.
- * Opens visible browser — user logs in manually (may have CAPTCHA).
+ * Login for COMO MyMeter portal.
+ * Opens visible browser for CAPTCHA solving (same as BPU).
+ * On headless VPS, tries headless auto-submit first.
  */
 export async function interactiveComoLogin(
   email: string,
   password: string
 ): Promise<ComoLoginResult> {
-  const ctx = await ensureComoBrowserVisible();
+  // On headless servers, try auto-login first
+  const isHeadlessServer = !process.env.DISPLAY && process.platform === 'linux';
+  if (isHeadlessServer) {
+    console.log('[como-login] Headless server detected, trying auto-login...');
+    const headlessResult = await attemptHeadlessLogin(email, password);
+    if (headlessResult.success) return headlessResult;
+    console.log('[como-login] Auto-login failed:', headlessResult.message);
+    return headlessResult; // Can't open visible browser on headless VPS
+  }
+
+  // On local machine, go straight to visible browser
+  return attemptVisibleLogin(email, password);
+}
+
+async function attemptHeadlessLogin(
+  email: string,
+  password: string
+): Promise<ComoLoginResult> {
+  const ctx = await ensureComoBrowser();
   const page = await ctx.newPage();
 
   try {
-    console.log('[como-login] Navigating to COMO login page...');
     await page.goto(COMO_BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
 
@@ -195,72 +230,203 @@ export async function interactiveComoLogin(
       return { success: true, message: 'Already logged in. Session saved.' };
     }
 
-    // Fill login form — COMO uses same MyMeter platform as BPU
     const emailInput = await page.$('#LoginEmail') || await page.$('input[name="Email"]');
     const passwordInput = await page.$('#LoginPassword') || await page.$('input[name="Password"]');
 
     if (!emailInput || !passwordInput) {
-      console.log('[como-login] Login form not found. URL:', page.url());
       await takeScreenshot(page, 'login-no-form');
       await page.close();
       return { success: false, message: 'Login form not found' };
     }
 
-    console.log('[como-login] Filling credentials...');
+    // Check for CAPTCHA before attempting submit
+    const hasCaptcha = (await page.$('.g-recaptcha, [data-sitekey], iframe[src*="recaptcha"]')) !== null;
+
+    await emailInput.fill(email);
+    await page.waitForTimeout(300);
+    await passwordInput.fill(password);
+    await page.waitForTimeout(300);
+
+    if (hasCaptcha) {
+      console.log('[como-login] CAPTCHA detected — cannot auto-login headless.');
+      await takeScreenshot(page, 'captcha-detected');
+      await page.close();
+      return { success: false, message: 'CAPTCHA detected, need visible browser.' };
+    }
+
+    // Click the login button
+    const loginBtn = await page.$('button[type="submit"], input[type="submit"], #LoginBtn, button:has-text("Login"), button:has-text("Sign In")');
+    if (loginBtn) {
+      await loginBtn.click();
+    } else {
+      // Try submitting the form directly
+      await page.evaluate(() => {
+        const form = document.querySelector('form');
+        if (form) form.submit();
+      });
+    }
+
+    // Wait for navigation
+    await page.waitForTimeout(5000);
+
+    const currentUrl = page.url();
+    const loggedIn =
+      currentUrl.includes('/Dashboard') ||
+      currentUrl.includes('/Home') ||
+      (await page.$('#choosePropertyBtn')) !== null ||
+      (await page.$('a[href*="Logout"]')) !== null;
+
+    if (loggedIn) {
+      console.log('[como-login] Headless auto-login successful!');
+      await saveComoSession();
+      await page.close();
+      return { success: true, message: 'Login successful. Session saved.' };
+    }
+
+    // Check if login failed (error message) vs CAPTCHA appeared after submit
+    const errorMsg = await page.$eval('.validation-summary-errors, .alert-danger, .error-message',
+      (el: any) => el.textContent?.trim() || '').catch(() => '');
+
+    await takeScreenshot(page, 'login-result');
+    await page.close();
+    return { success: false, message: errorMsg || 'Login did not succeed. May need visible browser.' };
+  } catch (err: any) {
+    try { await page.close(); } catch {}
+    return { success: false, message: `Headless login error: ${err.message}` };
+  }
+}
+
+async function attemptVisibleLogin(
+  email: string,
+  password: string
+): Promise<ComoLoginResult> {
+  let ctx: BrowserContext;
+  try {
+    ctx = await ensureComoBrowserVisible();
+  } catch (err: any) {
+    // No X server (headless VPS) — can't open visible browser
+    return { success: false, message: `Cannot open visible browser (headless server?): ${err.message}` };
+  }
+
+  const page = await ctx.newPage();
+
+  try {
+    await page.goto(COMO_BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
+
+    const url = page.url();
+    if (url.includes('/Dashboard') || url.includes('/Home')) {
+      await saveComoSession();
+      await page.close();
+      return { success: true, message: 'Already logged in. Session saved.' };
+    }
+
+    const emailInput = await page.$('#LoginEmail') || await page.$('input[name="Email"]');
+    const passwordInput = await page.$('#LoginPassword') || await page.$('input[name="Password"]');
+
+    if (!emailInput || !passwordInput) {
+      await takeScreenshot(page, 'login-no-form');
+      await page.close();
+      return { success: false, message: 'Login form not found' };
+    }
+
     await emailInput.fill(email);
     await page.waitForTimeout(500);
     await passwordInput.fill(password);
 
     console.log('[como-login] Credentials filled. Solve CAPTCHA and click Login.');
-    console.log('[como-login] Waiting for login to complete (up to 5 minutes)...');
+    console.log('[como-login] Waiting up to 5 minutes...');
 
     const loginTimeout = 300000;
     const pollInterval = 2000;
     let elapsed = 0;
 
     while (elapsed < loginTimeout) {
-      await page.waitForTimeout(pollInterval);
+      await new Promise(r => setTimeout(r, pollInterval));
       elapsed += pollInterval;
 
-      const currentUrl = page.url();
-      if (
-        currentUrl.includes('/Dashboard') ||
-        currentUrl.includes('/Home') ||
-        (await page.$('#choosePropertyBtn')) !== null ||
-        (await page.$('a[href*="Logout"]')) !== null
-      ) {
-        console.log('[como-login] Login successful!');
+      try {
+        const currentUrl = page.url();
+        if (
+          currentUrl.includes('/Dashboard') ||
+          currentUrl.includes('/Home') ||
+          (await page.$('#choosePropertyBtn')) !== null ||
+          (await page.$('a[href*="Logout"]')) !== null
+        ) {
+          console.log('[como-login] Login successful!');
+          await saveComoSession();
+          await page.close();
+          await closeComoBrowser();
+          return { success: true, message: 'Login successful. Session saved.' };
+        }
+
+        if ((await page.$('#LoginEmail')) !== null && elapsed % 10000 === 0) {
+          console.log(`[como-login] Still on login page... (${elapsed / 1000}s)`);
+        }
+      } catch {
+        // Page navigated or context changed — check if we ended up logged in
+        break;
+      }
+    }
+
+    // Final check before giving up
+    try {
+      const finalUrl = page.url();
+      if (finalUrl.includes('/Dashboard') || finalUrl.includes('/Home')) {
         await saveComoSession();
         await page.close();
         await closeComoBrowser();
         return { success: true, message: 'Login successful. Session saved.' };
       }
-
-      if ((await page.$('#LoginEmail')) !== null) {
-        if (elapsed % 10000 === 0) {
-          console.log(`[como-login] Still on login page... (${elapsed / 1000}s)`);
-        }
-        continue;
-      }
-
-      if (elapsed % 10000 === 0) {
-        console.log(`[como-login] On intermediate page: ${currentUrl} (${elapsed / 1000}s)`);
-      }
-    }
-
-    console.log('[como-login] Login timed out after 5 minutes.');
-    await takeScreenshot(page, 'login-timeout');
-    await page.close();
-    await closeComoBrowser();
-    return { success: false, message: 'Login timed out.' };
-  } catch (err: any) {
-    console.error('[como-login] Error:', err.message);
-    try {
-      await takeScreenshot(page, 'login-error');
+      await takeScreenshot(page, 'login-timeout');
       await page.close();
     } catch {}
     await closeComoBrowser();
+    return { success: false, message: 'Login timed out.' };
+  } catch (err: any) {
+    try { await page.close(); } catch {}
+    await closeComoBrowser();
     return { success: false, message: `Login error: ${err.message}` };
+  }
+}
+
+// ─── Modal Dismissal ─────────────────────────────────────────────────────
+
+/**
+ * Dismiss any modals or overlays blocking interaction.
+ * - "My Services" modal (#CustomModal)
+ * - Property info panel (#propertyInfo.open)
+ */
+async function dismissModals(page: Page): Promise<void> {
+  try {
+    // Check for the CustomModal (My Services modal)
+    const modal = await page.$('#CustomModal.show, #CustomModal.modal.fade.show, .modal.show');
+    if (modal) {
+      console.log('[como] Dismissing modal...');
+      await page.mouse.click(10, 10);
+      await page.waitForTimeout(1000);
+    }
+
+    // Close property info panel if open
+    const propertyPanel = await page.$('#propertyInfo.open');
+    if (propertyPanel) {
+      console.log('[como] Closing property panel...');
+      // Click the property button again to toggle it closed, or click elsewhere
+      await page.evaluate(() => {
+        const panel = document.querySelector('#propertyInfo');
+        if (panel) panel.classList.remove('open');
+      });
+      await page.waitForTimeout(500);
+    }
+
+    // Press Escape as a catch-all for any remaining overlays
+    const anyOverlay = await page.$('.modal.show, #propertyInfo.open');
+    if (anyOverlay) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    }
+  } catch {
+    // Overlay may have already closed
   }
 }
 
@@ -275,64 +441,56 @@ interface PropertyInfo {
 
 /**
  * Get all properties from the "Select Property" dropdown.
+ * The COMO portal uses #selectMeterGroup ul li[data-property-id] elements.
  */
 async function discoverProperties(page: Page): Promise<PropertyInfo[]> {
   console.log('[como] Discovering properties...');
 
-  // Click "Select Property" button
-  const selectBtn = await page.$('#choosePropertyBtn') ||
-                    await page.$('button:has-text("Select Property")') ||
-                    await page.$('a:has-text("Select Property")');
-
+  // Click "Select Property" button to open the property panel
+  const selectBtn = await page.$('#choosePropertyBtn');
   if (!selectBtn) {
-    console.log('[como] Select Property button not found, trying to find property list...');
+    console.log('[como] Select Property button not found.');
     await takeScreenshot(page, 'no-select-property');
     return [];
   }
 
   await selectBtn.click();
   await page.waitForTimeout(2000);
-  await takeScreenshot(page, 'property-list');
 
-  // Parse the property list — each property is a clickable item
+  // Parse properties from #selectMeterGroup ul li[data-property-id]
   const properties = await page.evaluate(() => {
-    const results: { name: string; account: string; address: string; index: number }[] = [];
-    // Look for property list items — they typically contain account info
-    const items = document.querySelectorAll(
-      '.propertyList a, .property-list a, .propertyList li, ' +
-      '#propertyListModal a, [class*="property"] a, ' +
-      '.modal-body a, .list-group a, .list-group-item'
-    );
+    const items = document.querySelectorAll('#selectMeterGroup ul li[data-property-id]');
+    return Array.from(items).map((li, i) => {
+      const propertyId = li.getAttribute('data-property-id') || '';
+      const name = li.querySelector('h2')?.textContent?.trim() || '';
+      const address = (() => {
+        const h4s = li.querySelectorAll('h4');
+        for (let j = 0; j < h4s.length; j++) {
+          if (!h4s[j].classList.contains('name')) {
+            return h4s[j].textContent?.trim() || '';
+          }
+        }
+        return '';
+      })();
 
-    items.forEach((item, i) => {
-      const text = item.textContent?.trim() || '';
-      if (!text || text.length < 5) return;
+      // Extract account number from "(Acct XXXXX)" text
+      const acctText = li.querySelector('h4.name')?.textContent || '';
+      const acctMatch = acctText.match(/\(Acct\s+([^)]+)\)/i);
+      const account = acctMatch ? acctMatch[1].trim() : '';
 
-      // Try to parse: "PropertyName (Acct XXXXX) Address"
-      const nameMatch = text.match(/^([^(]+)/);
-      const acctMatch = text.match(/\(Acct\s+([^)]+)\)/i) || text.match(/Acct\s+([^\s,]+)/i);
-      const addrMatch = text.match(/\d+\s+[A-Z][\w\s]+(?:DR|ST|AVE|RD|LN|CT|BLVD|WAY|PL|CIR)/i);
-
-      results.push({
-        name: nameMatch ? nameMatch[1].trim() : text.substring(0, 50),
-        account: acctMatch ? acctMatch[1].trim() : '',
-        address: addrMatch ? addrMatch[0].trim() : '',
-        index: i,
-      });
+      return { name, account, address, propertyId, index: i };
     });
-
-    return results;
   });
 
-  // Close modal if open
-  const closeBtn = await page.$('.modal .close, .modal-header .close, button[data-dismiss="modal"]');
-  if (closeBtn) {
-    await closeBtn.click();
-    await page.waitForTimeout(500);
-  }
+  // Close the property panel
+  await page.evaluate(() => {
+    const panel = document.querySelector('#propertyInfo');
+    if (panel) panel.classList.remove('open');
+  });
+  await page.waitForTimeout(500);
 
   console.log(`[como] Found ${properties.length} properties.`);
-  return properties.map((p, i) => ({
+  return properties.map(p => ({
     name: p.name,
     account: p.account,
     address: p.address,
@@ -341,14 +499,11 @@ async function discoverProperties(page: Page): Promise<PropertyInfo[]> {
 }
 
 /**
- * Select a specific property from the property list.
+ * Select a specific property from the property list by clicking its li element.
  */
 async function selectProperty(page: Page, propertyIndex: number): Promise<boolean> {
-  // Click "Select Property" button
-  const selectBtn = await page.$('#choosePropertyBtn') ||
-                    await page.$('button:has-text("Select Property")') ||
-                    await page.$('a:has-text("Select Property")');
-
+  // Open the property panel
+  const selectBtn = await page.$('#choosePropertyBtn');
   if (!selectBtn) {
     console.log('[como] Select Property button not found.');
     return false;
@@ -357,31 +512,20 @@ async function selectProperty(page: Page, propertyIndex: number): Promise<boolea
   await selectBtn.click();
   await page.waitForTimeout(2000);
 
-  // Click the property at the given index
+  // Click the li at the given index
   const selected = await page.evaluate((idx) => {
-    const items = document.querySelectorAll(
-      '.propertyList a, .property-list a, .propertyList li, ' +
-      '#propertyListModal a, [class*="property"] a, ' +
-      '.modal-body a, .list-group a, .list-group-item'
-    );
-
-    const validItems: HTMLElement[] = [];
-    items.forEach(item => {
-      const text = item.textContent?.trim() || '';
-      if (text.length >= 5 && item instanceof HTMLElement) {
-        validItems.push(item);
-      }
-    });
-
-    if (idx < validItems.length) {
-      validItems[idx].click();
+    const items = document.querySelectorAll('#selectMeterGroup ul li[data-property-id]');
+    if (idx < items.length) {
+      const li = items[idx] as HTMLElement;
+      li.click();
       return true;
     }
     return false;
   }, propertyIndex);
 
   if (selected) {
-    await page.waitForTimeout(3000); // Wait for property page to load
+    await page.waitForTimeout(3000);
+    await dismissModals(page);
   }
 
   return selected;
@@ -429,6 +573,9 @@ export async function scrapeComoData(
     await page.goto(COMO_BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(3000);
 
+    // Dismiss "My Services" modal if it appears
+    await dismissModals(page);
+
     // Verify logged in
     const loginCheck = await page.$('#LoginEmail') || await page.$('input[name="Email"]');
     if (loginCheck) {
@@ -462,6 +609,7 @@ export async function scrapeComoData(
         }
 
         await page.waitForTimeout(2000);
+        await dismissModals(page);
 
         try {
           const records = await scrapeCurrentProperty(page, start, end);
@@ -507,6 +655,9 @@ async function scrapeCurrentProperty(
   startDate: string,
   endDate: string
 ): Promise<ComoMeterReading[]> {
+  // Dismiss any modals first
+  await dismissModals(page);
+
   // Step 1: Click "Data" tab
   let dataClicked = false;
   const dataTab = await page.$('a.dashboard-data');
@@ -626,11 +777,11 @@ async function scrapeCurrentProperty(
 
   if (startInput) {
     await startInput.fill('');
-    await startInput.fill(formatDateMMDDYYYY(startDate));
+    await startInput.fill(startDate);
   }
   if (endInput) {
     await endInput.fill('');
-    await endInput.fill(formatDateMMDDYYYY(endDate));
+    await endInput.fill(endDate);
   }
 
   await page.waitForTimeout(1000);
@@ -687,6 +838,7 @@ async function scrapeCurrentProperty(
   // Navigate back to dashboard for next property
   await page.goto(COMO_BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(2000);
+  await dismissModals(page);
 
   return records;
 }
@@ -736,8 +888,7 @@ function parseComoCsv(filePath: string): ComoMeterReading[] {
         if (!isNaN(parsed)) ccf = parsed;
       }
 
-      // Skip zero-CCF rows (inactive meters)
-      if (ccf === null || ccf === 0) continue;
+      // Keep all rows including zero-CCF (expired/inactive accounts)
 
       results.push({
         reading_timestamp: timestamp,
