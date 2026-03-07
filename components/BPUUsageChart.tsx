@@ -58,6 +58,16 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
     });
   }, [dailyUsage]);
 
+  const periodTotal = useMemo(() => {
+    let total = 0;
+    dailyUsage.forEach(row => {
+      Object.keys(row).forEach(k => {
+        if (k !== 'date') total += Number(row[k]) || 0;
+      });
+    });
+    return total;
+  }, [dailyUsage]);
+
   const formatDate = (dateStr: string) => {
     const [year, month, day] = dateStr.split('-');
     if (timeRange === 'all' || parseInt(timeRange) > 90) {
@@ -175,8 +185,7 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
       </div>
 
       <p className="text-xs text-slate-500 mt-2 text-center">
-        Showing {dailyUsage.length} day{dailyUsage.length !== 1 ? 's' : ''} of cost data
-        ({meterKeys.length} active meter{meterKeys.length !== 1 ? 's' : ''})
+        Total spend: <span className="text-white font-medium">${periodTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> over {dailyUsage.length} day{dailyUsage.length !== 1 ? 's' : ''}
       </p>
     </div>
   );
