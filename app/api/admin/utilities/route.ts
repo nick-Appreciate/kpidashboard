@@ -13,6 +13,7 @@ interface Reading {
   estimated_indicator: string;
   ccf: number | null;
   cost: string;
+  source?: 'bpu' | 'como';
 }
 
 interface MeterProfile {
@@ -20,6 +21,7 @@ interface MeterProfile {
   address: string;
   accountNumber: string;
   name: string;
+  source: 'bpu' | 'como';
   dailyUsage: Map<string, number>;
   dailyCost: Map<string, number>;
   hourlyProfile: Map<number, number[]>;
@@ -50,6 +52,7 @@ interface MeterSummary {
   totalCcf: number;
   avgHourly: number;
   maxHourly: number;
+  overnightAvg: number;
   pctActive: number;
   dayCount: number;
   readingCount: number;
@@ -75,7 +78,15 @@ export async function GET(request: Request) {
       startDateStr = startDate.toISOString().split('T')[0];
     }
 
+    // Always fetch at least 30 days for alert detection (recurring leaks need history)
     const days = daysParam === 'all' ? Infinity : parseInt(daysParam, 10);
+    const MIN_ALERT_DAYS = 30;
+    let fetchStartDateStr = startDateStr;
+    if (startDateStr && days < MIN_ALERT_DAYS) {
+      const fetchStart = new Date(today);
+      fetchStart.setDate(fetchStart.getDate() - MIN_ALERT_DAYS);
+      fetchStartDateStr = fetchStart.toISOString().split('T')[0];
+    }
     let allData: Reading[] = [];
 
     if (days > 90) {
@@ -83,7 +94,7 @@ export async function GET(request: Request) {
       // RPC returns a single JSON array (bypasses PostgREST row limits)
       const { data: aggResult, error: aggError } = await supabaseAdmin
         .rpc('get_daily_meter_usage', {
-          start_date: startDateStr || null,
+          start_date: fetchStartDateStr || null,
           end_date: null,
           meter_filter: meterParam || null,
         })
@@ -103,6 +114,7 @@ export async function GET(request: Request) {
             estimated_indicator: '',
             ccf: row.total_ccf,
             cost: '$' + (row.total_cost || 0).toFixed(2),
+            source: 'bpu',
           });
         }
       } else if (aggError) {
@@ -123,8 +135,8 @@ export async function GET(request: Request) {
           .order('reading_timestamp', { ascending: true })
           .range(from, from + pageSize - 1);
 
-        if (startDateStr) {
-          query = query.gte('reading_timestamp', startDateStr);
+        if (fetchStartDateStr) {
+          query = query.gte('reading_timestamp', fetchStartDateStr);
         }
         if (meterParam) {
           query = query.eq('meter', meterParam);
@@ -141,15 +153,44 @@ export async function GET(request: Request) {
       }
     }
 
-    // Process data
+    // ─── Fetch COMO data ──────────────────────────────────────────────────
+    // COMO has ~500 rows total (monthly billing reads), no pagination needed.
+    // We fetch from 90 days before startDate to capture the preceding billing
+    // read needed for spreading monthly reads into daily values.
+    let comoQuery = supabaseAdmin
+      .from('como_meter_readings')
+      .select('reading_timestamp, account_number, name, meter, location, address, ccf')
+      .order('reading_timestamp', { ascending: true });
+
+    if (fetchStartDateStr) {
+      const comoLookback = new Date(fetchStartDateStr);
+      comoLookback.setDate(comoLookback.getDate() - 90);
+      comoQuery = comoQuery.gte('reading_timestamp', comoLookback.toISOString().split('T')[0]);
+    }
+    if (meterParam) {
+      comoQuery = comoQuery.eq('meter', meterParam);
+    }
+
+    const { data: comoData } = await comoQuery;
+    if (comoData && comoData.length > 0) {
+      const comoDailyReadings = spreadComoToDailyReadings(comoData as any[], fetchStartDateStr);
+      allData = allData.concat(comoDailyReadings);
+    }
+
+    // Process data — profiles use full fetched range (≥30d) for alert detection
     const profiles = buildMeterProfiles(allData);
-    const stats = computeStats(allData, profiles);
-    const dailyUsage = computeDailyUsage(allData, profiles);
-    const dailyCost = computeDailyCost(allData, profiles);
-    const dailyWaste = computeDailyWaste(profiles);
-    const baselineDeviation = computeBaselineDeviation(allData, profiles);
     const alerts = detectLeaks(profiles);
-    const meters = computeMeterSummaries(profiles);
+
+    // Filter chart data to the requested time range (startDateStr)
+    const filterDate = (arr: any[]) =>
+      startDateStr ? arr.filter(d => d.date >= startDateStr) : arr;
+
+    const stats = computeStats(allData, profiles, startDateStr);
+    const dailyUsage = filterDate(computeDailyUsage(allData, profiles));
+    const dailyCost = filterDate(computeDailyCost(allData, profiles));
+    const dailyWaste = filterDate(computeDailyWaste(profiles));
+    const baselineDeviation = filterDate(computeBaselineDeviation(allData, profiles));
+    const meters = computeMeterSummaries(profiles, startDateStr);
 
     return NextResponse.json({
       stats: { ...stats, alertCount: alerts.length },
@@ -187,6 +228,7 @@ function buildMeterProfiles(data: Reading[]): Map<string, MeterProfile> {
         address: row.address,
         accountNumber: row.account_number,
         name: row.name,
+        source: row.source || 'bpu',
         dailyUsage: new Map(),
         dailyCost: new Map(),
         hourlyProfile: new Map(),
@@ -215,13 +257,17 @@ function buildMeterProfiles(data: Reading[]): Map<string, MeterProfile> {
   return profiles;
 }
 
-function computeStats(data: Reading[], profiles: Map<string, MeterProfile>) {
+function computeStats(data: Reading[], profiles: Map<string, MeterProfile>, filterStart?: string | null) {
   const totalMeters = profiles.size;
   let activeMeters = 0;
   let totalCcf = 0;
 
   for (const profile of Array.from(profiles.values())) {
-    const usage = Array.from(profile.dailyUsage.values()).reduce((s, v) => s + v, 0);
+    let usage = 0;
+    for (const [date, ccf] of Array.from(profile.dailyUsage)) {
+      if (filterStart && date < filterStart) continue;
+      usage += ccf;
+    }
     totalCcf += usage;
     if (usage > 0) activeMeters++;
   }
@@ -250,8 +296,14 @@ function computeDailyUsage(data: Reading[], profiles: Map<string, MeterProfile>)
 }
 
 // Estimated all-in rate per CCF (includes base, sewer, stormwater, etc.)
-// Derived from monthly BPU bills vs metered CCF consumption
-const ESTIMATED_RATE_PER_CCF = 35;
+// BPU: derived from monthly BPU bills vs metered CCF consumption
+// COMO: derived from COMO MyMeter dollar view (~$95 for 20 CCF)
+const BPU_RATE_PER_CCF = 35;
+const COMO_RATE_PER_CCF = 5;
+
+function rateForSource(source: 'bpu' | 'como'): number {
+  return source === 'como' ? COMO_RATE_PER_CCF : BPU_RATE_PER_CCF;
+}
 
 function computeDailyCost(data: Reading[], profiles: Map<string, MeterProfile>) {
   const dateMap = new Map<string, Record<string, number>>();
@@ -260,10 +312,11 @@ function computeDailyCost(data: Reading[], profiles: Map<string, MeterProfile>) 
     const totalUsage = Array.from(profile.dailyUsage.values()).reduce((s, v) => s + v, 0);
     if (totalUsage === 0) continue;
 
+    const rate = rateForSource(profile.source);
     const label = shortAddressLabel(profile.address);
     for (const [date, ccf] of Array.from(profile.dailyUsage)) {
       if (!dateMap.has(date)) dateMap.set(date, {});
-      dateMap.get(date)![label] = Math.round(ccf * ESTIMATED_RATE_PER_CCF * 100) / 100;
+      dateMap.get(date)![label] = Math.round(ccf * rate * 100) / 100;
     }
   }
 
@@ -317,7 +370,8 @@ function computeDailyWaste(profiles: Map<string, MeterProfile>) {
       // Only flag as waste when statistically elevated above this meter's baseline
       if (scores[i] > 2.0 && ccf > median) {
         const wasteCcf = ccf - median;
-        const wasteDollars = Math.round(wasteCcf * ESTIMATED_RATE_PER_CCF * 100) / 100;
+        const rate = rateForSource(profile.source);
+        const wasteDollars = Math.round(wasteCcf * rate * 100) / 100;
         if (wasteDollars < 0.50) continue; // Skip noise below $0.50
         if (!dateMap.has(date)) dateMap.set(date, {});
         dateMap.get(date)![label] = wasteDollars;
@@ -359,16 +413,30 @@ function computeBaselineDeviation(data: Reading[], profiles: Map<string, MeterPr
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function computeMeterSummaries(profiles: Map<string, MeterProfile>): MeterSummary[] {
+function computeMeterSummaries(profiles: Map<string, MeterProfile>, filterStart?: string | null): MeterSummary[] {
   const summaries: MeterSummary[] = [];
 
   for (const profile of Array.from(profiles.values())) {
-    const ccfValues = profile.readings.map(r => r.ccf);
+    const filteredReadings = filterStart
+      ? profile.readings.filter(r => r.date >= filterStart)
+      : profile.readings;
+    const ccfValues = filteredReadings.map(r => r.ccf);
     const totalCcf = ccfValues.reduce((s, v) => s + v, 0);
     const avgHourly = ccfValues.length > 0 ? totalCcf / ccfValues.length : 0;
     const maxHourly = ccfValues.length > 0 ? Math.max(...ccfValues) : 0;
     const activeCount = ccfValues.filter(v => v > 0).length;
     const pctActive = ccfValues.length > 0 ? (activeCount / ccfValues.length) * 100 : 0;
+
+    const filteredDays = filterStart
+      ? Array.from(profile.dailyUsage.keys()).filter(d => d >= filterStart).length
+      : profile.totalDays;
+
+    // Compute overnight average (midnight-4am) CCF/hr
+    const NIGHT_HOURS = [0, 1, 2, 3, 4];
+    const nightReadings = filteredReadings.filter(r => NIGHT_HOURS.includes(r.hour));
+    const overnightAvg = nightReadings.length > 0
+      ? nightReadings.reduce((s, r) => s + r.ccf, 0) / nightReadings.length
+      : 0;
 
     summaries.push({
       meter: profile.meter,
@@ -379,9 +447,10 @@ function computeMeterSummaries(profiles: Map<string, MeterProfile>): MeterSummar
       totalCcf: Math.round(totalCcf * 10000) / 10000,
       avgHourly: Math.round(avgHourly * 10000) / 10000,
       maxHourly: Math.round(maxHourly * 10000) / 10000,
+      overnightAvg: Math.round(overnightAvg * 10000) / 10000,
       pctActive: Math.round(pctActive * 10) / 10,
-      dayCount: profile.totalDays,
-      readingCount: profile.readings.length,
+      dayCount: filteredDays,
+      readingCount: filteredReadings.length,
     });
   }
 
@@ -575,6 +644,110 @@ function detectOvernightLeaks(profile: MeterProfile): Alert[] {
   return alerts;
 }
 
+// ─── COMO Spreading ─────────────────────────────────────────────────────
+
+/**
+ * Spread COMO monthly billing reads into synthetic daily readings.
+ * For each meter, computes days between consecutive reads and divides
+ * the CCF evenly across those days. After the last known reading,
+ * extrapolates forward at the same daily rate until today.
+ * @param filterStart - Only include generated daily readings on or after this date (YYYY-MM-DD)
+ */
+function spreadComoToDailyReadings(
+  comoRows: { reading_timestamp: string; account_number: string; name: string; meter: string; location: string | null; address: string; ccf: number | null | string }[],
+  filterStart?: string | null,
+): Reading[] {
+  // Group by meter
+  const byMeter = new Map<string, typeof comoRows>();
+  for (const row of comoRows) {
+    if (!byMeter.has(row.meter)) byMeter.set(row.meter, []);
+    byMeter.get(row.meter)!.push(row);
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const results: Reading[] = [];
+
+  const emitDay = (dateObj: Date, dailyCcf: number, template: typeof comoRows[0], meter: string) => {
+    const dateStr = dateObj.toISOString().split('T')[0];
+    if (filterStart && dateStr < filterStart) return;
+    const dailyCost = dailyCcf * COMO_RATE_PER_CCF;
+    results.push({
+      reading_timestamp: dateStr + 'T12:00:00',
+      account_number: template.account_number,
+      name: template.name || '',
+      meter,
+      location: template.location,
+      address: template.address,
+      estimated_indicator: '',
+      ccf: dailyCcf,
+      cost: '$' + dailyCost.toFixed(2),
+      source: 'como',
+    });
+  };
+
+  for (const [meter, rows] of Array.from(byMeter)) {
+    // Sort by date ascending
+    const sorted = rows
+      .map(r => ({ ...r, date: new Date(r.reading_timestamp), ccfNum: parseFloat(String(r.ccf ?? '0')) || 0 }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    let lastDailyCcf = 0;
+    let lastRow = sorted[sorted.length - 1];
+
+    // For each pair of consecutive readings, spread the later reading's CCF
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      if (curr.ccfNum === 0) continue;
+
+      const daysBetween = Math.round((curr.date.getTime() - prev.date.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysBetween <= 0) continue;
+
+      const dailyCcf = curr.ccfNum / daysBetween;
+      lastDailyCcf = dailyCcf;
+      lastRow = curr;
+
+      // Generate one reading per day in [prev+1, curr]
+      for (let d = 1; d <= daysBetween; d++) {
+        const date = new Date(prev.date);
+        date.setDate(date.getDate() + d);
+        emitDay(date, dailyCcf, curr, meter);
+      }
+    }
+
+    // Extrapolate forward from the last reading at the last known daily rate
+    if (lastDailyCcf > 0 && lastRow.date < today) {
+      const daysToExtrapolate = Math.round((today.getTime() - lastRow.date.getTime()) / (1000 * 60 * 60 * 24));
+      for (let d = 1; d <= daysToExtrapolate; d++) {
+        const date = new Date(lastRow.date);
+        date.setDate(date.getDate() + d);
+        if (date > today) break;
+        emitDay(date, lastDailyCcf, lastRow, meter);
+      }
+    }
+
+    // For meters with no spread data, add a placeholder so they appear in the meter table
+    if (lastDailyCcf === 0) {
+      const latest = sorted[sorted.length - 1];
+      results.push({
+        reading_timestamp: latest.date.toISOString().split('T')[0] + 'T12:00:00',
+        account_number: latest.account_number,
+        name: latest.name || '',
+        meter,
+        location: latest.location,
+        address: latest.address,
+        estimated_indicator: '',
+        ccf: 0,
+        cost: '$0.00',
+        source: 'como',
+      });
+    }
+  }
+
+  return results;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 function parseCost(cost: string | null | undefined): number {
@@ -586,9 +759,10 @@ function shortAddressLabel(address: string): string {
   // "3301 WOOD AVE KANSAS CITY, KS 66104" → "3301 Wood Ave"
   // "2613 FARROW AVE BLDG 2 KANSAS CITY, KS 66104" → "2613 Farrow Bldg 2"
   // "1900 N 77TH ST # PS KANSAS CITY, KS 66112" → "1900 N 77th #PS"
+  // "2404 WHITE GATE DR COLUMBIA, MO 65202" → "2404 White Gate"
   if (!address) return '—';
 
-  const beforeCity = address.split(/\s+KANSAS\s+CITY/i)[0].trim();
+  const beforeCity = address.split(/\s+(?:KANSAS\s+CITY|COLUMBIA)/i)[0].trim();
 
   // Extract street number + street name + unit info
   const parts = beforeCity.split(/\s+/);

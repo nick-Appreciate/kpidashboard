@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useMemo } from 'react';
+
 interface Alert {
   type: string;
   severity: 'info' | 'warning' | 'critical';
@@ -17,6 +19,7 @@ interface Alert {
 interface Props {
   alerts: Alert[];
   onMeterClick: (meter: string) => void;
+  timeRange?: string;
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -32,7 +35,54 @@ const TYPE_LABELS: Record<string, string> = {
   overnight_usage: 'Overnight Leak',
 };
 
-export default function BPULeakAlerts({ alerts, onMeterClick }: Props) {
+/**
+ * Extract the most recent date from an alert's date field.
+ * Handles: "2025-01-05", "2025-01-01 to 2025-01-05", "2025-01-01 to 2025-01-05 (ongoing)", "Recurring"
+ */
+function extractAlertDate(dateStr: string): string | null {
+  if (!dateStr || dateStr === 'Recurring') return null;
+  // For ranges like "2025-01-01 to 2025-01-05 (ongoing)", extract the end date
+  const rangeMatch = dateStr.match(/(\d{4}-\d{2}-\d{2})\s*(?:\(ongoing\))?$/);
+  if (rangeMatch) return rangeMatch[1];
+  // Single date
+  const singleMatch = dateStr.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (singleMatch) return singleMatch[1];
+  return null;
+}
+
+export default function BPULeakAlerts({ alerts, onMeterClick, timeRange }: Props) {
+  const [showHistorical, setShowHistorical] = useState(false);
+
+  // For short time ranges (7d, 14d), show all alerts by default
+  const isShortRange = timeRange === '7' || timeRange === '14';
+
+  const { filteredAlerts, mostRecentDate, hasHistorical } = useMemo(() => {
+    // Find the most recent date across all alerts
+    let maxDate = '';
+    for (const a of alerts) {
+      const d = extractAlertDate(a.date);
+      if (d && d > maxDate) maxDate = d;
+    }
+
+    const hasHistorical = alerts.some(a => {
+      const d = extractAlertDate(a.date);
+      return d !== null && d !== maxDate;
+    });
+
+    // Short ranges: show all alerts, no filtering
+    if (isShortRange || showHistorical || !maxDate) {
+      return { filteredAlerts: alerts, mostRecentDate: maxDate, hasHistorical };
+    }
+
+    // Show only most recent date + recurring alerts
+    const filtered = alerts.filter(a => {
+      const d = extractAlertDate(a.date);
+      return d === null || d === maxDate; // null = Recurring, always show
+    });
+
+    return { filteredAlerts: filtered, mostRecentDate: maxDate, hasHistorical };
+  }, [alerts, showHistorical, isShortRange]);
+
   if (alerts.length === 0) {
     return (
       <div className="glass-card p-6">
@@ -50,9 +100,25 @@ export default function BPULeakAlerts({ alerts, onMeterClick }: Props) {
   return (
     <div className="glass-card">
       <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-white">Leak Alerts</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold text-white">Leak Alerts</h3>
+          {hasHistorical && !isShortRange && (
+            <button
+              onClick={() => setShowHistorical(!showHistorical)}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                showHistorical
+                  ? 'bg-accent/15 text-accent'
+                  : 'text-slate-500 hover:bg-white/10 hover:text-slate-300'
+              }`}
+            >
+              {showHistorical ? 'All' : 'Historical'}
+            </button>
+          )}
+        </div>
         <span className="text-xs text-slate-400">
-          {alerts.length} alert{alerts.length !== 1 ? 's' : ''}
+          {filteredAlerts.length === alerts.length
+            ? `${alerts.length} alert${alerts.length !== 1 ? 's' : ''}`
+            : `${filteredAlerts.length} of ${alerts.length} alerts`}
         </span>
       </div>
       <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
@@ -69,7 +135,7 @@ export default function BPULeakAlerts({ alerts, onMeterClick }: Props) {
             </tr>
           </thead>
           <tbody>
-            {alerts.map((alert, i) => (
+            {filteredAlerts.map((alert, i) => (
               <tr
                 key={i}
                 className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors"

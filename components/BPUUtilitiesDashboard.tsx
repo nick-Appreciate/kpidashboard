@@ -26,6 +26,7 @@ interface MeterSummary {
   totalCcf: number;
   avgHourly: number;
   maxHourly: number;
+  overnightAvg: number;
   pctActive: number;
   dayCount: number;
   readingCount: number;
@@ -260,6 +261,7 @@ export default function BPUUtilitiesDashboard() {
                     <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Total CCF</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Avg/Hr</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Max/Hr</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Night Avg</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Days</th>
                   </tr>
                 </thead>
@@ -280,6 +282,9 @@ export default function BPUUtilitiesDashboard() {
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-400 text-xs">{m.avgHourly.toFixed(4)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-400 text-xs">{m.maxHourly.toFixed(4)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums text-xs ${m.overnightAvg > 0.01 ? 'text-rose-400' : m.overnightAvg > 0 ? 'text-amber-400' : 'text-slate-600'}`}>
+                        {m.overnightAvg.toFixed(4)}
+                      </td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-400 text-xs">{m.dayCount}</td>
                     </tr>
                   ))}
@@ -291,7 +296,7 @@ export default function BPUUtilitiesDashboard() {
       )}
 
       {activeTab === 'alerts' && (
-        <BPULeakAlerts alerts={alerts} onMeterClick={handleMeterClick} />
+        <BPULeakAlerts alerts={alerts} onMeterClick={handleMeterClick} timeRange={timeRange} />
       )}
 
       {activeTab === 'detail' && selectedMeter && (
