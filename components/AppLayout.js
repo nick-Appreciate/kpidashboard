@@ -13,6 +13,7 @@ function LayoutContent({ children }) {
   const router = useRouter();
   const { user, appUser, loading, signOut } = useAuth();
   const [isDesktop, setIsDesktop] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
 
   // Don't show sidebar on auth pages
   const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
@@ -24,6 +25,20 @@ function LayoutContent({ children }) {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Poll bot alert count for sidebar badge (admin only)
+  useEffect(() => {
+    if (appUser?.role !== 'admin') return;
+    const poll = () => {
+      fetch('/api/admin/bot-status')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d) setAlertCount(d.alertCount || 0); })
+        .catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 60000);
+    return () => clearInterval(interval);
+  }, [appUser?.role]);
 
   // Redirect to login if not authenticated (after loading completes)
   useEffect(() => {
@@ -55,7 +70,7 @@ function LayoutContent({ children }) {
 
   return (
     <div className="min-h-screen">
-      <Sidebar user={sidebarUser} onLogout={signOut} />
+      <Sidebar user={sidebarUser} onLogout={signOut} alertCount={alertCount} />
       <main className="ml-10 min-h-screen relative">
         {/* Ambient particle background — desktop only */}
         {isDesktop && (
