@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../../../lib/supabase';
+import { supabase, supabaseAdmin } from '../../../../lib/supabase';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // ─── Types ───────────────────────────────────────────────────────────────
+
+interface BotConfig {
+  name: string;
+  label: string;
+  port: number;
+  url: string;
+  secret: string;
+}
 
 interface BotHealth {
   name: string;
@@ -24,34 +32,26 @@ interface SystemAlert {
   message: string;
 }
 
-// ─── Bot Config ──────────────────────────────────────────────────────────
-
-const BOTS = [
-  { name: 'appfolio', label: 'Appfolio', port: 3100, urlEnv: 'APPFOLIO_BOT_URL', secretEnv: 'APPFOLIO_BOT_SECRET' },
-  { name: 'bpu', label: 'BPU Utility', port: 3101, urlEnv: 'BPU_BOT_URL', secretEnv: 'BPU_BOT_SECRET' },
-] as const;
-
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-async function fetchBotHealth(
-  name: string,
-  label: string,
-  port: number,
-  url: string | undefined,
-  secret: string | undefined
-): Promise<BotHealth> {
-  if (!url || !secret) {
-    return { name, label, port, ok: false, logged_in: false, current_url: '', reachable: false, error: 'Not configured' };
-  }
+async function getBotConfigs(): Promise<BotConfig[]> {
+  const { data, error } = await supabaseAdmin
+    .from('bot_config')
+    .select('name, label, port, url, secret');
+  if (error || !data) return [];
+  return data;
+}
+
+async function fetchBotHealth(bot: BotConfig): Promise<BotHealth> {
   try {
-    const res = await fetch(`${url}/api/health`, {
-      headers: { Authorization: `Bearer ${secret}` },
+    const res = await fetch(`${bot.url}/api/health`, {
+      headers: { Authorization: `Bearer ${bot.secret}` },
       signal: AbortSignal.timeout(8000),
     });
     const data = await res.json();
-    return { name, label, port, ok: data.ok, logged_in: data.logged_in, current_url: data.current_url || '', reachable: true };
+    return { name: bot.name, label: bot.label, port: bot.port, ok: data.ok, logged_in: data.logged_in, current_url: data.current_url || '', reachable: true };
   } catch (err: any) {
-    return { name, label, port, ok: false, logged_in: false, current_url: '', reachable: false, error: err.message };
+    return { name: bot.name, label: bot.label, port: bot.port, ok: false, logged_in: false, current_url: '', reachable: false, error: err.message };
   }
 }
 
@@ -86,24 +86,14 @@ function deriveAlerts(bots: BotHealth[], lastScrape: string | null): SystemAlert
 
 export async function GET() {
   try {
-    const envDebug = BOTS.map((b) => ({
-      name: b.name,
-      urlEnv: b.urlEnv,
-      secretEnv: b.secretEnv,
-      hasUrl: !!process.env[b.urlEnv],
-      hasSecret: !!process.env[b.secretEnv],
-    }));
-    console.log('Bot env check:', JSON.stringify(envDebug));
-
-    const healthPromises = BOTS.map((b) =>
-      fetchBotHealth(b.name, b.label, b.port, process.env[b.urlEnv], process.env[b.secretEnv])
-    );
+    const configs = await getBotConfigs();
+    const healthPromises = configs.map((bot) => fetchBotHealth(bot));
     const [bots, lastScrape] = await Promise.all([
       Promise.all(healthPromises),
       fetchLastScrapeTimestamp(),
     ]);
     const alerts = deriveAlerts(bots, lastScrape);
-    return NextResponse.json({ bots, lastScrape, alerts, alertCount: alerts.length, _envDebug: envDebug });
+    return NextResponse.json({ bots, lastScrape, alerts, alertCount: alerts.length });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 });
   }
@@ -116,15 +106,10 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { bot, action, ...params } = body;
 
-    const botConfig = BOTS.find((b) => b.name === bot);
+    const configs = await getBotConfigs();
+    const botConfig = configs.find((b) => b.name === bot);
     if (!botConfig) {
       return NextResponse.json({ error: `Unknown bot: ${bot}` }, { status: 400 });
-    }
-
-    const url = process.env[botConfig.urlEnv];
-    const secret = process.env[botConfig.secretEnv];
-    if (!url || !secret) {
-      return NextResponse.json({ error: `Bot ${bot} not configured` }, { status: 400 });
     }
 
     const endpoints: Record<string, string> = {
@@ -139,9 +124,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 });
     }
 
-    const res = await fetch(`${url}${endpoint}`, {
+    const res = await fetch(`${botConfig.url}${endpoint}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${botConfig.secret}` },
       body: JSON.stringify(params),
       signal: AbortSignal.timeout(30000),
     });
