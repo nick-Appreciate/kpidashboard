@@ -95,7 +95,7 @@ export default function Sidebar({ user, onLogout }) {
       label: 'Private',
       items: [
         {
-          name: 'User Management',
+          name: 'Users',
           href: '/admin/users',
           icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
