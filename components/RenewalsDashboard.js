@@ -748,6 +748,7 @@ export default function RenewalsDashboard() {
                           <th className="px-3 py-2 text-center font-medium">Days Left</th>
                           <th className="px-3 py-2 text-center font-medium">Renewal</th>
                           <th className="px-3 py-2 text-right font-medium">Rent</th>
+                          <th className="px-3 py-2 text-center font-medium w-[60px]"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
@@ -780,6 +781,26 @@ export default function RenewalsDashboard() {
                             </td>
                             <td className="px-3 py-2 text-right font-medium text-slate-200 tabular-nums">
                               {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {lease.occupancyId && (lease.renewalStatus === 'Not sent' || lease.renewalStatus === 'Pending') && (
+                                <a
+                                  href={`https://appreciateinc.appfolio.com/leases/prepare_renewal?occupancy_id=${lease.occupancyId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-accent hover:text-accent-light transition-colors"
+                                  title={lease.renewalStatus === 'Not sent' ? 'Prepare renewal in AppFolio' : 'Open renewal in AppFolio'}
+                                >
+                                  {lease.renewalStatus === 'Not sent' ? (
+                                    <span className="text-[10px] font-medium">Prepare</span>
+                                  ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                      <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+                                      <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+                                    </svg>
+                                  )}
+                                </a>
+                              )}
                             </td>
                           </tr>
                         ))}
