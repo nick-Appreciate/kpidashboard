@@ -85,6 +85,15 @@ function deriveAlerts(bots: BotHealth[], lastScrape: string | null): SystemAlert
 
 export async function GET() {
   try {
+    const envDebug = BOTS.map((b) => ({
+      name: b.name,
+      urlEnv: b.urlEnv,
+      secretEnv: b.secretEnv,
+      hasUrl: !!process.env[b.urlEnv],
+      hasSecret: !!process.env[b.secretEnv],
+    }));
+    console.log('Bot env check:', JSON.stringify(envDebug));
+
     const healthPromises = BOTS.map((b) =>
       fetchBotHealth(b.name, b.label, b.port, process.env[b.urlEnv], process.env[b.secretEnv])
     );
@@ -93,7 +102,7 @@ export async function GET() {
       fetchLastScrapeTimestamp(),
     ]);
     const alerts = deriveAlerts(bots, lastScrape);
-    return NextResponse.json({ bots, lastScrape, alerts, alertCount: alerts.length });
+    return NextResponse.json({ bots, lastScrape, alerts, alertCount: alerts.length, _envDebug: envDebug });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 });
   }
