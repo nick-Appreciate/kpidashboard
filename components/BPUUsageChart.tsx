@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { CHART_PALETTE } from '../lib/chartTheme';
+import { findClosestMeterFromEvent } from '../lib/chartUtils';
 
 interface DailyUsage {
   date: string;
@@ -30,6 +31,17 @@ const TIME_RANGES = [
 export { TIME_RANGES };
 
 export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props) {
+  const [selectedMeter, setSelectedMeter] = useState<string | null>(null);
+
+  const handleChartClick = useCallback((e: React.MouseEvent) => {
+    // Only handle clicks on the chart SVG area
+    if (!(e.target as Element)?.closest?.('svg')) return;
+    setSelectedMeter(prev => {
+      if (prev) return null;
+      return findClosestMeterFromEvent(e, dailyUsage);
+    });
+  }, [dailyUsage]);
+
   // Derive meter keys from data
   const meterKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -56,12 +68,17 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
-    const nonZero = payload.filter((p: any) => p.value > 0);
-    if (!nonZero.length) return null;
+    let entries = payload.filter((p: any) => p.value > 0);
+    if (!entries.length) return null;
+    // If a meter is selected, only show that meter in tooltip
+    if (selectedMeter) {
+      entries = entries.filter((p: any) => p.dataKey === selectedMeter);
+      if (!entries.length) return null;
+    }
     const dateLabel = new Date(label + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'short', month: 'short', day: 'numeric',
     });
-    const sorted = [...nonZero].sort((a: any, b: any) => b.value - a.value);
+    const sorted = [...entries].sort((a: any, b: any) => b.value - a.value);
     return (
       <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[180px]">
         <p className="font-medium text-slate-300 mb-1.5">{dateLabel}</p>
@@ -71,10 +88,12 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
             <span className="tabular-nums font-medium">${Number(entry.value).toFixed(2)}</span>
           </p>
         ))}
-        <p className="flex justify-between gap-4 border-t border-white/10 mt-1.5 pt-1.5 text-slate-300 font-semibold">
-          <span>Total</span>
-          <span className="tabular-nums">${sorted.reduce((s: number, e: any) => s + e.value, 0).toFixed(2)}</span>
-        </p>
+        {sorted.length > 1 && (
+          <p className="flex justify-between gap-4 border-t border-white/10 mt-1.5 pt-1.5 text-slate-300 font-semibold">
+            <span>Total</span>
+            <span className="tabular-nums">${sorted.reduce((s: number, e: any) => s + e.value, 0).toFixed(2)}</span>
+          </p>
+        )}
       </div>
     );
   };
@@ -100,12 +119,23 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
   }
 
   return (
-    <div className="glass-card p-6">
+    <div className="glass-card p-6 relative z-20">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">Cost Over Time</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold text-white">Cost Over Time</h3>
+          {selectedMeter && (
+            <button
+              onClick={() => setSelectedMeter(null)}
+              className="px-2 py-0.5 text-xs font-medium rounded-md bg-accent/15 text-accent hover:bg-accent/25 transition-colors flex items-center gap-1"
+            >
+              {selectedMeter} <span className="text-accent/60">✕</span>
+            </button>
+          )}
+        </div>
         {loading && <span className="text-xs text-slate-500">Refreshing...</span>}
       </div>
 
+      <div onClick={handleChartClick} style={{ cursor: 'pointer' }}>
       <ResponsiveContainer width="100%" aspect={3.5}>
         <LineChart data={dailyUsage} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -121,22 +151,28 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
             width={50}
             tickFormatter={(v: number) => `$${v.toFixed(0)}`}
           />
-          <Tooltip content={<CustomTooltip />} />
-          {meterKeys.map((key, i) => (
-            <Line
-              key={key}
-              type="monotone"
-              dataKey={key}
-              name={key}
-              stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
-              strokeWidth={2}
-              dot={dailyUsage.length < 60 ? { r: 2 } : false}
-              activeDot={{ r: 4 }}
-              connectNulls
-            />
-          ))}
+          <Tooltip content={<CustomTooltip />} wrapperStyle={{ zIndex: 50 }} />
+          {meterKeys.map((key, i) => {
+            const isSelected = selectedMeter === key;
+            const isDimmed = selectedMeter !== null && !isSelected;
+            return (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={key}
+                stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
+                strokeWidth={isSelected ? 3 : 2}
+                strokeOpacity={isDimmed ? 0.1 : 1}
+                dot={isDimmed ? false : dailyUsage.length < 60 ? { r: isSelected ? 3 : 2 } : false}
+                activeDot={isDimmed ? false : { r: 5 }}
+                connectNulls
+              />
+            );
+          })}
         </LineChart>
       </ResponsiveContainer>
+      </div>
 
       <p className="text-xs text-slate-500 mt-2 text-center">
         Showing {dailyUsage.length} day{dailyUsage.length !== 1 ? 's' : ''} of cost data
