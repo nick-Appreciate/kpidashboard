@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import BPUUsageChart, { TIME_RANGES } from './BPUUsageChart';
 import BPUBaselineChart from './BPUBaselineChart';
+import BPUWasteChart from './BPUWasteChart';
 import BPULeakAlerts from './BPULeakAlerts';
 import BPUMeterDetail from './BPUMeterDetail';
 
@@ -52,6 +53,8 @@ export default function BPUUtilitiesDashboard() {
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [dailyUsage, setDailyUsage] = useState<any[]>([]);
+  const [dailyCost, setDailyCost] = useState<any[]>([]);
+  const [dailyWaste, setDailyWaste] = useState<any[]>([]);
   const [baselineDeviation, setBaselineDeviation] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [meters, setMeters] = useState<MeterSummary[]>([]);
@@ -74,6 +77,8 @@ export default function BPUUtilitiesDashboard() {
         const data = await res.json();
         setStats(data.stats || null);
         setDailyUsage(data.dailyUsage || []);
+        setDailyCost(data.dailyCost || []);
+        setDailyWaste(data.dailyWaste || []);
         setBaselineDeviation(data.baselineDeviation || []);
         setAlerts(data.alerts || []);
         setMeters(data.meters || []);
@@ -223,7 +228,13 @@ export default function BPUUtilitiesDashboard() {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           <BPUUsageChart
-            dailyUsage={dailyUsage}
+            dailyUsage={dailyCost}
+            timeRange={timeRange}
+            loading={loading}
+          />
+
+          <BPUWasteChart
+            dailyWaste={dailyWaste}
             timeRange={timeRange}
             loading={loading}
           />

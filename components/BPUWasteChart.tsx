@@ -2,49 +2,42 @@
 
 import { useMemo } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { CHART_PALETTE } from '../lib/chartTheme';
-
-interface DailyUsage {
-  date: string;
-  [meterLabel: string]: string | number;
-}
+import { WASTE_PALETTE } from '../lib/chartTheme';
 
 interface Props {
-  dailyUsage: DailyUsage[];
+  dailyWaste: any[];
   timeRange: string;
   loading: boolean;
 }
 
-const TIME_RANGES = [
-  { label: '7d', value: '7' },
-  { label: '14d', value: '14' },
-  { label: '30d', value: '30' },
-  { label: '90d', value: '90' },
-  { label: '1y', value: '365' },
-  { label: 'All', value: 'all' },
-];
-
-export { TIME_RANGES };
-
-export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props) {
-  // Derive meter keys from data
+export default function BPUWasteChart({ dailyWaste, timeRange, loading }: Props) {
   const meterKeys = useMemo(() => {
     const keys = new Set<string>();
-    dailyUsage.forEach(row => {
+    dailyWaste.forEach(row => {
       Object.keys(row).forEach(k => {
         if (k !== 'date') keys.add(k);
       });
     });
-    // Sort by total usage descending
+    // Sort by total waste descending (worst offenders first)
     return Array.from(keys).sort((a, b) => {
-      const totalA = dailyUsage.reduce((s, r) => s + (Number(r[a]) || 0), 0);
-      const totalB = dailyUsage.reduce((s, r) => s + (Number(r[b]) || 0), 0);
+      const totalA = dailyWaste.reduce((s, r) => s + (Number(r[a]) || 0), 0);
+      const totalB = dailyWaste.reduce((s, r) => s + (Number(r[b]) || 0), 0);
       return totalB - totalA;
     });
-  }, [dailyUsage]);
+  }, [dailyWaste]);
+
+  const periodTotal = useMemo(() => {
+    let total = 0;
+    dailyWaste.forEach(row => {
+      Object.keys(row).forEach(k => {
+        if (k !== 'date') total += Number(row[k]) || 0;
+      });
+    });
+    return total;
+  }, [dailyWaste]);
 
   const formatDate = (dateStr: string) => {
     const [year, month, day] = dateStr.split('-');
@@ -79,35 +72,41 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
     );
   };
 
-  if (loading && dailyUsage.length === 0) {
+  if (loading && dailyWaste.length === 0) {
     return (
       <div className="glass-card p-6">
         <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3.5' }}>
-          Loading usage data...
+          Loading waste data...
         </div>
       </div>
     );
   }
 
-  if (dailyUsage.length === 0) {
+  if (dailyWaste.length === 0) {
     return (
       <div className="glass-card p-6">
         <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3.5' }}>
-          No usage data available for this period.
+          No estimated waste detected for this period.
         </div>
       </div>
     );
   }
+
+  const days = parseInt(timeRange);
+  const hasHourlyData = timeRange !== 'all' && !isNaN(days) && days <= 90;
 
   return (
     <div className="glass-card p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">Cost Over Time</h3>
+        <div>
+          <h3 className="text-lg font-semibold text-white">Estimated Waste</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Daily estimated cost of leaks and excess usage</p>
+        </div>
         {loading && <span className="text-xs text-slate-500">Refreshing...</span>}
       </div>
 
       <ResponsiveContainer width="100%" aspect={3.5}>
-        <LineChart data={dailyUsage} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+        <AreaChart data={dailyWaste} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
           <XAxis
             dataKey="date"
@@ -123,25 +122,29 @@ export default function BPUUsageChart({ dailyUsage, timeRange, loading }: Props)
           />
           <Tooltip content={<CustomTooltip />} />
           {meterKeys.map((key, i) => (
-            <Line
+            <Area
               key={key}
               type="monotone"
               dataKey={key}
               name={key}
-              stroke={CHART_PALETTE[i % CHART_PALETTE.length]}
+              stroke={WASTE_PALETTE[i % WASTE_PALETTE.length]}
+              fill={WASTE_PALETTE[i % WASTE_PALETTE.length]}
+              fillOpacity={0.15}
               strokeWidth={2}
-              dot={dailyUsage.length < 60 ? { r: 2 } : false}
+              dot={dailyWaste.length < 60 ? { r: 2 } : false}
               activeDot={{ r: 4 }}
               connectNulls
             />
           ))}
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
 
-      <p className="text-xs text-slate-500 mt-2 text-center">
-        Showing {dailyUsage.length} day{dailyUsage.length !== 1 ? 's' : ''} of cost data
-        ({meterKeys.length} active meter{meterKeys.length !== 1 ? 's' : ''})
-      </p>
+      <div className="text-xs text-slate-500 mt-2 text-center">
+        <span>Estimated waste: <span className="text-rose-400 font-medium">${periodTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> over {dailyWaste.length} day{dailyWaste.length !== 1 ? 's' : ''}</span>
+        {!hasHourlyData && (
+          <span className="ml-2 text-slate-600">&#8226; Overnight leak detection requires hourly data (≤90d)</span>
+        )}
+      </div>
     </div>
   );
 }

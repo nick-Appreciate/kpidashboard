@@ -21,8 +21,9 @@ interface MeterProfile {
   accountNumber: string;
   name: string;
   dailyUsage: Map<string, number>;
+  dailyCost: Map<string, number>;
   hourlyProfile: Map<number, number[]>;
-  readings: { timestamp: string; ccf: number; hour: number; date: string }[];
+  readings: { timestamp: string; ccf: number; cost: number; hour: number; date: string }[];
   totalDays: number;
 }
 
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
             address: row.address,
             estimated_indicator: '',
             ccf: row.total_ccf,
-            cost: '$0.00',
+            cost: '$' + (row.total_cost || 0).toFixed(2),
           });
         }
       } else if (aggError) {
@@ -144,6 +145,8 @@ export async function GET(request: Request) {
     const profiles = buildMeterProfiles(allData);
     const stats = computeStats(allData, profiles);
     const dailyUsage = computeDailyUsage(allData, profiles);
+    const dailyCost = computeDailyCost(allData, profiles);
+    const dailyWaste = computeDailyWaste(profiles);
     const baselineDeviation = computeBaselineDeviation(allData, profiles);
     const alerts = detectLeaks(profiles);
     const meters = computeMeterSummaries(profiles);
@@ -151,6 +154,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       stats: { ...stats, alertCount: alerts.length },
       dailyUsage,
+      dailyCost,
+      dailyWaste,
       baselineDeviation,
       alerts,
       meters,
@@ -171,6 +176,7 @@ function buildMeterProfiles(data: Reading[]): Map<string, MeterProfile> {
 
   for (const row of data) {
     const ccf = row.ccf ?? 0;
+    const costVal = parseCost(row.cost);
     const ts = new Date(row.reading_timestamp);
     const date = ts.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
     const hour = parseInt(ts.toLocaleString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hour12: false }));
@@ -182,6 +188,7 @@ function buildMeterProfiles(data: Reading[]): Map<string, MeterProfile> {
         accountNumber: row.account_number,
         name: row.name,
         dailyUsage: new Map(),
+        dailyCost: new Map(),
         hourlyProfile: new Map(),
         readings: [],
         totalDays: 0,
@@ -190,13 +197,14 @@ function buildMeterProfiles(data: Reading[]): Map<string, MeterProfile> {
 
     const profile = profiles.get(row.meter)!;
     profile.dailyUsage.set(date, (profile.dailyUsage.get(date) || 0) + ccf);
+    profile.dailyCost.set(date, (profile.dailyCost.get(date) || 0) + costVal);
 
     if (!profile.hourlyProfile.has(hour)) {
       profile.hourlyProfile.set(hour, []);
     }
     profile.hourlyProfile.get(hour)!.push(ccf);
 
-    profile.readings.push({ timestamp: row.reading_timestamp, ccf, hour, date });
+    profile.readings.push({ timestamp: row.reading_timestamp, ccf, cost: costVal, hour, date });
   }
 
   // Set totalDays
@@ -233,6 +241,87 @@ function computeDailyUsage(data: Reading[], profiles: Map<string, MeterProfile>)
     for (const [date, ccf] of Array.from(profile.dailyUsage)) {
       if (!dateMap.has(date)) dateMap.set(date, {});
       dateMap.get(date)![label] = Math.round(ccf * 10000) / 10000;
+    }
+  }
+
+  return Array.from(dateMap.entries())
+    .map(([date, meters]) => ({ date, ...meters }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Estimated all-in rate per CCF (includes base, sewer, stormwater, etc.)
+// Derived from monthly BPU bills vs metered CCF consumption
+const ESTIMATED_RATE_PER_CCF = 35;
+
+function computeDailyCost(data: Reading[], profiles: Map<string, MeterProfile>) {
+  const dateMap = new Map<string, Record<string, number>>();
+
+  for (const profile of Array.from(profiles.values())) {
+    const totalUsage = Array.from(profile.dailyUsage.values()).reduce((s, v) => s + v, 0);
+    if (totalUsage === 0) continue;
+
+    const label = shortAddressLabel(profile.address);
+    for (const [date, ccf] of Array.from(profile.dailyUsage)) {
+      if (!dateMap.has(date)) dateMap.set(date, {});
+      dateMap.get(date)![label] = Math.round(ccf * ESTIMATED_RATE_PER_CCF * 100) / 100;
+    }
+  }
+
+  return Array.from(dateMap.entries())
+    .map(([date, meters]) => ({ date, ...meters }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Estimated Waste = excess above each meter's baseline on statistically elevated days.
+ *
+ * For each meter:
+ *   baseline = median daily CCF (robust to outliers)
+ *   z-score  = modified z-score for the day (uses MAD, not std dev)
+ *
+ * A day counts as waste when z > 2.0 AND dailyCcf > median:
+ *   wasteCcf = dailyCcf - median
+ *
+ * Why z > 2.0: balances sensitivity with specificity — catches real anomalies
+ * without flagging normal variation. Each meter's own median defines "normal"
+ * so a high-usage meter and a low-usage meter are both evaluated fairly.
+ *
+ * Dollar estimate = wasteCcf × ESTIMATED_RATE_PER_CCF ($35/CCF all-in).
+ */
+function computeDailyWaste(profiles: Map<string, MeterProfile>) {
+  const dateMap = new Map<string, Record<string, number>>();
+
+  for (const profile of Array.from(profiles.values())) {
+    const dailyEntries = Array.from(profile.dailyUsage.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const values = dailyEntries.map(([, v]) => v);
+    const totalUsage = values.reduce((s, v) => s + v, 0);
+    if (totalUsage === 0 || values.length < 7) continue;
+
+    // Each meter's own median is its baseline
+    const sorted = [...values].sort((a, b) => a - b);
+    const median = sorted.length % 2 === 0
+      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+      : sorted[Math.floor(sorted.length / 2)];
+
+    if (median === 0) continue; // Can't define waste for a meter with zero baseline
+
+    // Modified z-scores for this meter's daily values
+    const { scores } = modifiedZScores(values);
+    if (scores.length === 0) continue;
+
+    const label = shortAddressLabel(profile.address);
+
+    for (let i = 0; i < dailyEntries.length; i++) {
+      const [date, ccf] = dailyEntries[i];
+
+      // Only flag as waste when statistically elevated above this meter's baseline
+      if (scores[i] > 2.0 && ccf > median) {
+        const wasteCcf = ccf - median;
+        const wasteDollars = Math.round(wasteCcf * ESTIMATED_RATE_PER_CCF * 100) / 100;
+        if (wasteDollars < 0.50) continue; // Skip noise below $0.50
+        if (!dateMap.has(date)) dateMap.set(date, {});
+        dateMap.get(date)![label] = wasteDollars;
+      }
     }
   }
 
@@ -487,6 +576,11 @@ function detectOvernightLeaks(profile: MeterProfile): Alert[] {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
+
+function parseCost(cost: string | null | undefined): number {
+  if (!cost) return 0;
+  return parseFloat(cost.replace('$', '').replace(',', '')) || 0;
+}
 
 function shortAddressLabel(address: string): string {
   // "3301 WOOD AVE KANSAS CITY, KS 66104" → "3301 Wood Ave"
