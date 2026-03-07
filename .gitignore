@@ -51,6 +51,9 @@ venv/
 *.swo
 *~
 
+# Bot directories
+bpu-bot/
+
 # Appfolio automation
 .appfolio-session.json
 .appfolio-screenshots/
