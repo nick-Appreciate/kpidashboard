@@ -1,7 +1,7 @@
 import MercuryDashboard from '../../../components/MercuryDashboard';
 
 export const metadata = {
-  title: 'Mercury Banking - Appreciate Dashboard',
+  title: 'Cash - Appreciate Dashboard',
   description: 'Mercury bank account balance tracking',
 };
 

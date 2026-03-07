@@ -104,7 +104,7 @@ export default function Sidebar({ user, onLogout }) {
           )
         },
         {
-          name: 'Mercury Cash',
+          name: 'Cash',
           href: '/admin/mercury',
           icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

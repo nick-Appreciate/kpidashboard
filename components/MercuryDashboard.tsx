@@ -1,49 +1,124 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { Loader2, DollarSign, Landmark, RefreshCw } from 'lucide-react';
 import MercuryBalanceChart from './MercuryBalanceChart';
 import MercuryMonthOverMonthChart from './MercuryMonthOverMonthChart';
 
 export default function MercuryDashboard() {
   const { appUser, loading: authLoading } = useAuth();
   const router = useRouter();
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
-  // Admin guard
+  // Stats from balance chart
+  const [totalCash, setTotalCash] = useState<number | null>(null);
+  const [accountCount, setAccountCount] = useState<number>(0);
+
   useEffect(() => {
     if (!authLoading && appUser?.role !== 'admin') {
       router.push('/');
     }
   }, [authLoading, appUser, router]);
 
+  // Fetch latest balance for stats
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/mercury/balances?days=7');
+      if (res.ok) {
+        const data = await res.json();
+        const balances = data.balances || [];
+        if (balances.length > 0) {
+          // Get latest date
+          const latestDate = balances.reduce((max: string, b: any) =>
+            b.snapshot_date > max ? b.snapshot_date : max, '');
+          const latestEntries = balances.filter((b: any) => b.snapshot_date === latestDate);
+          const totalRow = latestEntries.find((b: any) => b.account_name === 'Total Cash');
+          const accounts = latestEntries.filter((b: any) =>
+            b.account_name !== 'Total Cash' && Number(b.current_balance) !== 0
+          );
+          setTotalCash(totalRow ? Number(totalRow.current_balance) : accounts.reduce((s: number, a: any) => s + Number(a.current_balance), 0));
+          setAccountCount(accounts.length);
+          setLastSync(latestDate);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching stats:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (appUser?.role === 'admin') fetchStats();
+  }, [appUser, fetchStats]);
+
   if (authLoading || appUser?.role !== 'admin') {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <div className="text-slate-400 text-sm">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-accent" />
       </div>
     );
   }
 
+  const formatCurrency = (value: number) =>
+    `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
   return (
-    <div className="min-h-screen bg-slate-100 p-4">
-      <div className="max-w-full mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
-          <div>
-            <h1 className="text-xl font-semibold text-slate-800">Mercury Banking</h1>
-            <p className="text-sm text-slate-500">Daily account balance tracking</p>
-          </div>
-        </div>
-
-        {/* Balance Chart */}
-        <MercuryBalanceChart />
-
-        {/* Month-over-Month Chart */}
-        <div className="mt-4">
-          <MercuryMonthOverMonthChart />
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Cash</h1>
+          <p className="text-sm text-slate-400 mt-1">Mercury bank account balance tracking</p>
         </div>
       </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="glass-stat group">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-500/10">
+              <DollarSign className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">
+                {totalCash !== null ? formatCurrency(totalCash) : '—'}
+              </p>
+              <p className="text-xs text-slate-400">Total Cash</p>
+            </div>
+          </div>
+        </div>
+        <div className="glass-stat group">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-cyan-500/10">
+              <Landmark className="w-5 h-5 text-cyan-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{accountCount}</p>
+              <p className="text-xs text-slate-400">Active Accounts</p>
+            </div>
+          </div>
+        </div>
+        <div className="glass-stat group">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-500/10">
+              <RefreshCw className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">
+                {lastSync ? new Date(lastSync + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+              </p>
+              <p className="text-xs text-slate-400">Last Snapshot</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Balance Chart */}
+      <MercuryBalanceChart />
+
+      {/* Month-over-Month Chart */}
+      <MercuryMonthOverMonthChart />
     </div>
   );
 }
