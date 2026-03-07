@@ -89,6 +89,15 @@ export default function Sidebar({ user, onLogout }) {
             </svg>
           )
         },
+        {
+          name: 'Utilities',
+          href: '/admin/utilities',
+          icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 21a8 8 0 008-8c0-3.5-2.5-6.5-4-8l-4 5-4-5c-1.5 1.5-4 4.5-4 8a8 8 0 008 8z" />
+            </svg>
+          )
+        },
       ]
     },
     ...(isAdmin ? [{
