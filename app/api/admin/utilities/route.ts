@@ -164,9 +164,9 @@ function buildMeterProfiles(data: Reading[]): Map<string, MeterProfile> {
   }
 
   // Set totalDays
-  for (const profile of profiles.values()) {
+  Array.from(profiles.values()).forEach(profile => {
     profile.totalDays = profile.dailyUsage.size;
-  }
+  });
 
   return profiles;
 }
@@ -176,7 +176,7 @@ function computeStats(data: Reading[], profiles: Map<string, MeterProfile>) {
   let activeMeters = 0;
   let totalCcf = 0;
 
-  for (const profile of profiles.values()) {
+  for (const profile of Array.from(profiles.values())) {
     const usage = Array.from(profile.dailyUsage.values()).reduce((s, v) => s + v, 0);
     totalCcf += usage;
     if (usage > 0) activeMeters++;
@@ -189,12 +189,12 @@ function computeDailyUsage(data: Reading[], profiles: Map<string, MeterProfile>)
   // Build { date: { [addressLabel]: ccf, ... } }
   const dateMap = new Map<string, Record<string, number>>();
 
-  for (const profile of profiles.values()) {
+  for (const profile of Array.from(profiles.values())) {
     const totalUsage = Array.from(profile.dailyUsage.values()).reduce((s, v) => s + v, 0);
     if (totalUsage === 0) continue; // Skip zero-usage meters
 
     const label = shortAddressLabel(profile.address);
-    for (const [date, ccf] of profile.dailyUsage) {
+    for (const [date, ccf] of Array.from(profile.dailyUsage)) {
       if (!dateMap.has(date)) dateMap.set(date, {});
       dateMap.get(date)![label] = Math.round(ccf * 10000) / 10000;
     }
@@ -209,7 +209,7 @@ function computeBaselineDeviation(data: Reading[], profiles: Map<string, MeterPr
   // For each meter, compute daily usage as a ratio of its median (baseline = 1.0)
   const dateMap = new Map<string, Record<string, number>>();
 
-  for (const profile of profiles.values()) {
+  for (const profile of Array.from(profiles.values())) {
     const dailyValues = Array.from(profile.dailyUsage.values());
     const totalUsage = dailyValues.reduce((s, v) => s + v, 0);
     if (totalUsage === 0) continue;
@@ -223,7 +223,7 @@ function computeBaselineDeviation(data: Reading[], profiles: Map<string, MeterPr
     if (median === 0) continue; // Can't compute ratio with zero baseline
 
     const label = shortAddressLabel(profile.address);
-    for (const [date, ccf] of profile.dailyUsage) {
+    for (const [date, ccf] of Array.from(profile.dailyUsage)) {
       if (!dateMap.has(date)) dateMap.set(date, {});
       dateMap.get(date)![label] = Math.round((ccf / median) * 100) / 100;
     }
@@ -237,7 +237,7 @@ function computeBaselineDeviation(data: Reading[], profiles: Map<string, MeterPr
 function computeMeterSummaries(profiles: Map<string, MeterProfile>): MeterSummary[] {
   const summaries: MeterSummary[] = [];
 
-  for (const profile of profiles.values()) {
+  for (const profile of Array.from(profiles.values())) {
     const ccfValues = profile.readings.map(r => r.ccf);
     const totalCcf = ccfValues.reduce((s, v) => s + v, 0);
     const avgHourly = ccfValues.length > 0 ? totalCcf / ccfValues.length : 0;
@@ -288,7 +288,7 @@ function modifiedZScores(values: number[]): { median: number; mad: number; score
 function detectLeaks(profiles: Map<string, MeterProfile>): Alert[] {
   let allAlerts: Alert[] = [];
 
-  for (const profile of profiles.values()) {
+  for (const profile of Array.from(profiles.values())) {
     if (profile.totalDays < 7) continue;
     const totalUsage = Array.from(profile.dailyUsage.values()).reduce((s, v) => s + v, 0);
     if (totalUsage === 0) continue;
@@ -421,7 +421,7 @@ function detectOvernightLeaks(profile: MeterProfile): Alert[] {
   let nightsWithUsage = 0;
   let totalNights = 0;
 
-  for (const readings of overnightByDate.values()) {
+  for (const readings of Array.from(overnightByDate.values())) {
     totalNights++;
     const avg = readings.reduce((s, v) => s + v, 0) / readings.length;
     if (avg > 0.005) nightsWithUsage++;
