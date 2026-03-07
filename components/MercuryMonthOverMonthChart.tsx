@@ -66,14 +66,12 @@ export default function MercuryMonthOverMonthChart() {
     const today = new Date();
     const dayOfMonth = today.getDate();
 
-    // Group all balance records by date
     const allByDate = new Map<string, BalanceRecord[]>();
     balances.forEach(b => {
       if (!allByDate.has(b.snapshot_date)) allByDate.set(b.snapshot_date, []);
       allByDate.get(b.snapshot_date)!.push(b);
     });
 
-    // Build total cash entries with account breakdowns
     const totalCashByDate = new Map<string, { total: number; accounts: { name: string; balance: number }[] }>();
     allByDate.forEach((entries, date) => {
       const totalRow = entries.find(e => e.account_name === 'Total Cash');
@@ -90,7 +88,6 @@ export default function MercuryMonthOverMonthChart() {
 
     if (totalCashByDate.size === 0) return [];
 
-    // Group by year-month, pick best date per month
     const byMonth = new Map<string, string[]>();
     totalCashByDate.forEach((_, date) => {
       const ym = date.substring(0, 7);
@@ -100,7 +97,6 @@ export default function MercuryMonthOverMonthChart() {
 
     const points: ChartPoint[] = [];
     byMonth.forEach((dates) => {
-      // Prefer exact match on dayOfMonth, fall back to closest
       let bestDate = dates[0];
       const exactMatch = dates.find(d => parseInt(d.split('-')[2]) === dayOfMonth);
       if (exactMatch) {
@@ -114,7 +110,6 @@ export default function MercuryMonthOverMonthChart() {
       }
       const entry = totalCashByDate.get(bestDate)!;
 
-      // Compute high and low total cash for this month
       let high = -Infinity;
       let low = Infinity;
       let highDate = '';
@@ -140,7 +135,6 @@ export default function MercuryMonthOverMonthChart() {
 
     points.sort((a, b) => a.date.localeCompare(b.date));
 
-    // Apply time range filter
     if (timeRange === 'custom') {
       if (customStart || customEnd) {
         return points.filter(p => {
@@ -166,7 +160,6 @@ export default function MercuryMonthOverMonthChart() {
   const formatTooltipCurrency = (value: number) =>
     `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Shorten Mercury account names for the tooltip
   const shortName = (name: string) => {
     return name
       .replace(/^Mercury (Checking|Savings) /, '$1 ')
@@ -186,28 +179,28 @@ export default function MercuryMonthOverMonthChart() {
       month: 'long', year: 'numeric',
     });
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
-        <p className="font-medium text-gray-700 mb-1.5">{monthLabel}</p>
-        <p className="flex justify-between gap-4 font-semibold text-indigo-600">
+      <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
+        <p className="font-medium text-slate-300 mb-1.5">{monthLabel}</p>
+        <p className="flex justify-between gap-4 font-semibold text-indigo-400">
           <span>Snapshot ({formatDateLabel(dataPoint.date)})</span>
           <span>{formatTooltipCurrency(dataPoint.balance)}</span>
         </p>
-        <p className="flex justify-between gap-4 font-semibold text-emerald-600 mt-0.5">
+        <p className="flex justify-between gap-4 font-semibold text-emerald-400 mt-0.5">
           <span>High ({formatDateLabel(dataPoint.highDate)})</span>
           <span>{formatTooltipCurrency(dataPoint.high)}</span>
         </p>
-        <p className="flex justify-between gap-4 font-semibold text-rose-500 mt-0.5">
+        <p className="flex justify-between gap-4 font-semibold text-rose-400 mt-0.5">
           <span>Low ({formatDateLabel(dataPoint.lowDate)})</span>
           <span>{formatTooltipCurrency(dataPoint.low)}</span>
         </p>
-        <p className="flex justify-between gap-4 text-gray-400 mt-1 pt-1 border-t border-gray-100">
+        <p className="flex justify-between gap-4 text-slate-500 mt-1 pt-1 border-t border-white/10">
           <span>Spread</span>
           <span>{formatTooltipCurrency(dataPoint.high - dataPoint.low)}</span>
         </p>
         {dataPoint.accounts.length > 0 && (
-          <div className="space-y-0.5 mt-1.5 pt-1.5 border-t border-gray-100">
+          <div className="space-y-0.5 mt-1.5 pt-1.5 border-t border-white/10">
             {dataPoint.accounts.map((acct, i) => (
-              <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-500' : 'text-gray-500'}`}>
+              <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-400' : 'text-slate-400'}`}>
                 <span className="truncate max-w-[160px]">{shortName(acct.name)}</span>
                 <span className="tabular-nums shrink-0">
                   {acct.balance < 0 ? '-' : ''}{formatTooltipCurrency(acct.balance)}
@@ -225,11 +218,11 @@ export default function MercuryMonthOverMonthChart() {
   const suffix = dayOfMonth === 1 ? 'st' : dayOfMonth === 2 ? 'nd' : dayOfMonth === 3 ? 'rd' : 'th';
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div className="glass-card p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-800">Month-over-Month</h3>
-          <p className="text-xs text-gray-500">
+          <h3 className="text-lg font-semibold text-white">Month-over-Month</h3>
+          <p className="text-xs text-slate-400">
             Total cash on the {dayOfMonth}{suffix} of each month
           </p>
         </div>
@@ -240,8 +233,8 @@ export default function MercuryMonthOverMonthChart() {
               onClick={() => setTimeRange(t.value)}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 timeRange === t.value
-                  ? 'bg-indigo-100 text-indigo-700'
-                  : 'text-gray-500 hover:bg-gray-100'
+                  ? 'bg-accent/15 text-accent'
+                  : 'text-slate-500 hover:bg-white/10 hover:text-slate-300'
               }`}
             >
               {t.label}
@@ -253,14 +246,14 @@ export default function MercuryMonthOverMonthChart() {
                 type="date"
                 value={customStart}
                 onChange={e => setCustomStart(e.target.value)}
-                className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="dark-input text-xs px-2 py-1"
               />
-              <span className="text-xs text-gray-400">to</span>
+              <span className="text-xs text-slate-500">to</span>
               <input
                 type="date"
                 value={customEnd}
                 onChange={e => setCustomEnd(e.target.value)}
-                className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="dark-input text-xs px-2 py-1"
               />
             </div>
           )}
@@ -268,35 +261,35 @@ export default function MercuryMonthOverMonthChart() {
       </div>
 
       {loading && chartData.length === 0 ? (
-        <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+        <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3.5' }}>
           Loading balance data...
         </div>
       ) : chartData.length === 0 ? (
-        <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+        <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3.5' }}>
           No month-over-month data available.
         </div>
       ) : (
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
+        <div>
+          <ResponsiveContainer width="100%" aspect={3.5}>
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
                 dataKey="date"
                 tickFormatter={(d: string) => {
                   const dt = new Date(d + 'T12:00:00');
                   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 }}
-                tick={{ fontSize: 11 }}
-                stroke="#9ca3af"
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                stroke="#334155"
               />
               <YAxis
                 tickFormatter={formatCurrency}
-                tick={{ fontSize: 11 }}
-                stroke="#9ca3af"
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                stroke="#334155"
                 width={85}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
               <Line
                 type="monotone"
                 dataKey="high"
@@ -304,7 +297,7 @@ export default function MercuryMonthOverMonthChart() {
                 stroke="#10b981"
                 strokeWidth={1.5}
                 strokeDasharray="4 2"
-                dot={{ r: 3, fill: '#10b981', strokeWidth: 1.5, stroke: '#fff' }}
+                dot={{ r: 3, fill: '#10b981', strokeWidth: 1.5, stroke: '#1e293b' }}
                 activeDot={{ r: 5 }}
               />
               <Line
@@ -313,7 +306,7 @@ export default function MercuryMonthOverMonthChart() {
                 name="Snapshot"
                 stroke="#6366f1"
                 strokeWidth={2.5}
-                dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }}
+                dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: '#1e293b' }}
                 activeDot={{ r: 6 }}
               />
               <Line
@@ -323,7 +316,7 @@ export default function MercuryMonthOverMonthChart() {
                 stroke="#f43f5e"
                 strokeWidth={1.5}
                 strokeDasharray="4 2"
-                dot={{ r: 3, fill: '#f43f5e', strokeWidth: 1.5, stroke: '#fff' }}
+                dot={{ r: 3, fill: '#f43f5e', strokeWidth: 1.5, stroke: '#1e293b' }}
                 activeDot={{ r: 5 }}
               />
             </LineChart>
@@ -332,7 +325,7 @@ export default function MercuryMonthOverMonthChart() {
       )}
 
       {chartData.length > 0 && (
-        <p className="text-xs text-gray-500 mt-2 text-center">
+        <p className="text-xs text-slate-500 mt-2 text-center">
           Showing {chartData.length} month{chartData.length !== 1 ? 's' : ''} of data
         </p>
       )}

@@ -127,7 +127,6 @@ export default function MercuryBalanceChart() {
     const byDate = new Map<string, Record<string, any>>();
 
     if (viewMode === 'total') {
-      // Group all entries by date to compute Total Cash when missing
       const entriesByDate = new Map<string, BalanceRecord[]>();
       balances.forEach(b => {
         if (!entriesByDate.has(b.snapshot_date)) entriesByDate.set(b.snapshot_date, []);
@@ -147,7 +146,6 @@ export default function MercuryBalanceChart() {
         byDate.set(date, { date, 'Total Cash': total, _accounts: individualAccounts });
       });
     } else {
-      // Individual account lines — only active + selected, skip $0
       balances.forEach(b => {
         if (b.account_name === 'Total Cash') return;
         if (!activeAccountIds.has(b.account_id)) return;
@@ -165,7 +163,6 @@ export default function MercuryBalanceChart() {
       (a, b) => a.date.localeCompare(b.date)
     );
 
-    // Apply custom date range filter
     if (timeRange === 'custom' && (customStart || customEnd)) {
       sorted = sorted.filter(d => {
         if (customStart && d.date < customStart) return false;
@@ -219,7 +216,7 @@ export default function MercuryBalanceChart() {
   const formatAbsCurrency = (value: number) =>
     `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Custom tooltip — only shows non-zero entries, with account breakdown for total view
+  // Custom tooltip
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const nonZero = payload.filter((p: any) => p.value !== 0 && p.value !== undefined && p.value !== null);
@@ -230,10 +227,10 @@ export default function MercuryBalanceChart() {
     const dataPoint = chartData.find(d => d.date === label);
     const accountBreakdown: { name: string; balance: number }[] = dataPoint?._accounts || [];
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
-        <p className="font-medium text-gray-700 mb-1">{dateLabel}</p>
+      <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
+        <p className="font-medium text-slate-300 mb-1">{dateLabel}</p>
         {nonZero.map((entry: any, i: number) => (
-          <p key={i} style={{ color: entry.color }} className={`flex justify-between gap-4 font-semibold ${accountBreakdown.length > 0 ? 'border-b border-gray-100 pb-1.5 mb-1.5' : ''}`}>
+          <p key={i} style={{ color: entry.color }} className={`flex justify-between gap-4 font-semibold ${accountBreakdown.length > 0 ? 'border-b border-white/10 pb-1.5 mb-1.5' : ''}`}>
             <span>{entry.name}</span>
             <span>{formatTooltipCurrency(Number(entry.value))}</span>
           </p>
@@ -241,7 +238,7 @@ export default function MercuryBalanceChart() {
         {accountBreakdown.length > 0 && (
           <div className="space-y-0.5">
             {accountBreakdown.map((acct, i) => (
-              <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-500' : 'text-gray-500'}`}>
+              <p key={i} className={`flex justify-between gap-4 ${acct.balance < 0 ? 'text-red-400' : 'text-slate-400'}`}>
                 <span className="truncate max-w-[160px]">{shortName(acct.name)}</span>
                 <span className="tabular-nums shrink-0">
                   {acct.balance < 0 ? '-' : ''}{formatAbsCurrency(acct.balance)}
@@ -255,11 +252,11 @@ export default function MercuryBalanceChart() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div className="glass-card p-6 mb-6">
       {/* Header */}
       <div className="flex flex-col gap-3 mb-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-800">Account Balances</h3>
+          <h3 className="text-lg font-semibold text-white">Account Balances</h3>
           <div className="flex items-center gap-1.5">
             {TIME_RANGES.map((t) => (
               <button
@@ -267,8 +264,8 @@ export default function MercuryBalanceChart() {
                 onClick={() => setTimeRange(t.value)}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                   timeRange === t.value
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'text-gray-500 hover:bg-gray-100'
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-slate-500 hover:bg-white/10 hover:text-slate-300'
                 }`}
               >
                 {t.label}
@@ -280,14 +277,14 @@ export default function MercuryBalanceChart() {
                   type="date"
                   value={customStart}
                   onChange={e => setCustomStart(e.target.value)}
-                  className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="dark-input text-xs px-2 py-1"
                 />
-                <span className="text-xs text-gray-400">to</span>
+                <span className="text-xs text-slate-500">to</span>
                 <input
                   type="date"
                   value={customEnd}
                   onChange={e => setCustomEnd(e.target.value)}
-                  className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="dark-input text-xs px-2 py-1"
                 />
               </div>
             )}
@@ -297,23 +294,23 @@ export default function MercuryBalanceChart() {
         {/* View toggle + account picker */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-md border border-gray-200 overflow-hidden">
+            <div className="inline-flex rounded-md border border-white/10 overflow-hidden">
               <button
                 onClick={() => setViewMode('total')}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                   viewMode === 'total'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                    ? 'bg-accent text-[var(--surface-base)]'
+                    : 'bg-white/5 text-slate-400 hover:bg-white/10'
                 }`}
               >
                 Total Cash
               </button>
               <button
                 onClick={() => setViewMode('individual')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-gray-200 ${
+                className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/10 ${
                   viewMode === 'individual'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                    ? 'bg-accent text-[var(--surface-base)]'
+                    : 'bg-white/5 text-slate-400 hover:bg-white/10'
                 }`}
               >
                 By Account
@@ -324,7 +321,7 @@ export default function MercuryBalanceChart() {
               <div className="relative">
                 <button
                   onClick={() => setShowAccountPicker(!showAccountPicker)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-white/10 bg-white/5 text-slate-400 hover:bg-white/10 transition-colors flex items-center gap-1"
                 >
                   <span>
                     {selectedAccounts.size === activeAccounts.length
@@ -337,18 +334,18 @@ export default function MercuryBalanceChart() {
                 </button>
 
                 {showAccountPicker && (
-                  <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
-                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100">
+                  <div className="absolute top-full left-0 mt-1 w-72 bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg z-50 py-1">
+                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/10">
                       <button
                         onClick={selectActiveOnly}
-                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                        className="text-xs text-accent hover:text-accent-light font-medium"
                       >
                         All
                       </button>
-                      <span className="text-gray-300">|</span>
+                      <span className="text-slate-600">|</span>
                       <button
                         onClick={() => setSelectedAccounts(new Set())}
-                        className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                        className="text-xs text-accent hover:text-accent-light font-medium"
                       >
                         None
                       </button>
@@ -356,19 +353,19 @@ export default function MercuryBalanceChart() {
                     {activeAccounts.map((acct, i) => (
                       <label
                         key={acct.id}
-                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 cursor-pointer"
                       >
                         <input
                           type="checkbox"
                           checked={selectedAccounts.has(acct.id)}
                           onChange={() => toggleAccount(acct.id)}
-                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          className="rounded border-white/20 bg-white/5 text-accent focus:ring-accent/50"
                         />
                         <span
                           className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{ backgroundColor: getAccountColor(acct.name, i) }}
                         />
-                        <span className="text-xs text-gray-700 truncate">
+                        <span className="text-xs text-slate-300 truncate">
                           {shortName(acct.name)}
                         </span>
                       </label>
@@ -380,7 +377,7 @@ export default function MercuryBalanceChart() {
           </div>
 
           {loading && (
-            <span className="text-xs text-gray-400">Refreshing...</span>
+            <span className="text-xs text-slate-500">Refreshing...</span>
           )}
         </div>
       </div>
@@ -394,35 +391,35 @@ export default function MercuryBalanceChart() {
       )}
 
       {loading && chartData.length === 0 ? (
-        <div className="h-72 flex items-center justify-center text-gray-400 text-sm">
+        <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3.5' }}>
           Loading balance data...
         </div>
       ) : chartData.length === 0 ? (
-        <div className="h-72 flex items-center justify-center text-gray-400 text-sm">
+        <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3.5' }}>
           {viewMode === 'individual' && selectedAccounts.size === 0
             ? 'Select at least one account to view.'
-            : 'No balance data yet. Click "Sync Now" to log today\'s balances.'}
+            : 'No balance data available.'}
         </div>
       ) : (
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+        <div>
+          <ResponsiveContainer width="100%" aspect={3.5}>
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
                 dataKey="date"
                 tickFormatter={formatDate}
-                tick={{ fontSize: 11 }}
-                stroke="#9ca3af"
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                stroke="#334155"
                 interval={timeRange === 'all' || timeRange === 'custom' || parseInt(timeRange) > 90 ? 'preserveStartEnd' : undefined}
               />
               <YAxis
                 tickFormatter={formatCurrency}
-                tick={{ fontSize: 11 }}
-                stroke="#9ca3af"
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                stroke="#334155"
                 width={85}
               />
               <Tooltip content={<CustomTooltip />} />
-              {viewMode === 'individual' && <Legend wrapperStyle={{ fontSize: 11 }} />}
+              {viewMode === 'individual' && <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />}
 
               {viewMode === 'total' ? (
                 <Line
@@ -454,7 +451,7 @@ export default function MercuryBalanceChart() {
       )}
 
       {chartData.length > 0 && (
-        <p className="text-xs text-gray-500 mt-2 text-center">
+        <p className="text-xs text-slate-500 mt-2 text-center">
           Showing {chartData.length} day{chartData.length !== 1 ? 's' : ''} of balance data
           {viewMode === 'individual' && ` (${visibleAccounts.length} account${visibleAccounts.length !== 1 ? 's' : ''})`}
         </p>

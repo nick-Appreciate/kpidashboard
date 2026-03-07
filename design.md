@@ -247,12 +247,20 @@ export default function MyChart({ data }) {
 
 ### Chart Sizing Standards
 
+All charts should use a consistent aspect ratio and container pattern so they look uniform across pages.
+
+**Page container:** `max-w-7xl mx-auto` for all dashboard pages with charts.
+
+**Chart card wrapper:** `glass-card p-6 mb-6` for every chart section.
+
 | Chart Type | Sizing | Notes |
 |---|---|---|
-| Line charts (time series, conversion) | `maintainAspectRatio: true, aspectRatio: 3.5` | Compact height, responsive width |
+| Chart.js line charts | `maintainAspectRatio: true, aspectRatio: 3.5` | Compact height, responsive width |
+| Recharts line charts | `<ResponsiveContainer width="100%" aspect={3.5}>` | Matches Chart.js aspect ratio exactly |
 | Horizontal bar (top properties) | `maintainAspectRatio: false`, container `height: items * 28 + 20` | Scales with data count, min 120px |
 | Horizontal bar (leasing lifecycle) | `maintainAspectRatio: false`, container `height: 180px` | Fixed 5-stage funnel |
-| Recharts (sources, leads/unit) | Default responsive wrapper | Fill available width |
+
+**Important:** Do not use fixed height classes (`h-64`, `h-72`, `h-80`) on chart containers. Use `aspect={3.5}` (Recharts) or `aspectRatio: 3.5` (Chart.js) so charts scale proportionally with page width. For empty/loading states, use `style={{ aspectRatio: '3.5' }}` on the placeholder div to maintain consistent height.
 
 ### Preventing Double-Render (Strict Mode)
 React 18 Strict Mode double-invokes effects and can cause double API fetches. To prevent charts from animating twice with the same data:
