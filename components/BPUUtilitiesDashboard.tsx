@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
@@ -70,12 +70,25 @@ export default function BPUUtilitiesDashboard() {
     }
   }, [authLoading, appUser, router]);
 
-  const fetchData = useCallback(async () => {
+  useEffect(() => {
+    if (appUser?.role !== 'admin') return;
+
+    const controller = new AbortController();
+
+    // Clear stale data immediately so charts show loading state
     setLoading(true);
-    try {
-      const res = await fetch(`/api/admin/utilities?days=${timeRange}`);
-      if (res.ok) {
-        const data = await res.json();
+    setDailyUsage([]);
+    setDailyCost([]);
+    setDailyWaste([]);
+    setBaselineDeviation([]);
+    setAlerts([]);
+    setMeters([]);
+    setStats(null);
+
+    fetch(`/api/admin/utilities?days=${timeRange}`, { signal: controller.signal })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data) return;
         setStats(data.stats || null);
         setDailyUsage(data.dailyUsage || []);
         setDailyCost(data.dailyCost || []);
@@ -83,17 +96,16 @@ export default function BPUUtilitiesDashboard() {
         setBaselineDeviation(data.baselineDeviation || []);
         setAlerts(data.alerts || []);
         setMeters(data.meters || []);
-      }
-    } catch (err) {
-      console.error('Error fetching utilities data:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [timeRange]);
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') console.error('Error fetching utilities data:', err);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
 
-  useEffect(() => {
-    if (appUser?.role === 'admin') fetchData();
-  }, [appUser, fetchData]);
+    return () => controller.abort();
+  }, [appUser, timeRange]);
 
   const handleMeterClick = (meterStr: string) => {
     const m = meters.find(m => m.meter === meterStr);
