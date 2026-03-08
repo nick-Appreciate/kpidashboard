@@ -69,9 +69,20 @@ export default function BPULeakAlerts({ alerts, onMeterClick, timeRange }: Props
       return d !== null && d !== maxDate;
     });
 
+    // Sort by date descending (most recent first), recurring alerts last
+    const sortByDate = (arr: Alert[]) =>
+      [...arr].sort((a, b) => {
+        const da = extractAlertDate(a.date);
+        const db = extractAlertDate(b.date);
+        if (!da && !db) return 0;
+        if (!da) return 1;  // Recurring → end
+        if (!db) return -1;
+        return db.localeCompare(da);
+      });
+
     // Short ranges: show all alerts, no filtering
     if (isShortRange || showHistorical || !maxDate) {
-      return { filteredAlerts: alerts, mostRecentDate: maxDate, hasHistorical };
+      return { filteredAlerts: sortByDate(alerts), mostRecentDate: maxDate, hasHistorical };
     }
 
     // Show only most recent date + recurring alerts
@@ -80,7 +91,7 @@ export default function BPULeakAlerts({ alerts, onMeterClick, timeRange }: Props
       return d === null || d === maxDate; // null = Recurring, always show
     });
 
-    return { filteredAlerts: filtered, mostRecentDate: maxDate, hasHistorical };
+    return { filteredAlerts: sortByDate(filtered), mostRecentDate: maxDate, hasHistorical };
   }, [alerts, showHistorical, isShortRange]);
 
   if (alerts.length === 0) {
