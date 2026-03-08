@@ -19,6 +19,7 @@ export default function OccupancyDashboard() {
   const [occupiedOverride, setOccupiedOverride] = useState(null); // Temporary override for occupied count
   const [pctEditing, setPctEditing] = useState(null); // Local text while editing percentage input
   const [selectedExpirationRange, setSelectedExpirationRange] = useState(null); // Filter from chart click
+  const [groupByProperty, setGroupByProperty] = useState(false); // Toggle bad leases grouping
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -61,6 +62,7 @@ export default function OccupancyDashboard() {
   const projectionChartRef = useRef(null);
   const statusChartRef = useRef(null);
   const delinquencyChartRef = useRef(null);
+  const leaseChartRef = useRef(null);
   const headerRef = useRef(null);
   
   // Update dates when preset changes
@@ -882,43 +884,46 @@ export default function OccupancyDashboard() {
               </div>
             )}
             
-            {/* Healthy Lease Rate Chart */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-xl font-semibold text-amber-700 mb-4 pb-2 border-b-2 border-amber-200">
-                Healthy Lease Rate Trend
-              </h2>
-              <p className="text-sm text-gray-600 mb-4">
-                Percentage of units with healthy leases (not expiring within 60 days, not evicting)
-              </p>
-              <div className="text-3xl font-bold text-amber-600 mb-4">
-                {summary.healthyLeaseRate || 0}%
+            {/* Lease Expirations + Healthy Rate */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+              <div className="glass-card p-6 lg:col-span-2">
+                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Lease Expirations</h2>
+                <canvas ref={leaseChartRef}></canvas>
               </div>
-              <canvas id="healthyLeaseChart"></canvas>
+              <div className="glass-card p-6 flex flex-col items-center justify-center">
+                <h2 className="text-lg font-semibold text-slate-100 mb-2">Healthy Lease Rate</h2>
+                <p className="text-xs text-slate-400 mb-4 text-center">
+                  Units with leases not expiring within 60 days and not evicting
+                </p>
+                <div className="text-4xl font-bold text-emerald-400">
+                  {summary.healthyLeaseRate || 0}%
+                </div>
+              </div>
             </div>
             
             {/* Bad Leases Tape Feed */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <div className="flex justify-between items-center mb-4 pb-2 border-b-2 border-amber-200">
-                <h2 className="text-xl font-semibold text-amber-700">
+            <div className="glass-card p-6 mb-6">
+              <div className="flex justify-between items-center mb-4 pb-2 border-b border-[var(--glass-border)]">
+                <h2 className="text-lg font-semibold text-slate-100">
                   Bad Leases Detail
                 </h2>
                 <button
                   onClick={() => setGroupByProperty(!groupByProperty)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    groupByProperty 
-                      ? 'bg-amber-600 text-white hover:bg-amber-700' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    groupByProperty
+                      ? 'bg-accent text-white hover:bg-accent/80'
+                      : 'bg-surface-overlay text-slate-300 hover:bg-surface-overlay/80 border border-[var(--glass-border)]'
                   }`}
                 >
                   {groupByProperty ? 'Grouped by Property' : 'Group by Type'}
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-slate-400 mb-4">
                 Units requiring attention (excluding vacant units)
                 {selectedExpirationRange && (
                   <button
                     onClick={() => setSelectedExpirationRange(null)}
-                    className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-200"
+                    className="ml-2 px-2 py-0.5 bg-accent/20 text-accent rounded text-xs font-medium hover:bg-accent/30"
                   >
                     Filtered: {selectedExpirationRange === 'expired' ? 'Expired' : selectedExpirationRange === 'noEnd' ? 'No End Date' : selectedExpirationRange + ' days'} ✕
                   </button>
@@ -957,7 +962,7 @@ export default function OccupancyDashboard() {
 
                   if (allBadLeases.length === 0) {
                     return (
-                      <div className="text-center py-8 text-gray-500">
+                      <div className="text-center py-8 text-slate-500">
                         <div className="text-2xl mb-2">🎉</div>
                         <p>No bad leases found!</p>
                       </div>
@@ -973,13 +978,13 @@ export default function OccupancyDashboard() {
                     
                     return Object.entries(groupedByProperty).map(([property, leases]) => (
                       <div key={property} className="mb-4">
-                        <div className="bg-gray-800 text-white px-3 py-2 rounded-t-lg flex justify-between items-center">
-                          <span className="font-semibold">{property}</span>
-                          <span className="bg-gray-600 px-2 py-0.5 rounded text-xs">{leases.length} units</span>
+                        <div className="bg-surface-overlay px-3 py-2 rounded-t-lg flex justify-between items-center border border-[var(--glass-border)]">
+                          <span className="font-semibold text-slate-100">{property}</span>
+                          <span className="bg-surface-raised px-2 py-0.5 rounded text-xs text-slate-400">{leases.length} units</span>
                         </div>
-                        <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
                           <table className="w-full text-sm">
-                            <thead className="bg-gray-50 text-xs text-gray-600">
+                            <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                               <tr>
                                 <th className="px-2 py-2 text-left font-medium">Unit</th>
                                 <th className="px-2 py-2 text-left font-medium">Tenant</th>
@@ -989,43 +994,43 @@ export default function OccupancyDashboard() {
                                 <th className="px-2 py-2 text-right font-medium">Rent</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100">
+                            <tbody className="divide-y divide-white/5">
                               {leases.sort((a, b) => a.priority - b.priority).map((lease, idx) => (
                                 <tr key={idx} className={`${
-                                  lease.color === 'red' ? 'bg-red-50 hover:bg-red-100' : 
-                                  lease.color === 'orange' ? 'bg-orange-50 hover:bg-orange-100' : 
-                                  'bg-yellow-50 hover:bg-yellow-100'
+                                  lease.color === 'red' ? 'bg-rose-500/10 hover:bg-rose-500/20' :
+                                  lease.color === 'orange' ? 'bg-amber-500/10 hover:bg-amber-500/20' :
+                                  'bg-yellow-500/10 hover:bg-yellow-500/20'
                                 } transition-colors`}>
-                                  <td className="px-2 py-2 font-medium">{lease.unit}</td>
-                                  <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
-                                    {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                                  <td className="px-2 py-2 font-medium text-slate-200">{lease.unit}</td>
+                                  <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                                    {lease.tenantName || <span className="text-slate-500 italic text-xs">No renewal</span>}
                                   </td>
                                   <td className="px-2 py-2">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      lease.color === 'red' ? 'bg-red-200 text-red-800' : 
-                                      lease.color === 'orange' ? 'bg-orange-200 text-orange-800' : 
-                                      'bg-yellow-200 text-yellow-800'
+                                      lease.color === 'red' ? 'bg-rose-500/20 text-rose-400' :
+                                      lease.color === 'orange' ? 'bg-amber-500/20 text-amber-400' :
+                                      'bg-yellow-500/20 text-yellow-400'
                                     }`}>
-                                      {lease.type === 'eviction' ? '⚠️ Evict' : 
-                                       lease.type === 'monthToMonth' ? '📅 MTM' : 
+                                      {lease.type === 'eviction' ? '⚠️ Evict' :
+                                       lease.type === 'monthToMonth' ? '📅 MTM' :
                                        '⏰ Expiring'}
                                     </span>
                                   </td>
                                   <td className="px-2 py-2 text-center text-xs font-medium">
                                     {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
-                                      <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-gray-600'}>
+                                      <span className={lease.daysUntilExpiration < 0 ? 'text-rose-400' : lease.daysUntilExpiration <= 30 ? 'text-amber-400' : 'text-slate-400'}>
                                         {lease.daysUntilExpiration}
                                       </span>
                                     ) : '-'}
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
-                                      lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
-                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
-                                      lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
-                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
-                                      'bg-gray-100 text-gray-500'
+                                      lease.renewalStatus === 'Renewed' ? 'bg-emerald-500/20 text-emerald-400' :
+                                      lease.renewalStatus === 'Pending' ? 'bg-blue-500/20 text-blue-400' :
+                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-rose-500/20 text-rose-400' :
+                                      lease.renewalStatus === 'Canceled by User' ? 'bg-slate-500/20 text-slate-400' :
+                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-500/20 text-purple-400' :
+                                      'bg-slate-500/20 text-slate-500'
                                     }`}>
                                       {lease.renewalStatus === 'Renewed' ? '✓' :
                                        lease.renewalStatus === 'Pending' ? '⏳' :
@@ -1037,7 +1042,7 @@ export default function OccupancyDashboard() {
                                       </span>
                                     </span>
                                   </td>
-                                  <td className="px-2 py-2 text-right font-medium text-gray-700">
+                                  <td className="px-2 py-2 text-right font-medium text-slate-300">
                                     {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
                                   </td>
                                 </tr>
@@ -1053,24 +1058,24 @@ export default function OccupancyDashboard() {
                       { key: 'monthToMonth', label: 'Month-to-Month', color: 'orange', icon: '📅', leases: allBadLeases.filter(l => l.type === 'monthToMonth') },
                       { key: 'expiring', label: 'Expiring Soon', color: 'yellow', icon: '⏰', leases: allBadLeases.filter(l => l.type === 'expiring') }
                     ].filter(g => g.leases.length > 0);
-                    
+
                     return typeGroups.map(group => (
                       <div key={group.key} className="mb-4">
                         <div className={`px-3 py-2 rounded-t-lg flex justify-between items-center ${
-                          group.color === 'red' ? 'bg-red-600 text-white' :
-                          group.color === 'orange' ? 'bg-orange-500 text-white' :
-                          'bg-yellow-500 text-white'
+                          group.color === 'red' ? 'bg-rose-600/80 text-white' :
+                          group.color === 'orange' ? 'bg-amber-600/80 text-white' :
+                          'bg-yellow-600/80 text-white'
                         }`}>
                           <span className="font-semibold">{group.icon} {group.label}</span>
                           <span className={`px-2 py-0.5 rounded text-xs ${
-                            group.color === 'red' ? 'bg-red-700' :
-                            group.color === 'orange' ? 'bg-orange-600' :
-                            'bg-yellow-600'
+                            group.color === 'red' ? 'bg-rose-700/50' :
+                            group.color === 'orange' ? 'bg-amber-700/50' :
+                            'bg-yellow-700/50'
                           }`}>{group.leases.length} units</span>
                         </div>
-                        <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
                           <table className="w-full text-sm">
-                            <thead className="bg-gray-50 text-xs text-gray-600">
+                            <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                               <tr>
                                 <th className="px-2 py-2 text-left font-medium">Property</th>
                                 <th className="px-2 py-2 text-left font-medium">Unit</th>
@@ -1080,35 +1085,35 @@ export default function OccupancyDashboard() {
                                 <th className="px-2 py-2 text-right font-medium">Rent</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100">
+                            <tbody className="divide-y divide-white/5">
                               {group.leases.map((lease, idx) => (
                                 <tr key={idx} className={`${
-                                  group.color === 'red' ? 'bg-red-50 hover:bg-red-100' : 
-                                  group.color === 'orange' ? 'bg-orange-50 hover:bg-orange-100' : 
-                                  'bg-yellow-50 hover:bg-yellow-100'
+                                  group.color === 'red' ? 'bg-rose-500/10 hover:bg-rose-500/20' :
+                                  group.color === 'orange' ? 'bg-amber-500/10 hover:bg-amber-500/20' :
+                                  'bg-yellow-500/10 hover:bg-yellow-500/20'
                                 } transition-colors`}>
-                                  <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={lease.property}>
+                                  <td className="px-2 py-2 text-slate-300 truncate max-w-[140px]" title={lease.property}>
                                     {lease.property}
                                   </td>
-                                  <td className="px-2 py-2 font-medium">{lease.unit}</td>
-                                  <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
-                                    {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                                  <td className="px-2 py-2 font-medium text-slate-200">{lease.unit}</td>
+                                  <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                                    {lease.tenantName || <span className="text-slate-500 italic text-xs">No renewal</span>}
                                   </td>
                                   <td className="px-2 py-2 text-center text-xs font-medium">
                                     {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
-                                      <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-gray-600'}>
+                                      <span className={lease.daysUntilExpiration < 0 ? 'text-rose-400' : lease.daysUntilExpiration <= 30 ? 'text-amber-400' : 'text-slate-400'}>
                                         {lease.daysUntilExpiration}
                                       </span>
                                     ) : '-'}
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
-                                      lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
-                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
-                                      lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
-                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
-                                      'bg-gray-100 text-gray-500'
+                                      lease.renewalStatus === 'Renewed' ? 'bg-emerald-500/20 text-emerald-400' :
+                                      lease.renewalStatus === 'Pending' ? 'bg-blue-500/20 text-blue-400' :
+                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-rose-500/20 text-rose-400' :
+                                      lease.renewalStatus === 'Canceled by User' ? 'bg-slate-500/20 text-slate-400' :
+                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-500/20 text-purple-400' :
+                                      'bg-slate-500/20 text-slate-500'
                                     }`}>
                                       {lease.renewalStatus === 'Renewed' ? '✓' :
                                        lease.renewalStatus === 'Pending' ? '⏳' :
@@ -1120,7 +1125,7 @@ export default function OccupancyDashboard() {
                                       </span>
                                     </span>
                                   </td>
-                                  <td className="px-2 py-2 text-right font-medium text-gray-700">
+                                  <td className="px-2 py-2 text-right font-medium text-slate-300">
                                     {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
                                   </td>
                                 </tr>
@@ -1133,17 +1138,17 @@ export default function OccupancyDashboard() {
                   }
                 })()}
               </div>
-              
+
               {/* Upcoming Expirations */}
               {stats.leaseHealthDetails?.upcomingExpirations?.length > 0 && (!selectedExpirationRange || selectedExpirationRange === '61-90') && (
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-blue-600 text-white">
+                <div className="mt-6 pt-6 border-t border-[var(--glass-border)]">
+                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-blue-600/80 text-white">
                     <span className="font-semibold">📆 Upcoming Expirations (61-90 days)</span>
-                    <span className="px-2 py-0.5 rounded text-xs bg-blue-700">{stats.leaseHealthDetails.upcomingExpirations.length} units</span>
+                    <span className="px-2 py-0.5 rounded text-xs bg-blue-700/50">{stats.leaseHealthDetails.upcomingExpirations.length} units</span>
                   </div>
-                  <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
                     <table className="w-full text-sm">
-                      <thead className="bg-gray-50 text-xs text-gray-600">
+                      <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                         <tr>
                           <th className="px-2 py-2 text-left font-medium">Property</th>
                           <th className="px-2 py-2 text-left font-medium">Unit</th>
@@ -1153,31 +1158,31 @@ export default function OccupancyDashboard() {
                           <th className="px-2 py-2 text-right font-medium">Rent</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-white/5">
                         {stats.leaseHealthDetails.upcomingExpirations.map((lease, idx) => (
-                          <tr key={idx} className="bg-blue-50 hover:bg-blue-100 transition-colors">
-                            <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={lease.property}>
+                          <tr key={idx} className="bg-blue-500/10 hover:bg-blue-500/20 transition-colors">
+                            <td className="px-2 py-2 text-slate-300 truncate max-w-[140px]" title={lease.property}>
                               {lease.property}
                             </td>
-                            <td className="px-2 py-2 font-medium">{lease.unit}</td>
-                            <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
-                              {lease.tenantName || <span className="text-gray-400 italic text-xs">No renewal</span>}
+                            <td className="px-2 py-2 font-medium text-slate-200">{lease.unit}</td>
+                            <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
+                              {lease.tenantName || <span className="text-slate-500 italic text-xs">No renewal</span>}
                             </td>
                             <td className="px-2 py-2 text-center text-xs font-medium">
                               {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
-                                <span className={lease.daysUntilExpiration < 0 ? 'text-red-600' : lease.daysUntilExpiration <= 30 ? 'text-orange-600' : 'text-blue-600'}>
+                                <span className={lease.daysUntilExpiration < 0 ? 'text-rose-400' : lease.daysUntilExpiration <= 30 ? 'text-amber-400' : 'text-blue-400'}>
                                   {lease.daysUntilExpiration}
                                 </span>
                               ) : '-'}
                             </td>
                             <td className="px-2 py-2 text-center">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                lease.renewalStatus === 'Renewed' ? 'bg-green-100 text-green-700' :
-                                lease.renewalStatus === 'Pending' ? 'bg-blue-100 text-blue-700' :
-                                lease.renewalStatus === 'Did Not Renew' ? 'bg-red-100 text-red-700' :
-                                lease.renewalStatus === 'Canceled by User' ? 'bg-gray-100 text-gray-700' :
-                                lease.renewalStatus === 'Not sent' ? 'bg-purple-100 text-purple-700' :
-                                'bg-gray-100 text-gray-500'
+                                lease.renewalStatus === 'Renewed' ? 'bg-emerald-500/20 text-emerald-400' :
+                                lease.renewalStatus === 'Pending' ? 'bg-blue-500/20 text-blue-400' :
+                                lease.renewalStatus === 'Did Not Renew' ? 'bg-rose-500/20 text-rose-400' :
+                                lease.renewalStatus === 'Canceled by User' ? 'bg-slate-500/20 text-slate-400' :
+                                lease.renewalStatus === 'Not sent' ? 'bg-purple-500/20 text-purple-400' :
+                                'bg-slate-500/20 text-slate-500'
                               }`}>
                                 {lease.renewalStatus === 'Renewed' ? '✓' :
                                  lease.renewalStatus === 'Pending' ? '⏳' :
@@ -1189,7 +1194,7 @@ export default function OccupancyDashboard() {
                                 </span>
                               </span>
                             </td>
-                            <td className="px-2 py-2 text-right font-medium text-gray-700">
+                            <td className="px-2 py-2 text-right font-medium text-slate-300">
                               {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
                             </td>
                           </tr>
@@ -1199,17 +1204,17 @@ export default function OccupancyDashboard() {
                   </div>
                 </div>
               )}
-              
+
               {/* Recent Renewals */}
               {stats.leaseHealthDetails?.recentRenewals?.length > 0 && (
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-green-600 text-white">
+                <div className="mt-6 pt-6 border-t border-[var(--glass-border)]">
+                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-emerald-600/80 text-white">
                     <span className="font-semibold">🔄 Recent Renewals (Last 60 Days + Future)</span>
-                    <span className="px-2 py-0.5 rounded text-xs bg-green-700">{stats.leaseHealthDetails.recentRenewals.length} renewals</span>
+                    <span className="px-2 py-0.5 rounded text-xs bg-emerald-700/50">{stats.leaseHealthDetails.recentRenewals.length} renewals</span>
                   </div>
-                  <div className="border border-gray-200 border-t-0 rounded-b-lg overflow-hidden">
+                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
                     <table className="w-full text-sm">
-                      <thead className="bg-gray-50 text-xs text-gray-600">
+                      <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
                         <tr>
                           <th className="px-2 py-2 text-left font-medium">Property</th>
                           <th className="px-2 py-2 text-left font-medium">Unit</th>
@@ -1219,36 +1224,36 @@ export default function OccupancyDashboard() {
                           <th className="px-2 py-2 text-right font-medium">Change</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-white/5">
                         {stats.leaseHealthDetails.recentRenewals.map((renewal, idx) => (
-                          <tr key={idx} className="bg-green-50 hover:bg-green-100 transition-colors">
-                            <td className="px-2 py-2 text-gray-700 truncate max-w-[140px]" title={renewal.property}>
+                          <tr key={idx} className="bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors">
+                            <td className="px-2 py-2 text-slate-300 truncate max-w-[140px]" title={renewal.property}>
                               {renewal.property}
                             </td>
-                            <td className="px-2 py-2 font-medium">{renewal.unit}</td>
-                            <td className="px-2 py-2 text-gray-700 truncate max-w-[120px]" title={renewal.tenantName || ''}>
-                              {renewal.tenantName || <span className="text-gray-400 italic text-xs">-</span>}
+                            <td className="px-2 py-2 font-medium text-slate-200">{renewal.unit}</td>
+                            <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={renewal.tenantName || ''}>
+                              {renewal.tenantName || <span className="text-slate-500 italic text-xs">-</span>}
                             </td>
                             <td className="px-2 py-2 text-center text-xs">
-                              <span className={renewal.daysFromToday > 0 ? 'text-blue-600 font-medium' : 'text-gray-600'}>
+                              <span className={renewal.daysFromToday > 0 ? 'text-blue-400 font-medium' : 'text-slate-400'}>
                                 {new Date(renewal.leaseStart).toLocaleDateString()}
-                                {renewal.daysFromToday > 0 && <span className="ml-1 text-blue-500">(+{renewal.daysFromToday}d)</span>}
+                                {renewal.daysFromToday > 0 && <span className="ml-1 text-blue-400">(+{renewal.daysFromToday}d)</span>}
                               </span>
                             </td>
-                            <td className="px-2 py-2 text-right font-medium text-gray-700">
+                            <td className="px-2 py-2 text-right font-medium text-slate-300">
                               {renewal.rent ? `$${Number(renewal.rent).toLocaleString()}` : '-'}
                             </td>
                             <td className="px-2 py-2 text-right text-xs">
                               {renewal.percentDifference !== null && renewal.percentDifference !== undefined ? (
-                                <span className={Number(renewal.percentDifference) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                <span className={Number(renewal.percentDifference) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                                   {Number(renewal.percentDifference) >= 0 ? '+' : ''}{Number(renewal.percentDifference).toFixed(1)}%
                                 </span>
                               ) : renewal.dollarDifference !== null && renewal.dollarDifference !== undefined ? (
-                                <span className={Number(renewal.dollarDifference) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                <span className={Number(renewal.dollarDifference) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                                   {Number(renewal.dollarDifference) >= 0 ? '+' : ''}${Number(renewal.dollarDifference).toLocaleString()}
                                 </span>
                               ) : (
-                                <span className="text-gray-400">-</span>
+                                <span className="text-slate-500">-</span>
                               )}
                             </td>
                           </tr>
