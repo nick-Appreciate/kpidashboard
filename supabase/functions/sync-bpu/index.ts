@@ -1,14 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 /**
- * Sync BPU Meter Readings
+ * Sync Utility Meter Readings (BPU + COMO)
  *
- * Triggers the BPU Bot server to scrape meter reading data from
- * mymeter.bpu.com and upload it to the bpu_meter_readings table.
+ * Triggers the bot server to scrape meter reading data from both
+ * mymeter.bpu.com and COMO MyUtilityBill portal, uploading to
+ * bpu_meter_readings and como_meter_readings tables respectively.
  *
- * The bot server must be running and logged in (session persisted).
- * If not logged in, this function logs a warning — manual re-login
- * is required via `npm run login` on the VPS.
+ * The bot server must be running and logged in (sessions persisted).
+ * If a source is not logged in, it is skipped with a warning.
+ * Manual re-login is required via `npm run login` / `npm run login:como` on the VPS.
  *
  * Invoke:
  *   curl -X POST '<SUPABASE_URL>/functions/v1/sync-bpu' \
@@ -86,49 +87,70 @@ Deno.serve(async (req: Request) => {
     const health = await healthRes.json();
     console.log(`[sync-bpu] Bot health:`, health);
 
-    if (!health.logged_in) {
-      console.warn('[sync-bpu] ⚠️  Bot is NOT logged in. Manual login required on VPS.');
-      return new Response(
-        JSON.stringify({
-          error:
-            'BPU bot is not logged in. SSH into the VPS and run `npm run login` in the bpu-bot directory.',
-          bot_url: health.current_url,
-        }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+    // Step 2: Scrape BPU (if logged in)
+    let bpuResult: any = null;
+    if (health.bpu?.logged_in ?? health.logged_in) {
+      console.log('[sync-bpu] Triggering BPU scrape...');
+      try {
+        const scrapeRes = await fetch(`${botUrl}/api/scrape`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${botSecret}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun }),
+        });
+
+        if (scrapeRes.ok) {
+          bpuResult = await scrapeRes.json();
+          console.log('[sync-bpu] BPU result:', bpuResult);
+        } else {
+          const errText = await scrapeRes.text();
+          console.error(`[sync-bpu] BPU scrape failed: ${scrapeRes.status} ${errText}`);
+          bpuResult = { success: false, error: errText };
+        }
+      } catch (err) {
+        console.error('[sync-bpu] BPU scrape error:', err);
+        bpuResult = { success: false, error: (err as Error).message };
+      }
+    } else {
+      console.warn('[sync-bpu] ⚠️  BPU not logged in — skipping. Run `npm run login` on VPS.');
+      bpuResult = { success: false, error: 'Not logged in' };
     }
 
-    // Step 2: Trigger scrape
-    console.log('[sync-bpu] Triggering scrape...');
-    const scrapeRes = await fetch(`${botUrl}/api/scrape`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${botSecret}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        start_date: startDate,
-        end_date: endDate,
-        dry_run: dryRun,
-      }),
-    });
+    // Step 3: Scrape COMO (if logged in)
+    let comoResult: any = null;
+    const comoLoggedIn = health.como?.logged_in ?? false;
+    if (comoLoggedIn) {
+      console.log('[sync-bpu] Triggering COMO scrape...');
+      try {
+        const comoRes = await fetch(`${botUrl}/api/como/scrape`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${botSecret}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun }),
+        });
 
-    if (!scrapeRes.ok) {
-      const errText = await scrapeRes.text();
-      console.error(`[sync-bpu] Scrape request failed: ${scrapeRes.status} ${errText}`);
-      return new Response(
-        JSON.stringify({
-          error: `Scrape failed: ${scrapeRes.status}`,
-          details: errText,
-        }),
-        { status: 502, headers: { 'Content-Type': 'application/json' } }
-      );
+        if (comoRes.ok) {
+          comoResult = await comoRes.json();
+          console.log('[sync-bpu] COMO result:', comoResult);
+        } else {
+          const errText = await comoRes.text();
+          console.error(`[sync-bpu] COMO scrape failed: ${comoRes.status} ${errText}`);
+          comoResult = { success: false, error: errText };
+        }
+      } catch (err) {
+        console.error('[sync-bpu] COMO scrape error:', err);
+        comoResult = { success: false, error: (err as Error).message };
+      }
+    } else {
+      console.warn('[sync-bpu] ⚠️  COMO not logged in — skipping. Run `npm run login:como` on VPS.');
+      comoResult = { success: false, error: 'Not logged in' };
     }
 
-    const scrapeResult = await scrapeRes.json();
-    console.log('[sync-bpu] Scrape result:', scrapeResult);
-
-    return new Response(JSON.stringify(scrapeResult), {
+    return new Response(JSON.stringify({ bpu: bpuResult, como: comoResult }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
