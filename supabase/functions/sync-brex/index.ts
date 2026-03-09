@@ -10,21 +10,15 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const EARLIEST_DATE = '2026-02-01';
 const MAX_PAGES = 10;
 
-// --- Vendor name normalization (mirrors parse-invoice-pdf logic + card descriptor cleanup) ---
+// --- Vendor name normalization (for brex_expenses.vendor_name_normalized) ---
 function normalizeVendorName(name: string): string {
   let n = name.trim().toLowerCase();
-  // Strip leading "The"
   n = n.replace(/^the\s+/i, '');
-  // Strip trailing legal suffixes
   n = n.replace(/,?\s*(inc\.?|llc\.?|l\.?l\.?c\.?|corp\.?|co\.?|ltd\.?|company|enterprises?)$/i, '');
-  // Strip card descriptor artifacts (asterisks, hash marks)
   n = n.replace(/[*#]/g, '');
-  // Normalize smart/curly quotes to straight versions for consistent matching
-  n = n.replace(/[\u2018\u2019\u201A\u2032\u0060]/g, "'"); // single quotes → '
-  n = n.replace(/[\u201C\u201D\u201E\u2033]/g, '"');        // double quotes → "
-  // Strip trailing city/state/zip patterns common in card transactions
+  n = n.replace(/[\u2018\u2019\u201A\u2032\u0060]/g, "'");
+  n = n.replace(/[\u201C\u201D\u201E\u2033]/g, '"');
   n = n.replace(/\s+[a-z]+\s+[a-z]{2}\s*\d{0,5}$/i, '');
-  // Collapse whitespace
   n = n.replace(/\s+/g, ' ').trim();
   return n;
 }
@@ -53,7 +47,6 @@ function transformTransaction(txn: any) {
 
 // --- Fetch expenses from Brex Expenses API to get expense_id + memo ---
 async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean; debug?: any }> {
-  // Get all records missing expense_id
   const { data: needsEnrichment } = await supabase
     .from('brex_expenses')
     .select('id, brex_id, amount, merchant_name, posted_at')
@@ -68,13 +61,11 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
 
   console.log(`${needsEnrichment.length} records need expense_id enrichment`);
 
-  // Build a lookup map: brex_id (pste_...) -> DB record id
   const brexIdToDbId = new Map<string, number>();
   for (const r of needsEnrichment) {
     brexIdToDbId.set(r.brex_id, r.id);
   }
 
-  // Fetch expenses from Brex Expenses API
   let enrichedCount = 0;
   let logged = false;
   let cursor: string | null = null;
@@ -90,7 +81,6 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
     const params = new URLSearchParams();
     if (cursor) params.set('cursor', cursor);
     params.set('limit', '100');
-    // Expand to get full details (use append, not set, for repeated keys)
     params.append('expand[]', 'merchant');
     params.append('expand[]', 'receipts');
 
@@ -116,7 +106,6 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
     pageCount++;
     totalExpensesSeen += items.length;
 
-    // Log first expense object structure for debugging - capture in response
     if (!logged && items.length > 0) {
       sampleKeys = Object.keys(items[0]);
       const sample = items[0];
@@ -135,16 +124,14 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
         amount: sample.amount,
       };
       console.log('Sample expense object keys:', JSON.stringify(sampleKeys));
-      console.log('Sample expense structure:', JSON.stringify(sampleExpense, null, 2));
       logged = true;
     }
 
     console.log(`Expenses page ${pageCount}: got ${items.length} items`);
 
     for (const expense of items) {
-      const expenseId = expense.id; // expense_...
+      const expenseId = expense.id;
 
-      // Extract memo - handle both string and object formats
       let memo: string | null = null;
       if (typeof expense.memo === 'string') {
         memo = expense.memo;
@@ -154,14 +141,12 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
         memo = expense.memo.value;
       }
 
-      // Try to find the matching transaction ID (pste_...) via multiple paths
       const txnId = expense.card_expense?.card_transaction?.id
         || expense.card_transaction?.id
         || expense.transaction_id
         || null;
 
       if (txnId && brexIdToDbId.has(txnId)) {
-        // Direct match via transaction ID
         txnIdMatches++;
         const dbId = brexIdToDbId.get(txnId)!;
         const updateData: any = { expense_id: expenseId };
@@ -177,7 +162,6 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
           brexIdToDbId.delete(txnId);
         }
       } else {
-        // Fallback: match by amount + merchant + date proximity
         const expAmount = expense.original_amount?.amount
           ? Math.abs(expense.original_amount.amount / 100)
           : expense.amount?.amount
@@ -196,12 +180,10 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
             const amountMatch = Math.abs(dbAmount - expAmount) < 0.01;
             if (!amountMatch) continue;
 
-            // Check merchant name similarity
             const dbMerchant = (record.merchant_name || '').toLowerCase();
             const merchantMatch = dbMerchant.includes(expMerchant) || expMerchant.includes(dbMerchant)
               || (dbMerchant.split(' ')[0].length > 2 && dbMerchant.split(' ')[0] === expMerchant.split(' ')[0]);
 
-            // Check date proximity
             let dateMatch = false;
             if (expDate && record.posted_at) {
               const d1 = new Date(expDate);
@@ -228,12 +210,10 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
           }
         }
       }
-
     }
 
     cursor = data.next_cursor || null;
 
-    // Stop if we've enriched all records we need
     if (brexIdToDbId.size === 0) {
       console.log('All records enriched, stopping expense fetch');
       break;
@@ -257,107 +237,6 @@ async function enrichWithExpenses(): Promise<{ enriched: number; logged: boolean
       remainingUnmatched: brexIdToDbId.size,
     },
   };
-}
-
-// --- Matching logic ---
-async function runMatching(): Promise<{ highConfidence: number; lowConfidence: number }> {
-  // Get all unmatched, non-corporate brex expenses
-  const { data: unmatched } = await supabase
-    .from('brex_expenses')
-    .select('id, amount, vendor_name_normalized, merchant_name, posted_at')
-    .eq('match_status', 'unmatched')
-    .eq('is_corporate', false);
-
-  if (!unmatched || unmatched.length === 0) return { highConfidence: 0, lowConfidence: 0 };
-
-  let highCount = 0;
-  let lowCount = 0;
-
-  for (const expense of unmatched) {
-    let bestMatch: { billId: number; confidence: 'high' | 'low'; source: string } | null = null;
-
-    // --- Helper: determine vendor match level ---
-    // Returns 'exact', 'strong' (contains match, ≥4 chars), 'weak' (first-word match), or null
-    function vendorMatchLevel(billNormalized: string, expenseNormalized: string): 'exact' | 'strong' | 'weak' | null {
-      if (billNormalized === expenseNormalized) return 'exact';
-      // "contains" match — e.g. "lowe's" inside "lowe's 1830", at least 4 chars
-      const shorter = billNormalized.length <= expenseNormalized.length ? billNormalized : expenseNormalized;
-      if (shorter.length >= 4 && (billNormalized.includes(expenseNormalized) || expenseNormalized.includes(billNormalized))) {
-        return 'strong';
-      }
-      // First-word match — e.g. both start with "arrow" (>2 chars)
-      const billFirst = billNormalized.split(' ')[0];
-      const expFirst = expenseNormalized.split(' ')[0];
-      if (billFirst.length > 2 && billFirst === expFirst) return 'weak';
-      return null;
-    }
-
-    // --- Search ops_bills for exact amount match ---
-    const { data: opsCandidates } = await supabase
-      .from('ops_bills')
-      .select('id, vendor_name, amount, invoice_date')
-      .eq('amount', expense.amount)
-      .eq('is_hidden', false);
-
-    for (const bill of opsCandidates || []) {
-      const billNormalized = normalizeVendorName(bill.vendor_name);
-      const level = vendorMatchLevel(billNormalized, expense.vendor_name_normalized);
-      if (!level) continue;
-
-      // Exact or strong vendor + exact amount = HIGH confidence
-      if (level === 'exact' || level === 'strong') {
-        bestMatch = { billId: bill.id, confidence: 'high', source: 'ops_bills' };
-        break;
-      } else if (!bestMatch) {
-        bestMatch = { billId: bill.id, confidence: 'low', source: 'ops_bills' };
-      }
-    }
-
-    // --- If no HIGH match from ops_bills, also search af_bill_detail ---
-    if (!bestMatch || bestMatch.confidence !== 'high') {
-      const { data: afCandidates } = await supabase
-        .from('af_bill_detail')
-        .select('id, vendor_name, amount, bill_date, bill_number')
-        .eq('amount', expense.amount);
-
-      for (const bill of afCandidates || []) {
-        const billNormalized = normalizeVendorName(bill.vendor_name || '');
-        const level = vendorMatchLevel(billNormalized, expense.vendor_name_normalized);
-        if (!level) continue;
-
-        if (level === 'exact' || level === 'strong') {
-          bestMatch = { billId: bill.id, confidence: 'high', source: 'af_bill_detail' };
-          break;
-        } else if (!bestMatch || bestMatch.confidence !== 'high') {
-          bestMatch = { billId: bill.id, confidence: 'low', source: 'af_bill_detail' };
-        }
-      }
-    }
-
-    if (bestMatch) {
-      const { error: matchErr } = await supabase
-        .from('brex_expenses')
-        .update({
-          match_status: 'matched',
-          match_confidence: bestMatch.confidence,
-          matched_bill_id: bestMatch.billId,
-          matched_bill_source: bestMatch.source,
-          matched_at: new Date().toISOString(),
-          matched_by: 'auto',
-        })
-        .eq('id', expense.id);
-
-      if (matchErr) {
-        console.error(`  ❌ Failed to update expense #${expense.id} → ${bestMatch.source} #${bestMatch.billId}: ${matchErr.message}`);
-      } else {
-        console.log(`  ✅ Matched expense #${expense.id} (${expense.merchant_name}) → ${bestMatch.source} #${bestMatch.billId} [${bestMatch.confidence}]`);
-        if (bestMatch.confidence === 'high') highCount++;
-        else lowCount++;
-      }
-    }
-  }
-
-  return { highConfidence: highCount, lowConfidence: lowCount };
 }
 
 // --- Apply corporate merchant rules (auto-archive expenses from designated merchants) ---
@@ -390,6 +269,108 @@ async function applyCorporateMerchantRules(): Promise<number> {
   return count;
 }
 
+// --- Create bills records for new Brex expenses ---
+async function createBillsForNewExpenses(): Promise<{ created: number; skipped: number }> {
+  // Find brex_expenses that don't have corresponding bills records yet
+  const { data: expenses } = await supabase
+    .from('brex_expenses')
+    .select('id, amount, merchant_name, merchant_raw_descriptor, posted_at, initiated_at, transaction_type, is_corporate, appfolio_synced, memo, receipt_ids, expense_id')
+    .order('posted_at', { ascending: false });
+
+  if (!expenses || expenses.length === 0) {
+    return { created: 0, skipped: 0 };
+  }
+
+  // Get existing bills linked to brex expenses
+  const { data: existingBills } = await supabase
+    .from('bills')
+    .select('brex_expense_id')
+    .eq('source', 'brex')
+    .not('brex_expense_id', 'is', null);
+
+  const existingBrexIds = new Set((existingBills || []).map(b => b.brex_expense_id));
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const expense of expenses) {
+    if (existingBrexIds.has(expense.id)) {
+      skipped++;
+      continue;
+    }
+
+    // Determine status based on expense state
+    let status: string;
+    if (expense.is_corporate) {
+      status = 'corporate';
+    } else if (expense.transaction_type === 'COLLECTION') {
+      status = 'payment';
+    } else if (expense.appfolio_synced) {
+      status = 'entered';
+    } else {
+      status = 'pending';
+    }
+
+    const postedDate = expense.posted_at || expense.initiated_at || new Date().toISOString().split('T')[0];
+
+    const billRecord: Record<string, unknown> = {
+      source: 'brex',
+      brex_expense_id: expense.id,
+      vendor_name: expense.merchant_name || 'Unknown',
+      amount: expense.amount,
+      invoice_date: postedDate,
+      description: expense.memo || null,
+      status,
+      is_hidden: false,
+    };
+
+    const { error: insertErr } = await supabase
+      .from('bills')
+      .insert(billRecord);
+
+    if (insertErr) {
+      // Likely unique constraint violation — already exists
+      if (insertErr.message?.includes('duplicate') || insertErr.message?.includes('unique')) {
+        skipped++;
+      } else {
+        console.error(`Failed to create bill for brex_expense #${expense.id}: ${insertErr.message}`);
+      }
+    } else {
+      created++;
+    }
+  }
+
+  console.log(`Bills creation: ${created} created, ${skipped} already existed`);
+  return { created, skipped };
+}
+
+// --- Update bills table status to match brex_expenses corporate status ---
+async function syncCorporateStatusToBills(autoCorporateCount: number): Promise<number> {
+  if (autoCorporateCount === 0) return 0;
+
+  // Find brex expenses marked corporate that have bills not yet marked
+  const { data: corporateExpenses } = await supabase
+    .from('brex_expenses')
+    .select('id')
+    .eq('is_corporate', true);
+
+  if (!corporateExpenses || corporateExpenses.length === 0) return 0;
+
+  const corporateIds = corporateExpenses.map(e => e.id);
+
+  const { data: updated } = await supabase
+    .from('bills')
+    .update({ status: 'corporate', updated_at: new Date().toISOString() })
+    .in('brex_expense_id', corporateIds)
+    .neq('status', 'corporate')
+    .neq('status', 'entered')
+    .select('id');
+
+  const count = updated?.length || 0;
+  if (count > 0) console.log(`Synced corporate status to ${count} bills`);
+  return count;
+}
+
 // --- Main handler ---
 Deno.serve(async (_req: Request) => {
   try {
@@ -400,7 +381,6 @@ Deno.serve(async (_req: Request) => {
       .eq('id', 1)
       .single();
 
-    // Use cursor's last_posted_date if available, otherwise start from EARLIEST_DATE
     const startDate = cursorRow?.last_posted_date || EARLIEST_DATE;
 
     console.log(`Starting sync from date: ${startDate}`);
@@ -440,7 +420,6 @@ Deno.serve(async (_req: Request) => {
       console.log(`Page ${pageCount}: got ${items.length} transactions`);
 
       if (items.length > 0) {
-        // Client-side filter: only keep transactions on or after start date
         const filtered = items.filter((txn: any) => {
           const posted = txn.posted_at_date;
           return !posted || posted >= startDate;
@@ -448,14 +427,12 @@ Deno.serve(async (_req: Request) => {
         console.log(`Filtered to ${filtered.length} of ${items.length} (startDate=${startDate})`);
         const records = filtered.map(transformTransaction);
 
-        // Track latest posted date
         for (const r of records) {
           if (r.posted_at && (!latestPostedDate || r.posted_at > latestPostedDate)) {
             latestPostedDate = r.posted_at;
           }
         }
 
-        // Upsert in batches of 50
         const batchSize = 50;
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
@@ -469,7 +446,6 @@ Deno.serve(async (_req: Request) => {
 
       cursor = data.next_cursor || null;
 
-      // Save cursor after each page so we can resume if we time out
       await supabase
         .from('brex_sync_cursor')
         .update({
@@ -487,11 +463,14 @@ Deno.serve(async (_req: Request) => {
     // 3. Enrich with expense IDs + memos from Expenses API
     const enrichResults = await enrichWithExpenses();
 
-    // 3.5. Apply corporate merchant rules (auto-archive vendor-rule expenses)
+    // 4. Apply corporate merchant rules (auto-archive vendor-rule expenses)
     const autoCorporateCount = await applyCorporateMerchantRules();
 
-    // 4. Run matching
-    const matchResults = await runMatching();
+    // 5. Create bills records for any new Brex expenses
+    const billsCreation = await createBillsForNewExpenses();
+
+    // 6. Sync corporate status to bills table
+    const corporateSynced = await syncCorporateStatusToBills(autoCorporateCount);
 
     return new Response(JSON.stringify({
       success: true,
@@ -502,7 +481,9 @@ Deno.serve(async (_req: Request) => {
       hasMore: !!cursor,
       enrichment: enrichResults,
       autoCorporate: autoCorporateCount,
-      matching: matchResults,
+      billsCreated: billsCreation.created,
+      billsSkipped: billsCreation.skipped,
+      corporateSynced,
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

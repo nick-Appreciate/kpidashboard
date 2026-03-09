@@ -3,11 +3,11 @@
  *
  * Workflow:
  * 1. Query front_messages table for messages with attachments not yet parsed
- * 2. Check for duplicates in ops_bills by front_message_id
+ * 2. Check for duplicates in bills by front_message_id
  * 3. Download PDF from Front API
  * 4. Send PDF to Claude for intelligent invoice parsing
  * 5. Store PDF in Supabase Storage
- * 6. Insert parsed data into ops_bills table (with conflict handling)
+ * 6. Insert parsed data into bills table (unified) + ops_bills (backward compat)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
@@ -69,28 +69,31 @@ function bufferToBase64(buffer: Uint8Array): string {
   return btoa(binary);
 }
 
-// Check if a bill already exists for this front_message_id
+// Check if a bill already exists for this front_message_id (check both tables)
 async function billAlreadyExists(frontMessageId: string): Promise<boolean> {
-  const { data, error } = await supabase
+  // Check unified bills table first
+  const { data: billData } = await supabase
+    .from('bills')
+    .select('id')
+    .eq('front_message_id', frontMessageId)
+    .limit(1);
+
+  if (billData && billData.length > 0) return true;
+
+  // Also check legacy ops_bills for backward compat
+  const { data: opsData } = await supabase
     .from('ops_bills')
     .select('id')
     .eq('front_message_id', frontMessageId)
     .limit(1);
 
-  if (error) {
-    console.error('Error checking for duplicate:', error);
-    return false; // Proceed on error, let the unique constraint catch it
-  }
-
-  return data !== null && data.length > 0;
+  return opsData !== null && opsData.length > 0;
 }
 
 // Strip common prefixes/suffixes for better vendor matching
 function normalizeVendorName(name: string): string {
   let n = name.trim();
-  // Strip leading "The "
   n = n.replace(/^The\s+/i, '');
-  // Strip trailing legal suffixes
   n = n.replace(/,?\s*(Inc\.?|LLC\.?|L\.?L\.?C\.?|Corp\.?|Co\.?|Ltd\.?)$/i, '');
   return n.trim();
 }
@@ -99,7 +102,6 @@ function normalizeVendorName(name: string): string {
 async function matchAppfolioVendor(vendorName: string): Promise<string> {
   if (!vendorName) return vendorName;
 
-  // 1. Exact match (case-insensitive)
   const { data: exact } = await supabase
     .from('af_vendor_directory')
     .select('company_name')
@@ -108,7 +110,6 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
 
   if (exact && exact.length > 0) return exact[0].company_name;
 
-  // 2. Try normalized name (strip "The ", ", Inc.", ", LLC" etc.)
   const normalized = normalizeVendorName(vendorName);
   if (normalized !== vendorName) {
     const { data: normMatch } = await supabase
@@ -120,7 +121,6 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
     if (normMatch && normMatch.length > 0) return normMatch[0].company_name;
   }
 
-  // 3. Fuzzy: first word match (skip common words like "The")
   const firstWord = normalized.split(' ')[0];
   if (firstWord && firstWord.length > 2) {
     const { data: fuzzy } = await supabase
@@ -132,11 +132,8 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
     if (fuzzy && fuzzy.length > 0) return fuzzy[0].company_name;
   }
 
-  // 4. Broader fuzzy: match all significant words individually
-  // Catches misspellings like "Janssen Glass" -> "Jansen Glass"
   const words = normalized.split(/\s+/).filter(w => w.length > 2);
   if (words.length >= 2) {
-    // Try matching the last word (often the distinctive part: "Glass", "Plumbing", etc.)
     const lastWord = words[words.length - 1];
     const { data: wordMatch } = await supabase
       .from('af_vendor_directory')
@@ -145,7 +142,6 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
       .limit(20);
 
     if (wordMatch && wordMatch.length > 0) {
-      // Score each candidate by how many words match
       let bestMatch: string | null = null;
       let bestScore = 0;
       for (const candidate of wordMatch) {
@@ -153,7 +149,6 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
         let score = 0;
         for (const w of words) {
           if (cLower.includes(w.toLowerCase())) score++;
-          // Also check first 3 chars for typo tolerance (e.g., "jan" matches "jansen" and "janssen")
           else if (w.length >= 4 && cLower.includes(w.substring(0, 3).toLowerCase())) score += 0.5;
         }
         if (score > bestScore) {
@@ -161,12 +156,10 @@ async function matchAppfolioVendor(vendorName: string): Promise<string> {
           bestMatch = candidate.company_name;
         }
       }
-      // Require at least half the words to match
       if (bestMatch && bestScore >= words.length * 0.5) return bestMatch;
     }
   }
 
-  // No match — return original name
   return vendorName;
 }
 
@@ -181,7 +174,6 @@ async function suggestBillDefaults(vendorName: string, description: string | nul
   if (!vendorName) return defaults;
 
   try {
-    // Query af_bill_detail for the most recent bills from this vendor
     const { data: recentBills } = await supabase
       .from('af_bill_detail')
       .select('property_name, gl_account_name, gl_account_id')
@@ -190,7 +182,6 @@ async function suggestBillDefaults(vendorName: string, description: string | nul
       .limit(10);
 
     if (!recentBills || recentBills.length === 0) {
-      // Try fuzzy match with first word
       const firstWord = normalizeVendorName(vendorName).split(' ')[0];
       if (firstWord && firstWord.length > 2) {
         const { data: fuzzyBills } = await supabase
@@ -214,25 +205,20 @@ async function suggestBillDefaults(vendorName: string, description: string | nul
   }
 }
 
-// From a list of historical bills, pick the most common property and GL account
-// If description or email subject mentions a specific property, prefer that match
 function extractMostCommon(
   bills: Array<{ property_name: string | null; gl_account_name: string | null; gl_account_id: string | null }>,
   description: string | null,
   emailSubject: string | null = null
 ): { property: string | null; gl_account: string | null; unit: string | null } {
-  // Count occurrences of each GL account (usually consistent per vendor)
   const glCounts: Record<string, { count: number; id: string }> = {};
   for (const b of bills) {
     if (b.gl_account_id) {
-      // Extract just the number part (e.g., "5050.9" from "5050.9 - Pest Control")
       const glNum = b.gl_account_id.split(' ')[0];
       glCounts[glNum] = glCounts[glNum] || { count: 0, id: glNum };
       glCounts[glNum].count++;
     }
   }
 
-  // Pick most common GL account
   let bestGl: string | null = null;
   let maxGlCount = 0;
   for (const [id, info] of Object.entries(glCounts)) {
@@ -242,15 +228,12 @@ function extractMostCommon(
     }
   }
 
-  // For property: check description AND email subject for property name hints
-  // Combine all text sources for matching
   const textToSearch = [description, emailSubject].filter(Boolean).join(' ').toLowerCase();
 
   let bestProperty: string | null = null;
   if (textToSearch) {
     for (const b of bills) {
       if (b.property_name) {
-        // Check if the property name appears in description or email subject
         const propWords = b.property_name.toLowerCase().split(/\s+/);
         const significantWords = propWords.filter(w => w.length > 2);
         const matchCount = significantWords.filter(w => textToSearch.includes(w)).length;
@@ -262,7 +245,6 @@ function extractMostCommon(
     }
   }
 
-  // Fallback: most common property for this vendor
   if (!bestProperty) {
     const propCounts: Record<string, number> = {};
     for (const b of bills) {
@@ -359,7 +341,6 @@ Return ONLY valid JSON (no markdown, no code blocks) with these exact keys:
     const content = message.content[0];
     if (content.type !== 'text') throw new Error('Unexpected response type');
 
-    // Extract JSON from response (handle markdown code blocks if present)
     let jsonStr = content.text.trim();
     if (jsonStr.startsWith('```json')) jsonStr = jsonStr.slice(7);
     if (jsonStr.startsWith('```')) jsonStr = jsonStr.slice(3);
@@ -402,7 +383,6 @@ async function uploadPdfToStorage(
     throw error;
   }
 
-  // Get public URL
   const { data: urlData } = supabase.storage
     .from('billing-invoices')
     .getPublicUrl(filename);
@@ -415,7 +395,6 @@ Deno.serve(async (req: Request) => {
   try {
     console.log('Starting invoice PDF parsing...');
 
-    // Query front_messages with attachments that haven't been parsed
     const { data: messages, error } = await supabase
       .from('front_messages')
       .select('*')
@@ -438,12 +417,12 @@ Deno.serve(async (req: Request) => {
     console.log(`Found ${messages.length} messages to process...`);
 
     const results: Array<Record<string, unknown>> = [];
-    const opsBillsInserts: Array<Record<string, unknown>> = [];
+    const billInserts: Array<Record<string, unknown>> = [];
+    const opsBillInserts: Array<Record<string, unknown>> = [];
 
     for (const msg of messages as FrontMessage[]) {
       try {
         if (!msg.attachment_ids || msg.attachment_ids.length === 0) {
-          // Mark as extracted since there are no actual attachment IDs to process
           await supabase
             .from('front_messages')
             .update({ ap_extracted: true })
@@ -451,11 +430,9 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        // Duplicate check: skip if bill already exists for this message
         const exists = await billAlreadyExists(msg.front_id);
         if (exists) {
           console.log(`Skipping ${msg.front_id} — bill already exists`);
-          // Mark as extracted so we don't check it again
           await supabase
             .from('front_messages')
             .update({ ap_extracted: true })
@@ -468,13 +445,11 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        const attachmentId = msg.attachment_ids[0]; // Use first attachment
+        const attachmentId = msg.attachment_ids[0];
         console.log(`Processing message ${msg.front_id}, attachment ${attachmentId}...`);
 
-        // Download PDF
         const pdfBuffer = await downloadPdfFromFront(attachmentId);
 
-        // Parse with Claude
         const invoice = await parseInvoiceWithClaude(
           bufferToBase64(pdfBuffer),
           msg.subject || '',
@@ -482,16 +457,13 @@ Deno.serve(async (req: Request) => {
           msg.sender_name || 'Unknown'
         );
 
-        // Try to match vendor name against AppFolio vendor directory
         if (invoice.vendor_name) {
           invoice.vendor_name = await matchAppfolioVendor(invoice.vendor_name);
         }
 
-        // Validate required fields — ops_bills requires vendor_name, amount, invoice_date as NOT NULL
         if (!invoice.vendor_name || invoice.invoice_amount === null || !invoice.invoice_date) {
           console.warn(`Incomplete parse for ${msg.front_id}: vendor=${invoice.vendor_name}, amount=${invoice.invoice_amount}, date=${invoice.invoice_date}`);
 
-          // Still mark as extracted but record the partial data on front_messages
           await supabase
             .from('front_messages')
             .update({
@@ -501,7 +473,7 @@ Deno.serve(async (req: Request) => {
               invoice_amount: invoice.invoice_amount,
               invoice_date: invoice.invoice_date,
               due_date: invoice.due_date,
-              ap_notes: 'Incomplete parse — missing required fields for ops_bills',
+              ap_notes: 'Incomplete parse — missing required fields',
             })
             .eq('front_id', msg.front_id);
 
@@ -515,10 +487,8 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        // Upload to Storage
         const pdfUrl = await uploadPdfToStorage(pdfBuffer, msg.conversation_id, attachmentId);
 
-        // Suggest Property, GL Account from historical Appfolio data
         const suggestions = await suggestBillDefaults(
           invoice.vendor_name!,
           invoice.description,
@@ -526,15 +496,38 @@ Deno.serve(async (req: Request) => {
         );
         console.log(`  Bill defaults for ${invoice.vendor_name}: property=${suggestions.property}, gl=${suggestions.gl_account}`);
 
-        // Flag credit memos / refunds for manual entry
         const isCredit = invoice.document_type === 'credit_memo' || (invoice.invoice_amount !== null && invoice.invoice_amount < 0);
         const billStatus = isCredit ? 'manual_entry' : 'pending';
         const billDescription = isCredit
           ? `⚠️ CREDIT/REFUND — Manual entry required. ${invoice.description || ''}`
           : invoice.description;
 
-        // Prepare ops_bills entry
-        opsBillsInserts.push({
+        const attachmentsJson = [{ filename: `${attachmentId}.pdf`, url: pdfUrl }];
+
+        // Insert into unified bills table (primary)
+        billInserts.push({
+          source: 'front',
+          front_message_id: msg.front_id,
+          vendor_name: invoice.vendor_name,
+          amount: invoice.invoice_amount,
+          invoice_date: invoice.invoice_date,
+          invoice_number: invoice.invoice_number,
+          front_conversation_id: msg.conversation_id,
+          front_email_subject: msg.subject,
+          front_email_from: msg.sender_email,
+          attachments_json: attachmentsJson,
+          status: billStatus === 'manual_entry' ? 'pending' : billStatus,
+          due_date: invoice.due_date,
+          description: billDescription,
+          document_type: invoice.document_type || 'invoice',
+          payment_status: invoice.payment_status || 'unpaid',
+          af_property_input: suggestions.property,
+          af_gl_account_input: suggestions.gl_account,
+          af_unit_input: suggestions.unit,
+        });
+
+        // Also insert into legacy ops_bills for backward compat
+        opsBillInserts.push({
           vendor_name: invoice.vendor_name,
           amount: invoice.invoice_amount,
           invoice_date: invoice.invoice_date,
@@ -543,7 +536,7 @@ Deno.serve(async (req: Request) => {
           front_message_id: msg.front_id,
           front_email_subject: msg.subject,
           front_email_from: msg.sender_email,
-          attachments_json: [{ filename: `${attachmentId}.pdf`, url: pdfUrl }],
+          attachments_json: attachmentsJson,
           status: billStatus,
           due_date: invoice.due_date,
           description: billDescription,
@@ -554,7 +547,6 @@ Deno.serve(async (req: Request) => {
           af_unit_input: suggestions.unit,
         });
 
-        // Mark message as extracted with parsed data
         await supabase
           .from('front_messages')
           .update({
@@ -588,25 +580,44 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Insert into ops_bills one at a time for proper error handling
-    // Dedup is handled by billAlreadyExists() check above; partial unique indexes are a safety net
-    let actualInserted = 0;
-    const insertErrors: Array<{ vendor: string; error: string }> = [];
+    // Insert into unified bills table
+    let billsInserted = 0;
+    const billInsertErrors: Array<{ vendor: string; error: string }> = [];
 
-    for (const bill of opsBillsInserts) {
+    for (const bill of billInserts) {
+      const { error: insertError } = await supabase
+        .from('bills')
+        .insert(bill);
+
+      if (insertError) {
+        console.error(`bills insert error for ${bill.vendor_name}:`, insertError.message);
+        billInsertErrors.push({
+          vendor: bill.vendor_name as string,
+          error: insertError.message,
+        });
+      } else {
+        billsInserted++;
+        console.log(`Inserted into bills: ${bill.vendor_name} $${bill.amount}`);
+      }
+    }
+
+    // Also insert into legacy ops_bills for backward compat
+    let opsInserted = 0;
+    const opsInsertErrors: Array<{ vendor: string; error: string }> = [];
+
+    for (const bill of opsBillInserts) {
       const { error: insertError } = await supabase
         .from('ops_bills')
         .insert(bill);
 
       if (insertError) {
         console.error(`ops_bills insert error for ${bill.vendor_name}:`, insertError.message);
-        insertErrors.push({
+        opsInsertErrors.push({
           vendor: bill.vendor_name as string,
           error: insertError.message,
         });
       } else {
-        actualInserted++;
-        console.log(`Inserted bill: ${bill.vendor_name} $${bill.amount}`);
+        opsInserted++;
       }
     }
 
@@ -614,8 +625,10 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({
         success: true,
         processed: results.length,
-        inserted: actualInserted,
-        insertErrors: insertErrors.length > 0 ? insertErrors : undefined,
+        bills_inserted: billsInserted,
+        ops_bills_inserted: opsInserted,
+        insertErrors: billInsertErrors.length > 0 ? billInsertErrors : undefined,
+        opsInsertErrors: opsInsertErrors.length > 0 ? opsInsertErrors : undefined,
         skipped: results.filter(r => r.status === 'skipped').length,
         incomplete: results.filter(r => r.status === 'incomplete').length,
         errors: results.filter(r => r.status === 'error').length,
