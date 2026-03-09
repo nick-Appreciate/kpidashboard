@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { UnifiedBill, UnifiedBillDraft, UnifiedQueueItemV2, PrefillData } from "../types/bookkeeping";
 
 const POLL_INTERVAL = 12_000;
@@ -52,12 +52,15 @@ export function useBills(isAdmin: boolean, userName?: string) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const verifiedBillsRef = useRef<Set<number>>(new Set());
 
-  // Derive upload results from queue
-  const uploadResult: Record<number, { success: boolean; message: string }> = {};
-  for (const q of uploadQueue) {
-    if (q.status === 'success') uploadResult[q.billId] = { success: true, message: q.message || 'Uploaded to AppFolio!' };
-    if (q.status === 'failed') uploadResult[q.billId] = { success: false, message: q.message || 'Upload failed' };
-  }
+  // Derive upload results from queue (memoized to prevent re-render cascade)
+  const uploadResult = useMemo(() => {
+    const result: Record<number, { success: boolean; message: string }> = {};
+    for (const q of uploadQueue) {
+      if (q.status === 'success') result[q.billId] = { success: true, message: q.message || 'Uploaded to AppFolio!' };
+      if (q.status === 'failed') result[q.billId] = { success: false, message: q.message || 'Upload failed' };
+    }
+    return result;
+  }, [uploadQueue]);
 
   // ─── Data fetching ────────────────────────────────────────────────────
 
@@ -115,9 +118,11 @@ export function useBills(isAdmin: boolean, userName?: string) {
     if (vendorNames.length > 0) fetchPrefill(vendorNames);
   }, [bills, fetchPrefill]);
 
-  // Auto-create drafts for pending bills when prefill arrives
+  // Auto-create drafts for pending bills when prefill arrives.
+  // Returns `prev` (same reference) when nothing changed to avoid re-render cascade.
   useEffect(() => {
     setDrafts(prev => {
+      let changed = false;
       const next = { ...prev };
       for (const bill of bills) {
         if (bill.status !== 'pending') continue;
@@ -125,20 +130,24 @@ export function useBills(isAdmin: boolean, userName?: string) {
         const prefill = prefillMap[vendorKey] || null;
         if (!next[bill.id]) {
           next[bill.id] = makeDraft(bill, prefill);
+          changed = true;
         } else {
           const d = next[bill.id];
           if (!d.vendor_name && (prefill?.vendor_name || bill.vendor_name)) {
-            d.vendor_name = prefill?.vendor_name || bill.vendor_name || '';
+            next[bill.id] = { ...d, vendor_name: prefill?.vendor_name || bill.vendor_name || '' };
+            changed = true;
           }
           if (!d.af_property_input && (bill.af_property_input || prefill?.property)) {
-            d.af_property_input = bill.af_property_input || prefill?.property || '';
+            next[bill.id] = { ...(next[bill.id] || d), af_property_input: bill.af_property_input || prefill?.property || '' };
+            changed = true;
           }
           if (!d.af_gl_account_input && (bill.af_gl_account_input || prefill?.gl_account)) {
-            d.af_gl_account_input = bill.af_gl_account_input || prefill?.gl_account || '';
+            next[bill.id] = { ...(next[bill.id] || d), af_gl_account_input: bill.af_gl_account_input || prefill?.gl_account || '' };
+            changed = true;
           }
         }
       }
-      return next;
+      return changed ? next : prev;
     });
   }, [bills, prefillMap]);
 
@@ -259,16 +268,16 @@ export function useBills(isAdmin: boolean, userName?: string) {
     }
   }, [uploadQueue, processNextInQueue]);
 
-  // ─── Draft helpers ──────────────────────────────────────────────────
+  // ─── Draft helpers (stable callbacks to prevent re-render cascade) ──
 
-  const updateDraft = (billId: number, field: keyof UnifiedBillDraft, value: string) => {
+  const updateDraft = useCallback((billId: number, field: keyof UnifiedBillDraft, value: string) => {
     setDrafts(prev => ({
       ...prev,
       [billId]: { ...prev[billId], [field]: value },
     }));
-  };
+  }, []);
 
-  const getMissingFields = (draft: UnifiedBillDraft | undefined): string[] => {
+  const getMissingFields = useCallback((draft: UnifiedBillDraft | undefined): string[] => {
     if (!draft) return ['all fields'];
     const missing: string[] = [];
     if (!draft.vendor_name.trim()) missing.push('vendor');
@@ -276,50 +285,70 @@ export function useBills(isAdmin: boolean, userName?: string) {
     if (!draft.invoice_date) missing.push('invoice_date');
     if (!draft.af_gl_account_input) missing.push('gl_account');
     return missing;
-  };
+  }, []);
 
-  const isFieldMissing = (billId: number, field: string): boolean => {
-    return getMissingFields(drafts[billId]).includes(field);
-  };
+  const isFieldMissing = useCallback((billId: number, field: string): boolean => {
+    const draft = drafts[billId];
+    if (!draft) return true;
+    const missing: string[] = [];
+    if (!draft.vendor_name.trim()) missing.push('vendor');
+    if (!draft.amount || isNaN(Number(draft.amount))) missing.push('amount');
+    if (!draft.invoice_date) missing.push('invoice_date');
+    if (!draft.af_gl_account_input) missing.push('gl_account');
+    return missing.includes(field);
+  }, [drafts]);
 
   // ─── Actions ──────────────────────────────────────────────────────
 
-  const enqueueUpload = (bill: UnifiedBill) => {
-    const draft = drafts[bill.id];
-    if (!draft) return;
-    const missing = getMissingFields(draft);
-    if (missing.length > 0) return;
-    if (uploadQueue.some(q => q.billId === bill.id && (q.status === 'queued' || q.status === 'uploading'))) return;
+  const enqueueUpload = useCallback((bill: UnifiedBill) => {
+    setDrafts(currentDrafts => {
+      const draft = currentDrafts[bill.id];
+      if (!draft) return currentDrafts;
+      const missing: string[] = [];
+      if (!draft.vendor_name.trim()) missing.push('vendor');
+      if (!draft.amount || isNaN(Number(draft.amount))) missing.push('amount');
+      if (!draft.invoice_date) missing.push('invoice_date');
+      if (!draft.af_gl_account_input) missing.push('gl_account');
+      if (missing.length > 0) return currentDrafts;
 
-    setUploadQueue(prev => [
-      ...prev.filter(q => q.billId !== bill.id),
-      {
-        billId: bill.id,
-        source: bill.source,
-        vendorName: draft.vendor_name.trim(),
-        amount: Number(draft.amount),
-        status: 'queued',
-        queuedAt: new Date(),
-      },
-    ]);
-  };
+      setUploadQueue(prev => {
+        if (prev.some(q => q.billId === bill.id && (q.status === 'queued' || q.status === 'uploading'))) return prev;
+        return [
+          ...prev.filter(q => q.billId !== bill.id),
+          {
+            billId: bill.id,
+            source: bill.source,
+            vendorName: draft.vendor_name.trim(),
+            amount: Number(draft.amount),
+            status: 'queued' as const,
+            queuedAt: new Date(),
+          },
+        ];
+      });
+      return currentDrafts;
+    });
+  }, []);
 
-  const retryUpload = (billId: number) => {
-    const bill = bills.find(b => b.id === billId);
-    if (!bill) return;
+  const retryUpload = useCallback((billId: number) => {
+    setBills(currentBills => {
+      const bill = currentBills.find(b => b.id === billId);
+      if (bill) {
+        setUploadQueue(prev => prev.filter(q => q.billId !== billId));
+        setTimeout(() => enqueueUpload(bill), 0);
+      }
+      return currentBills;
+    });
+  }, [enqueueUpload]);
+
+  const dismissQueueItem = useCallback((billId: number) => {
     setUploadQueue(prev => prev.filter(q => q.billId !== billId));
-    setTimeout(() => enqueueUpload(bill), 0);
-  };
+  }, []);
 
-  const dismissQueueItem = (billId: number) => {
-    setUploadQueue(prev => prev.filter(q => q.billId !== billId));
-  };
-
-  const clearFinished = () => {
+  const clearFinished = useCallback(() => {
     setUploadQueue(prev => prev.filter(q => q.status === 'queued' || q.status === 'uploading'));
-  };
+  }, []);
 
-  const hideBill = async (billId: number, note?: string) => {
+  const hideBill = useCallback(async (billId: number, note?: string) => {
     setActionId(billId);
     try {
       const res = await fetch(`/api/admin/bills/${billId}`, {
@@ -334,9 +363,9 @@ export function useBills(isAdmin: boolean, userName?: string) {
       alert("Failed to hide bill");
     }
     setActionId(null);
-  };
+  }, [fetchBills]);
 
-  const unhideBill = async (billId: number) => {
+  const unhideBill = useCallback(async (billId: number) => {
     setActionId(billId);
     try {
       const res = await fetch(`/api/admin/bills/${billId}`, {
@@ -351,9 +380,9 @@ export function useBills(isAdmin: boolean, userName?: string) {
       alert("Failed to unhide bill");
     }
     setActionId(null);
-  };
+  }, [fetchBills]);
 
-  const markCorporate = async (billId: number) => {
+  const markCorporate = useCallback(async (billId: number) => {
     setActionId(billId);
     try {
       const res = await fetch(`/api/admin/bills/${billId}`, {
@@ -368,9 +397,9 @@ export function useBills(isAdmin: boolean, userName?: string) {
       alert("Failed to mark as corporate");
     }
     setActionId(null);
-  };
+  }, [fetchBills]);
 
-  const unmarkCorporate = async (billId: number) => {
+  const unmarkCorporate = useCallback(async (billId: number) => {
     setActionId(billId);
     try {
       const res = await fetch(`/api/admin/bills/${billId}`, {
@@ -385,9 +414,9 @@ export function useBills(isAdmin: boolean, userName?: string) {
       alert("Failed to unmark corporate");
     }
     setActionId(null);
-  };
+  }, [fetchBills]);
 
-  const resolveDuplicate = async (billId: number, action: 'confirm_duplicate' | 'mark_unique', duplicateOfId?: number) => {
+  const resolveDuplicate = useCallback(async (billId: number, action: 'confirm_duplicate' | 'mark_unique', duplicateOfId?: number) => {
     setActionId(billId);
     try {
       const res = await fetch(`/api/admin/bills/${billId}/duplicate`, {
@@ -402,7 +431,7 @@ export function useBills(isAdmin: boolean, userName?: string) {
       alert("Failed to resolve duplicate");
     }
     setActionId(null);
-  };
+  }, [fetchBills]);
 
   return {
     bills,

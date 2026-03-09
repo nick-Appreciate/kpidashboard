@@ -37,15 +37,15 @@ export default function BookkeepingDashboard() {
   // Hide modal state (for Front invoices)
   const [hideModal, setHideModal] = useState<{ bill: UnifiedBill; note: string } | null>(null);
 
-  // Toggle expand
-  const toggleExpand = (id: number) => {
+  // Toggle expand (stable callback for React.memo)
+  const toggleExpand = useCallback((id: number) => {
     b.setExpandedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, [b.setExpandedIds]);
 
   // Click bill from upload tracker → expand + scroll into view
   const handleClickBill = useCallback((billId: number) => {
@@ -59,7 +59,7 @@ export default function BookkeepingDashboard() {
       const el = document.getElementById(`bill-${billId}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
-  }, [b]);
+  }, [b.setExpandedIds]);
 
   // Counts
   const counts = useMemo(() => {
@@ -145,9 +145,9 @@ export default function BookkeepingDashboard() {
     );
   }
 
-  const handleHide = (bill: UnifiedBill) => {
+  const handleHide = useCallback((bill: UnifiedBill) => {
     setHideModal({ bill, note: '' });
-  };
+  }, []);
 
   return (
     <div className="min-h-screen p-4">
@@ -299,10 +299,10 @@ export default function BookkeepingDashboard() {
                     key={bill.id}
                     bill={bill}
                     isExpanded={b.expandedIds.has(bill.id)}
-                    onToggleExpand={() => toggleExpand(bill.id)}
+                    onToggleExpand={toggleExpand}
                     draft={b.drafts[bill.id]}
-                    uploadQueue={b.uploadQueue}
-                    uploadResult={b.uploadResult}
+                    queueItem={b.uploadQueue.find(q => q.billId === bill.id)}
+                    uploadResult={b.uploadResult[bill.id]}
                     vendors={vendors}
                     glAccounts={glAccounts}
                     properties={properties}

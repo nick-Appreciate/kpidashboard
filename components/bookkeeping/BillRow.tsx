@@ -34,10 +34,10 @@ const appfolioBillUrl = (billId: number) =>
 interface BillRowProps {
   bill: UnifiedBill;
   isExpanded: boolean;
-  onToggleExpand: () => void;
+  onToggleExpand: (id: number) => void;
   draft: UnifiedBillDraft | undefined;
-  uploadQueue: UnifiedQueueItemV2[];
-  uploadResult: Record<number, { success: boolean; message: string }>;
+  queueItem: UnifiedQueueItemV2 | undefined;
+  uploadResult: { success: boolean; message: string } | undefined;
   vendors: string[];
   glAccounts: GLAccount[];
   properties: string[];
@@ -55,9 +55,9 @@ interface BillRowProps {
   unitsByProperty: Record<string, string[]>;
 }
 
-export default function BillRow({
+export default React.memo(function BillRow({
   bill, isExpanded, onToggleExpand, draft,
-  uploadQueue, uploadResult: uploadResultMap,
+  queueItem, uploadResult: result,
   vendors, glAccounts, properties, filter, actionId,
   onUpdateDraft, onEnqueueUpload, onRetryUpload,
   onHide, onUnhide, onMarkCorporate, onUnmarkCorporate,
@@ -81,9 +81,6 @@ export default function BillRow({
   const syncElapsedStr = syncElapsedSec < 60
     ? `${syncElapsedSec}s ago`
     : `${Math.floor(syncElapsedSec / 60)}m ${syncElapsedSec % 60}s ago`;
-
-  const queueItem = uploadQueue.find(q => q.billId === bill.id);
-  const result = uploadResultMap[bill.id];
   const missing = draft ? getMissingFields(draft) : [];
   const isManualEntry = bill.document_type === 'credit_memo' || Number(bill.amount) < 0;
 
@@ -126,7 +123,7 @@ export default function BillRow({
       {/* ── SLIM PREVIEW ROW ── */}
       <div
         className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors select-none ${isExpanded ? 'border-b border-[var(--glass-border)]' : ''}`}
-        onClick={onToggleExpand}
+        onClick={() => onToggleExpand(bill.id)}
       >
         <div className="flex-shrink-0 text-slate-500">
           {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -380,4 +377,4 @@ export default function BillRow({
       )}
     </div>
   );
-}
+});

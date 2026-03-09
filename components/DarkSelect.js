@@ -78,13 +78,26 @@ export default function DarkSelect({
     });
   }, []);
 
-  // Position on open, close on scroll, reposition on resize
+  // Position on open, reposition on resize/scroll.
+  // Only close if the trigger element moves significantly (real user scroll),
+  // not on minor layout shifts from React re-renders.
   useEffect(() => {
     if (!isOpen) return;
     updatePosition();
+    const initialRect = triggerRef.current?.getBoundingClientRect();
     const closeOnScroll = (e) => {
       // Don't close if scrolling inside the dropdown menu itself
       if (menuRef.current && menuRef.current.contains(e.target)) return;
+      // Only close if the trigger has actually moved (real scroll, not React re-render)
+      if (triggerRef.current && initialRect) {
+        const currentRect = triggerRef.current.getBoundingClientRect();
+        const drift = Math.abs(currentRect.top - initialRect.top) + Math.abs(currentRect.left - initialRect.left);
+        if (drift < 2) {
+          // Trigger didn't move — just reposition the menu in case of minor layout shift
+          updatePosition();
+          return;
+        }
+      }
       setIsOpen(false);
     };
     window.addEventListener('scroll', closeOnScroll, true);
