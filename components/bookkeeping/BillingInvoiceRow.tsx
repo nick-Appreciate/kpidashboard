@@ -70,7 +70,7 @@ export default function BillingInvoiceRow({
   const statusBorder = isMatched ? 'border-emerald-500/20' : isHiddenView ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
 
   const vendorOptions = vendors.map((v) => ({ value: v, label: v }));
-  const glOptions = glAccounts.map((gl) => ({ value: gl.id, label: gl.id }));
+  const glOptions = glAccounts.map((gl) => ({ value: gl.id, label: `${gl.id} ${gl.name}` }));
   const propOptions = properties.map((p) => ({ value: p, label: p }));
 
   const renderEditablePanel = () => {

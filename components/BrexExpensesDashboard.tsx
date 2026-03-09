@@ -832,7 +832,7 @@ export default function BrexExpensesDashboard() {
     const canSubmit = missing.length === 0 && !isLocked;
 
     const vendorOptions = vendors.map((v) => ({ value: v, label: v }));
-    const glOptions = glAccounts.map((gl) => ({ value: gl.id, label: gl.id }));
+    const glOptions = glAccounts.map((gl) => ({ value: gl.id, label: `${gl.id} ${gl.name}` }));
     const propOptions = properties.map((p) => ({ value: p, label: p }));
 
     return (
