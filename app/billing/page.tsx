@@ -1,4 +1,4 @@
-import BillingDashboard from '../../components/BillingDashboard';
+import { redirect } from 'next/navigation';
 
 export const metadata = {
   title: 'Billing / AP - Appreciate Dashboard',
@@ -6,5 +6,5 @@ export const metadata = {
 };
 
 export default function BillingPage() {
-  return <BillingDashboard />;
+  redirect('/bookkeeping');
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Search, Loader2, Check, Building2 } from "lucide-react";
 import type { CorporateMerchantRule } from "../../types/bookkeeping";
-import { formatMerchantName } from "./BrexExpenseRow";
+import { formatMerchantName } from "./BillRow";
 
 interface ParseSettingsTabProps {
   userEmail: string | undefined;

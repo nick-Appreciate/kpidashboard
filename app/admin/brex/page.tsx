@@ -1,4 +1,4 @@
-import BrexExpensesDashboard from '../../../components/BrexExpensesDashboard';
+import { redirect } from 'next/navigation';
 
 export const metadata = {
   title: 'Brex Expenses - Appreciate Dashboard',
@@ -6,5 +6,5 @@ export const metadata = {
 };
 
 export default function BrexPage() {
-  return <BrexExpensesDashboard />;
+  redirect('/bookkeeping');
 }
