@@ -35,7 +35,7 @@ function makeDraft(bill: UnifiedBill, prefill?: PrefillData | null): UnifiedBill
   };
 }
 
-export function useBills(isAdmin: boolean) {
+export function useBills(isAdmin: boolean, userName?: string) {
   const [bills, setBills] = useState<UnifiedBill[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<number | null>(null);
@@ -170,7 +170,7 @@ export function useBills(isAdmin: boolean) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          approved_by: 'dashboard_user',
+          approved_by: userName || 'dashboard_user',
           vendor_name: draft.vendor_name.trim(),
           amount: Number(draft.amount),
           invoice_date: draft.invoice_date,

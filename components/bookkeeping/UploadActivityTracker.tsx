@@ -1,19 +1,23 @@
 import React from "react";
 import { CheckCircle2, AlertCircle, X, Upload, Loader2, RefreshCw, ExternalLink } from "lucide-react";
-import type { UnifiedQueueItemV2 } from "../../types/bookkeeping";
+import type { UnifiedBill, UnifiedQueueItemV2 } from "../../types/bookkeeping";
 
 interface UploadActivityTrackerProps {
   queue: UnifiedQueueItemV2[];
+  bills: UnifiedBill[];
   onDismiss: (billId: number) => void;
   onRetry: (billId: number) => void;
   onClearFinished: () => void;
+  onClickBill: (billId: number) => void;
 }
 
 export default function UploadActivityTracker({
   queue,
+  bills,
   onDismiss,
   onRetry,
   onClearFinished,
+  onClickBill,
 }: UploadActivityTrackerProps) {
   if (queue.length === 0) return null;
 
@@ -67,23 +71,26 @@ export default function UploadActivityTracker({
           </div>
         ))}
 
-        {queue.filter(q => q.status === 'success').map(q => (
-          <div key={q.billId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              {sourceBadge(q.source)}
-              <span className="text-xs text-slate-200">{q.vendorName}</span>
-              <span className="text-xs text-slate-500">${q.amount.toFixed(2)}</span>
-              <span className="text-[10px] text-emerald-400">Done</span>
-              {q.afBillId && (
-                <a href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${q.afBillId}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-0.5 text-[10px] text-accent hover:underline font-medium" title="View in AppFolio">
-                  AF #{q.afBillId}<ExternalLink className="w-2.5 h-2.5" />
-                </a>
-              )}
+        {queue.filter(q => q.status === 'success').map(q => {
+          const afId = q.afBillId || bills.find(b => b.id === q.billId)?.appfolio_bill_id;
+          return (
+            <div key={q.billId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 cursor-pointer hover:bg-emerald-500/15 transition-colors" onClick={() => onClickBill(q.billId)}>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                {sourceBadge(q.source)}
+                <span className="text-xs text-slate-200">{q.vendorName}</span>
+                <span className="text-xs text-slate-500">${q.amount.toFixed(2)}</span>
+                <span className="text-[10px] text-emerald-400">Done</span>
+                {afId && (
+                  <a href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${afId}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-0.5 text-[10px] text-accent hover:underline font-medium" title="View in AppFolio" onClick={(e) => e.stopPropagation()}>
+                    AF #{afId}<ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); onDismiss(q.billId); }} className="text-slate-600 hover:text-slate-400 transition-colors" title="Dismiss"><X className="w-3.5 h-3.5" /></button>
             </div>
-            <button onClick={() => onDismiss(q.billId)} className="text-slate-600 hover:text-slate-400 transition-colors" title="Dismiss"><X className="w-3.5 h-3.5" /></button>
-          </div>
-        ))}
+          );
+        })}
 
         {queue.filter(q => q.status === 'failed').map(q => (
           <div key={q.billId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">

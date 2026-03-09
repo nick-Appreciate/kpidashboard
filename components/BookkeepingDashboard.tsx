@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { LogoLoader } from "./Logo";
 import DarkSelect from "./DarkSelect";
@@ -32,7 +32,7 @@ export default function BookkeepingDashboard() {
 
   const { glAccounts, properties, vendors, unitsByProperty } = useAfOptions();
 
-  const b = useBills(isAdmin);
+  const b = useBills(isAdmin, appUser?.name || appUser?.email);
 
   // Hide modal state (for Front invoices)
   const [hideModal, setHideModal] = useState<{ bill: UnifiedBill; note: string } | null>(null);
@@ -46,6 +46,20 @@ export default function BookkeepingDashboard() {
       return next;
     });
   };
+
+  // Click bill from upload tracker → expand + scroll into view
+  const handleClickBill = useCallback((billId: number) => {
+    b.setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.add(billId);
+      return next;
+    });
+    // Small delay so the DOM has expanded before scrolling
+    setTimeout(() => {
+      const el = document.getElementById(`bill-${billId}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  }, [b]);
 
   // Counts
   const counts = useMemo(() => {
@@ -261,9 +275,11 @@ export default function BookkeepingDashboard() {
             {/* Upload Activity Tracker */}
             <UploadActivityTracker
               queue={b.uploadQueue}
+              bills={b.bills}
               onDismiss={b.dismissQueueItem}
               onRetry={b.retryUpload}
               onClearFinished={b.clearFinished}
+              onClickBill={handleClickBill}
             />
 
             {/* Feed items */}

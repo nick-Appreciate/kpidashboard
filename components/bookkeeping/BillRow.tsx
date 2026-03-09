@@ -111,7 +111,7 @@ export default function BillRow({
   ].filter(Boolean) as { label: string; value: React.ReactNode; colSpan?: 1 | 2 }[] : undefined;
 
   return (
-    <div className={`glass-card overflow-hidden transition-all border-l-2 ${sourceBorderColor} ${statusBorder} ${(isCorporate || isHidden) && !isExpanded ? 'opacity-60' : ''}`}>
+    <div id={`bill-${bill.id}`} className={`glass-card overflow-hidden transition-all border-l-2 ${sourceBorderColor} ${statusBorder} ${(isCorporate || isHidden) && !isExpanded ? 'opacity-60' : ''}`}>
       {/* ── SLIM PREVIEW ROW ── */}
       <div
         className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors select-none ${isExpanded ? 'border-b border-[var(--glass-border)]' : ''}`}
