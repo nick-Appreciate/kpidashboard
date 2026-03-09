@@ -192,6 +192,9 @@ export async function GET(request: Request) {
     const baselineDeviation = filterDate(computeBaselineDeviation(allData, profiles));
     const meters = computeMeterSummaries(profiles, startDateStr);
 
+    // ─── Occupied metered units ───────────────────────────────────────────
+    const occupiedMetered = await computeOccupiedMeteredUnits(profiles, startDateStr, days);
+
     return NextResponse.json({
       stats: { ...stats, alertCount: alerts.length },
       dailyUsage,
@@ -200,6 +203,7 @@ export async function GET(request: Request) {
       baselineDeviation,
       alerts,
       meters,
+      occupiedMetered,
     });
   } catch (error) {
     console.error('Error fetching utilities data:', error);
@@ -798,4 +802,187 @@ function shortAddressLabel(address: string): string {
   }
 
   return label;
+}
+
+// ─── Meter → Property + Unit mapping ────────────────────────────────────
+
+interface MeterMapping {
+  property: string;
+  unit: string | null; // null = building-level meter (shared across all units)
+}
+
+function mapMeterToPropertyUnit(address: string, name: string): MeterMapping | null {
+  const addr = address.toUpperCase();
+  const llc = name.toUpperCase();
+  const streetNum = addr.match(/^(\d+)/)?.[1];
+  const aptMatch = addr.match(/APT\s+(\S+)/i);
+  const apt = aptMatch?.[1];
+
+  // BPU meters (KCK) — Hilltop has per-unit meters (streetNum + D/F suffix)
+  if (addr.includes('DELAVAN') || addr.includes('FARROW')) {
+    const suffix = addr.includes('DELAVAN') ? 'D' : 'F';
+    return { property: 'Hilltop Townhomes', unit: streetNum ? streetNum + suffix : null };
+  }
+  // Building-level BPU meters
+  if (llc.includes('NORMANDY') || addr.includes('77TH')) return { property: 'Normandy Apartments', unit: null };
+  if (llc.includes('58TH') || addr.includes('58TH')) return { property: 'Glen Oaks', unit: null };
+  if (llc.includes('OAK TREE') || addr.includes('WOOD AVE')) return { property: 'Oakwood Gardens', unit: null };
+
+  // COMO meters — some have APT (unit-level), some don't (building-level)
+  if (addr.includes('SYLVAN') && addr.includes('1511')) return { property: '1511 Sylvan Lane', unit: apt || null };
+  if (addr.includes('PECAN')) return { property: '407 Pecan Street', unit: apt || null };
+  if (addr.includes('WASHINGTON')) return { property: '801-803 Washington Avenue', unit: apt || null };
+  if (addr.includes('FAIRVIEW')) return { property: '811 South Fairview Road', unit: apt || null };
+  if (addr.includes('WHITE GATE') || addr.includes('WHITEGATE')) return { property: 'Pioneer Apartments', unit: apt || null };
+  if (addr.includes('OAKLAND') || addr.includes('GRAVEL')) return { property: '3909 North Oakland Gravel Road', unit: apt || null };
+
+  return null; // Unmapped (e.g. 1206 Eugenia, 622 Paris)
+}
+
+// ─── Occupied Metered Units ─────────────────────────────────────────────
+
+interface OccupiedUnitData {
+  unit: string;
+  tenant: string;
+  rent: number;
+  status: string;
+  unitCcf: number | null;   // actual metered CCF for this unit, null if building-level
+  unitCost: number | null;  // actual metered cost, null if building-level
+}
+
+interface PropertyUtility {
+  property: string;
+  occupiedUnits: number;
+  totalUnits: number;
+  totalCcf: number;
+  totalCost: number;
+  costPerUnit: number;
+  meterCount: number;
+  hasUnitMeters: boolean;
+  occupiedUnitsList: OccupiedUnitData[];
+}
+
+async function computeOccupiedMeteredUnits(
+  profiles: Map<string, MeterProfile>,
+  startDateStr: string | null,
+  days: number,
+): Promise<PropertyUtility[]> {
+  // 1. Aggregate meter usage by property AND by unit where possible
+  const propMap = new Map<string, { totalCcf: number; totalCost: number; meterCount: number; hasUnitMeters: boolean }>();
+  // unitKey = "property|unit" → { ccf, cost }
+  const unitCostMap = new Map<string, { ccf: number; cost: number }>();
+
+  for (const profile of Array.from(profiles.values())) {
+    const mapping = mapMeterToPropertyUnit(profile.address, profile.name);
+    if (!mapping) continue;
+
+    const { property, unit } = mapping;
+
+    if (!propMap.has(property)) {
+      propMap.set(property, { totalCcf: 0, totalCost: 0, meterCount: 0, hasUnitMeters: false });
+    }
+
+    const p = propMap.get(property)!;
+    p.meterCount++;
+    if (unit) p.hasUnitMeters = true;
+    const rate = rateForSource(profile.source);
+
+    let meterCcf = 0;
+    let meterCost = 0;
+    for (const [date, ccf] of Array.from(profile.dailyUsage)) {
+      if (startDateStr && date < startDateStr) continue;
+      meterCcf += ccf;
+      meterCost += ccf * rate;
+    }
+
+    p.totalCcf += meterCcf;
+    p.totalCost += meterCost;
+
+    // Track per-unit costs for unit-level meters
+    if (unit) {
+      const key = `${property}|${unit}`;
+      const existing = unitCostMap.get(key) || { ccf: 0, cost: 0 };
+      existing.ccf += meterCcf;
+      existing.cost += meterCost;
+      unitCostMap.set(key, existing);
+    }
+  }
+
+  if (propMap.size === 0) return [];
+
+  // 2. Query rent roll for occupancy at metered properties
+  const { data: latestSnap } = await supabaseAdmin
+    .from('rent_roll_snapshots')
+    .select('snapshot_date')
+    .order('snapshot_date', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!latestSnap) return [];
+
+  const meteredProperties = Array.from(propMap.keys());
+  const { data: rentRoll } = await supabaseAdmin
+    .from('rent_roll_snapshots')
+    .select('property, unit, status, tenant_name, total_rent')
+    .eq('snapshot_date', latestSnap.snapshot_date)
+    .in('property', meteredProperties);
+
+  if (!rentRoll) return [];
+
+  // 3. Build property-level summaries with per-unit costs
+  const OCCUPIED_STATUSES = ['Current', 'Evict', 'Notice-Unrented', 'Notice-Rented'];
+  const effectiveDays = days === Infinity ? 365 : days;
+  const results: PropertyUtility[] = [];
+
+  for (const [property, meterData] of Array.from(propMap)) {
+    const units = rentRoll.filter(r => r.property === property);
+    const occupied = units.filter(r => OCCUPIED_STATUSES.includes(r.status));
+    const totalUnits = units.length;
+    const occupiedCount = occupied.length;
+
+    const monthlyCost = effectiveDays > 0 ? (meterData.totalCost / effectiveDays) * 30 : 0;
+    const avgCostPerUnit = occupiedCount > 0 ? monthlyCost / occupiedCount : 0;
+
+    results.push({
+      property,
+      occupiedUnits: occupiedCount,
+      totalUnits,
+      totalCcf: Math.round(meterData.totalCcf * 100) / 100,
+      totalCost: Math.round(meterData.totalCost * 100) / 100,
+      costPerUnit: Math.round(avgCostPerUnit * 100) / 100,
+      meterCount: meterData.meterCount,
+      hasUnitMeters: meterData.hasUnitMeters,
+      occupiedUnitsList: occupied.map(r => {
+        const key = `${property}|${r.unit}`;
+        const unitData = unitCostMap.get(key);
+
+        let unitCcf: number | null = null;
+        let unitCost: number | null = null;
+        if (unitData) {
+          unitCcf = Math.round(unitData.ccf * 100) / 100;
+          // Convert period cost to monthly
+          unitCost = effectiveDays > 0
+            ? Math.round((unitData.cost / effectiveDays) * 30 * 100) / 100
+            : 0;
+        }
+
+        return {
+          unit: r.unit,
+          tenant: r.tenant_name || '—',
+          rent: r.total_rent || 0,
+          status: r.status,
+          unitCcf,
+          unitCost,
+        };
+      }).sort((a, b) => {
+        // Sort units with actual meter data first (by cost desc), then the rest
+        if (a.unitCost !== null && b.unitCost !== null) return b.unitCost - a.unitCost;
+        if (a.unitCost !== null) return -1;
+        if (b.unitCost !== null) return 1;
+        return a.unit.localeCompare(b.unit, undefined, { numeric: true });
+      }),
+    });
+  }
+
+  return results.sort((a, b) => b.totalCost - a.totalCost);
 }

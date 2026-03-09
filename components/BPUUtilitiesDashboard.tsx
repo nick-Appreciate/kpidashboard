@@ -9,6 +9,7 @@ import BPUBaselineChart from './BPUBaselineChart';
 import BPUWasteChart from './BPUWasteChart';
 import BPULeakAlerts from './BPULeakAlerts';
 import BPUMeterDetail from './BPUMeterDetail';
+import BPUOccupiedUnits from './BPUOccupiedUnits';
 
 interface Stats {
   totalMeters: number;
@@ -59,6 +60,7 @@ export default function BPUUtilitiesDashboard() {
   const [baselineDeviation, setBaselineDeviation] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [meters, setMeters] = useState<MeterSummary[]>([]);
+  const [occupiedMetered, setOccupiedMetered] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('30');
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -83,6 +85,7 @@ export default function BPUUtilitiesDashboard() {
     setBaselineDeviation([]);
     setAlerts([]);
     setMeters([]);
+    setOccupiedMetered([]);
     setStats(null);
 
     fetch(`/api/admin/utilities?days=${timeRange}`, { signal: controller.signal })
@@ -96,6 +99,7 @@ export default function BPUUtilitiesDashboard() {
         setBaselineDeviation(data.baselineDeviation || []);
         setAlerts(data.alerts || []);
         setMeters(data.meters || []);
+        setOccupiedMetered(data.occupiedMetered || []);
       })
       .catch(err => {
         if (err.name !== 'AbortError') console.error('Error fetching utilities data:', err);
@@ -256,6 +260,12 @@ export default function BPUUtilitiesDashboard() {
             baselineDeviation={baselineDeviation}
             timeRange={timeRange}
             loading={loading}
+          />
+
+          <BPUOccupiedUnits
+            data={occupiedMetered}
+            loading={loading}
+            timeRange={timeRange}
           />
 
           {/* Meter summary table */}
