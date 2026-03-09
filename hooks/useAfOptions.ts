@@ -5,6 +5,7 @@ export function useAfOptions() {
   const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
   const [properties, setProperties] = useState<string[]>([]);
   const [vendors, setVendors] = useState<string[]>([]);
+  const [unitsByProperty, setUnitsByProperty] = useState<Record<string, string[]>>({});
 
   const fetchAfOptions = useCallback(async () => {
     try {
@@ -14,6 +15,7 @@ export function useAfOptions() {
       setGlAccounts(data.gl_accounts || []);
       setProperties(data.properties || []);
       setVendors(data.vendors || []);
+      setUnitsByProperty(data.units_by_property || {});
     } catch (error) {
       console.error("Error fetching AF options:", error);
     }
@@ -23,5 +25,5 @@ export function useAfOptions() {
     fetchAfOptions();
   }, [fetchAfOptions]);
 
-  return { glAccounts, properties, vendors, refetchAfOptions: fetchAfOptions };
+  return { glAccounts, properties, vendors, unitsByProperty, refetchAfOptions: fetchAfOptions };
 }

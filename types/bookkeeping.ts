@@ -5,7 +5,7 @@ export interface GLAccount {
   name: string;
 }
 
-export type UnifiedFilterOption = "all" | "action_needed" | "completed" | "duplicates" | "corporate" | "hidden" | "payments";
+export type UnifiedFilterOption = "all" | "action_needed" | "completed" | "corporate" | "hidden" | "payments";
 export type SourceFilter = "all" | "brex" | "invoices";
 export type UnifiedSortOption = "action_first" | "date_newest" | "date_oldest" | "amount_high" | "amount_low";
 

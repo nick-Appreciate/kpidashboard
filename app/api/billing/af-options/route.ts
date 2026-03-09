@@ -3,17 +3,19 @@ import { supabase } from '../../../../lib/supabase';
 
 /**
  * GET /api/billing/af-options
- * Returns available vendors, GL accounts, and properties for dropdown selection
- * in the editable unmatched bill card.
+ * Returns available vendors, GL accounts, properties, and units-by-property
+ * for dropdown selection in the bill entry form.
  */
 export async function GET() {
   try {
     // Fetch distinct GL accounts from af_bill_detail
+    // NOTE: .limit(10000) prevents Supabase default 1000-row truncation
     const { data: glData, error: glErr } = await supabase
       .from('af_bill_detail')
       .select('gl_account_id, gl_account_name')
       .not('gl_account_name', 'is', null)
-      .order('gl_account_name');
+      .order('gl_account_name')
+      .limit(10000);
 
     if (glErr) {
       return NextResponse.json({ error: glErr.message }, { status: 500 });
@@ -38,7 +40,8 @@ export async function GET() {
       .from('af_bill_detail')
       .select('property_name')
       .not('property_name', 'is', null)
-      .order('property_name');
+      .order('property_name')
+      .limit(10000);
 
     if (propErr) {
       return NextResponse.json({ error: propErr.message }, { status: 500 });
@@ -48,14 +51,14 @@ export async function GET() {
     for (const r of propData || []) {
       if (r.property_name) propSet.add(r.property_name);
     }
-    const properties = Array.from(propSet).sort();
 
     // Fetch vendors from af_vendor_directory
     const { data: vendorData, error: vendorErr } = await supabase
       .from('af_vendor_directory')
       .select('company_name')
       .not('company_name', 'is', null)
-      .order('company_name');
+      .order('company_name')
+      .limit(10000);
 
     if (vendorErr) {
       return NextResponse.json({ error: vendorErr.message }, { status: 500 });
@@ -63,7 +66,36 @@ export async function GET() {
 
     const vendors = (vendorData || []).map((v) => v.company_name).filter(Boolean);
 
-    return NextResponse.json({ gl_accounts, properties, vendors });
+    // Fetch units-by-property from rent_roll_snapshots (most complete source)
+    const { data: unitData, error: unitErr } = await supabase
+      .from('rent_roll_snapshots')
+      .select('property, unit')
+      .not('unit', 'is', null)
+      .not('unit', 'eq', '')
+      .limit(10000);
+
+    if (unitErr) {
+      console.error("Error fetching units:", unitErr.message);
+    }
+
+    const unitsByProperty: Record<string, string[]> = {};
+    for (const row of unitData || []) {
+      if (!row.property || !row.unit) continue;
+      // Also merge rent_roll properties into the property set
+      propSet.add(row.property);
+      if (!unitsByProperty[row.property]) unitsByProperty[row.property] = [];
+      if (!unitsByProperty[row.property].includes(row.unit)) {
+        unitsByProperty[row.property].push(row.unit);
+      }
+    }
+    // Sort units naturally within each property (e.g. "2" before "10")
+    for (const prop of Object.keys(unitsByProperty)) {
+      unitsByProperty[prop].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+
+    const properties = Array.from(propSet).sort();
+
+    return NextResponse.json({ gl_accounts, properties, vendors, units_by_property: unitsByProperty });
   } catch (error) {
     console.error("Error fetching AF options:", error);
     return NextResponse.json(

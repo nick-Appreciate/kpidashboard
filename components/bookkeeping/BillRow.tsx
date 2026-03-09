@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, ExternalLink, Loader2, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Eye, EyeOff, Copy } from "lucide-react";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, ExternalLink, Loader2, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
 import AppFolioPanel from "./AppFolioPanel";
 import type { UnifiedBill, UnifiedBillDraft, UnifiedQueueItemV2, GLAccount } from "../../types/bookkeeping";
 
@@ -52,6 +52,7 @@ interface BillRowProps {
   onUnmarkCorporate: (billId: number) => void;
   getMissingFields: (draft: UnifiedBillDraft | undefined) => string[];
   isFieldMissing: (billId: number, field: string) => boolean;
+  unitsByProperty: Record<string, string[]>;
 }
 
 export default function BillRow({
@@ -60,7 +61,7 @@ export default function BillRow({
   vendors, glAccounts, properties, filter, actionId,
   onUpdateDraft, onEnqueueUpload, onRetryUpload,
   onHide, onUnhide, onMarkCorporate, onUnmarkCorporate,
-  getMissingFields, isFieldMissing,
+  getMissingFields, isFieldMissing, unitsByProperty,
 }: BillRowProps) {
   const isBrex = bill.source === 'brex';
   const isFront = bill.source === 'front';
@@ -68,7 +69,6 @@ export default function BillRow({
   const isEntered = bill.status === 'entered';
   const isCorporate = bill.status === 'corporate';
   const isHidden = bill.is_hidden;
-  const isDuplicate = bill.is_duplicate;
   const isPending = bill.status === 'pending';
 
   const queueItem = uploadQueue.find(q => q.billId === bill.id);
@@ -77,8 +77,8 @@ export default function BillRow({
   const isManualEntry = bill.document_type === 'credit_memo' || Number(bill.amount) < 0;
 
   // Status colors
-  const statusColor = isPayment ? 'bg-purple-500' : isEntered ? 'bg-emerald-500' : isDuplicate ? 'bg-orange-500' : isCorporate ? 'bg-slate-500' : isHidden ? 'bg-slate-500' : 'bg-amber-500';
-  const statusBorder = isPayment ? 'border-purple-500/20' : isEntered ? 'border-emerald-500/20' : isDuplicate ? 'border-orange-500/20' : isCorporate ? 'border-slate-600' : isHidden ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
+  const statusColor = isPayment ? 'bg-purple-500' : isEntered ? 'bg-emerald-500' : isCorporate ? 'bg-slate-500' : isHidden ? 'bg-slate-500' : 'bg-amber-500';
+  const statusBorder = isPayment ? 'border-purple-500/20' : isEntered ? 'border-emerald-500/20' : isCorporate ? 'border-slate-600' : isHidden ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
   const sourceBorderColor = isBrex ? 'border-l-violet-500/60' : 'border-l-blue-500/60';
 
   // Source badge
@@ -138,8 +138,7 @@ export default function BillRow({
 
         {/* Status indicator in center */}
         <div className="flex-shrink-0 w-20 text-center">
-          {isDuplicate && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 font-medium animate-pulse">Duplicate</span>}
-          {isPending && !isDuplicate && missing.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium">{missing.length} req</span>}
+          {isPending && missing.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-medium">{missing.length} req</span>}
         </div>
 
         <div className="flex-shrink-0 w-24 text-right">
@@ -155,7 +154,6 @@ export default function BillRow({
         <div className="flex-shrink-0 w-24">
           {isPayment ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-purple-500/15 text-purple-400">Payment</span>
            : isEntered ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-400"><CheckCircle2 className="w-3 h-3" />Entered</span>
-           : isDuplicate ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-orange-500/15 text-orange-400"><Copy className="w-3 h-3" />Dupe</span>
            : isCorporate ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-500/15 text-slate-400"><Archive className="w-3 h-3" />Corp</span>
            : isHidden ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-500/15 text-slate-400"><EyeOff className="w-3 h-3" />Hidden</span>
            : queueItem?.status === 'uploading' ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-500/15 text-cyan-400"><Loader2 className="w-3 h-3 animate-spin" />Sending</span>
@@ -250,21 +248,6 @@ export default function BillRow({
               </>
             )}
 
-            {/* Duplicate warning */}
-            {isDuplicate && (
-              <div className="mt-2 p-2 bg-orange-500/10 border border-orange-500/20 rounded-lg">
-                <p className="text-xs text-orange-400 font-medium">
-                  <Copy className="w-3 h-3 inline mr-1" />
-                  Potential duplicate detected
-                </p>
-                {bill.duplicate_of_id && (
-                  <p className="text-[10px] text-orange-400/70 mt-1">
-                    Matches bill #{bill.duplicate_of_id} — same vendor, amount, and month
-                  </p>
-                )}
-              </div>
-            )}
-
             {/* Actions */}
             <div className="flex gap-2 flex-wrap mt-2">
               {isCorporate && (
@@ -291,14 +274,13 @@ export default function BillRow({
           </div>
 
           {/* RIGHT: AppFolio panel */}
-          <div className={`p-4 ${isPayment ? "bg-purple-500/5" : isEntered ? "bg-emerald-500/5" : isDuplicate ? "bg-orange-500/5" : isCorporate ? "bg-white/[0.02]" : isHidden ? "bg-white/[0.02]" : "bg-amber-500/5"}`}>
+          <div className={`p-4 ${isPayment ? "bg-purple-500/5" : isEntered ? "bg-emerald-500/5" : isCorporate ? "bg-white/[0.02]" : isHidden ? "bg-white/[0.02]" : "bg-amber-500/5"}`}>
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 {isPayment ? 'Payment Record' : 'AppFolio'}
               </span>
               {isPayment ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-purple-500/20 text-purple-400">Payment</span>
                : isEntered ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400"><CheckCircle2 className="w-3 h-3" />Entered</span>
-               : isDuplicate ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-orange-500/20 text-orange-400"><Copy className="w-3 h-3" />Duplicate</span>
                : isCorporate ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-500/20 text-slate-400"><Archive className="w-3 h-3" />Corporate</span>
                : isHidden ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-500/20 text-slate-400"><EyeOff className="w-3 h-3" />Hidden</span>
                : <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-500/20 text-amber-400"><AlertCircle className="w-3 h-3" />Pending</span>}
@@ -315,7 +297,7 @@ export default function BillRow({
               </div>
             )}
 
-            {isPending && !isDuplicate && (
+            {isPending && (
               <AppFolioPanel
                 mode="form"
                 draft={draft}
@@ -332,30 +314,8 @@ export default function BillRow({
                 vendors={vendors}
                 glAccounts={glAccounts}
                 properties={properties}
+                unitsByProperty={unitsByProperty}
               />
-            )}
-
-            {isPending && isDuplicate && (
-              <div className="space-y-3">
-                <p className="text-sm text-orange-300/80">This bill appears to be a duplicate. The same vendor and amount was found from another source in the same month.</p>
-                <p className="text-xs text-slate-500">You can still enter it if this is a legitimate separate charge, or hide it to dismiss.</p>
-                <AppFolioPanel
-                  mode="form"
-                  draft={draft}
-                  onUpdateDraft={(field, value) => onUpdateDraft(bill.id, field as keyof UnifiedBillDraft, value)}
-                  missingFields={missing}
-                  isFieldMissing={(field) => isFieldMissing(bill.id, field)}
-                  isManualEntry={isManualEntry}
-                  showInvoiceNumber={isFront}
-                  queueStatus={queueItem?.status === 'uploading' ? 'uploading' : queueItem?.status === 'queued' ? 'queued' : null}
-                  uploadResult={result}
-                  onSubmit={() => onEnqueueUpload(bill)}
-                  onRetry={() => onRetryUpload(bill.id)}
-                  vendors={vendors}
-                  glAccounts={glAccounts}
-                  properties={properties}
-                />
-              </div>
             )}
 
             {isEntered && (

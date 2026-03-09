@@ -10,14 +10,12 @@ import { useAfOptions } from "../hooks/useAfOptions";
 import { useBills } from "../hooks/useBills";
 import BillRow from "./bookkeeping/BillRow";
 import UploadActivityTracker from "./bookkeeping/UploadActivityTracker";
-import DuplicatesTab from "./bookkeeping/DuplicatesTab";
 import ParseSettingsTab from "./bookkeeping/ParseSettingsTab";
 import type { UnifiedBill, UnifiedFilterOption, SourceFilter, UnifiedSortOption } from "../types/bookkeeping";
 
-type TabOption = "feed" | "duplicates" | "parse_settings";
+type TabOption = "feed" | "parse_settings";
 
 function getInitialTab(param: string | null): TabOption {
-  if (param === "duplicates") return "duplicates";
   if (param === "parse_settings") return "parse_settings";
   return "feed";
 }
@@ -32,7 +30,7 @@ export default function BookkeepingDashboard() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [sort, setSort] = useState<UnifiedSortOption>("action_first");
 
-  const { glAccounts, properties, vendors } = useAfOptions();
+  const { glAccounts, properties, vendors, unitsByProperty } = useAfOptions();
 
   const b = useBills(isAdmin);
 
@@ -53,7 +51,6 @@ export default function BookkeepingDashboard() {
   const counts = useMemo(() => {
     let actionNeeded = 0;
     let completed = 0;
-    let duplicates = 0;
     let corporate = 0;
     let hidden = 0;
     let payments = 0;
@@ -68,11 +65,10 @@ export default function BookkeepingDashboard() {
       else if (bill.status === 'payment') payments++;
       else if (bill.is_hidden || bill.status === 'hidden') hidden++;
       else if (bill.status === 'entered') completed++;
-      else if (bill.is_duplicate && bill.status === 'pending') duplicates++;
       else if (bill.status === 'pending') actionNeeded++;
     }
 
-    return { actionNeeded, completed, duplicates, corporate, hidden, payments, brexTotal, invoiceTotal };
+    return { actionNeeded, completed, corporate, hidden, payments, brexTotal, invoiceTotal };
   }, [b.bills]);
 
   // Filter + sort feed
@@ -85,11 +81,9 @@ export default function BookkeepingDashboard() {
       // Status filter
       switch (filter) {
         case 'action_needed':
-          return bill.status === 'pending' && !bill.is_hidden && !bill.is_duplicate;
+          return bill.status === 'pending' && !bill.is_hidden;
         case 'completed':
           return bill.status === 'entered';
-        case 'duplicates':
-          return bill.is_duplicate && bill.status !== 'hidden';
         case 'corporate':
           return bill.status === 'corporate';
         case 'hidden':
@@ -109,8 +103,8 @@ export default function BookkeepingDashboard() {
       const dateB = new Date(b.source === 'brex' ? (b.brex_posted_at || b.brex_initiated_at || b.invoice_date) : (b.invoice_date || b.created_at));
 
       if (sort === "action_first") {
-        const aIsAction = a.status === 'pending' && !a.is_hidden && !a.is_duplicate;
-        const bIsAction = b.status === 'pending' && !b.is_hidden && !b.is_duplicate;
+        const aIsAction = a.status === 'pending' && !a.is_hidden;
+        const bIsAction = b.status === 'pending' && !b.is_hidden;
         if (aIsAction !== bIsAction) return aIsAction ? -1 : 1;
         return dateB.getTime() - dateA.getTime();
       }
@@ -157,7 +151,6 @@ export default function BookkeepingDashboard() {
                 <span className="text-amber-400">{counts.actionNeeded} action needed</span>
                 {" · "}
                 <span className="text-emerald-400">{counts.completed} completed</span>
-                {counts.duplicates > 0 && <>{" · "}<span className="text-orange-400">{counts.duplicates} duplicates</span></>}
                 {isAdmin && counts.corporate > 0 && <>{" · "}<span className="text-slate-500">{counts.corporate} corporate</span></>}
                 {counts.hidden > 0 && <>{" · "}<span className="text-slate-500">{counts.hidden} hidden</span></>}
                 {isAdmin && counts.payments > 0 && <>{" · "}<span className="text-purple-400">{counts.payments} payments</span></>}
@@ -202,24 +195,14 @@ export default function BookkeepingDashboard() {
               Feed
             </button>
             {isAdmin && (
-              <>
-                <button
-                  onClick={() => setActiveTab("duplicates")}
-                  className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-                    activeTab === "duplicates" ? "bg-accent text-surface-base" : "bg-white/5 text-slate-400 hover:bg-white/10"
-                  }`}
-                >
-                  Duplicates
-                </button>
-                <button
-                  onClick={() => setActiveTab("parse_settings")}
-                  className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-                    activeTab === "parse_settings" ? "bg-accent text-surface-base" : "bg-white/5 text-slate-400 hover:bg-white/10"
-                  }`}
-                >
-                  Parse Settings
-                </button>
-              </>
+              <button
+                onClick={() => setActiveTab("parse_settings")}
+                className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                  activeTab === "parse_settings" ? "bg-accent text-surface-base" : "bg-white/5 text-slate-400 hover:bg-white/10"
+                }`}
+              >
+                Parse Settings
+              </button>
             )}
           </div>
 
@@ -232,7 +215,6 @@ export default function BookkeepingDashboard() {
                   { key: "all" as UnifiedFilterOption, label: `All (${b.bills.filter(x => !x.is_hidden && x.status !== 'hidden').length})`, color: "bg-accent text-surface-base" },
                   { key: "action_needed" as UnifiedFilterOption, label: `Action Needed (${counts.actionNeeded})`, color: "bg-amber-500/15 text-amber-400" },
                   { key: "completed" as UnifiedFilterOption, label: `Completed (${counts.completed})`, color: "bg-emerald-500/15 text-emerald-400" },
-                  ...(counts.duplicates > 0 ? [{ key: "duplicates" as UnifiedFilterOption, label: `Duplicates (${counts.duplicates})`, color: "bg-orange-500/15 text-orange-400" }] : []),
                   ...(isAdmin ? [{ key: "corporate" as UnifiedFilterOption, label: `Corporate (${counts.corporate})`, color: "bg-slate-500/20 text-slate-300" }] : []),
                   { key: "hidden" as UnifiedFilterOption, label: `Hidden (${counts.hidden})`, color: "bg-slate-500/20 text-slate-300" },
                   ...(isAdmin ? [{ key: "payments" as UnifiedFilterOption, label: `Payments (${counts.payments})`, color: "bg-purple-500/15 text-purple-400" }] : []),
@@ -314,13 +296,12 @@ export default function BookkeepingDashboard() {
                     onUnmarkCorporate={b.unmarkCorporate}
                     getMissingFields={b.getMissingFields}
                     isFieldMissing={b.isFieldMissing}
+                    unitsByProperty={unitsByProperty}
                   />
                 ))}
               </div>
             )}
           </>
-        ) : activeTab === "duplicates" ? (
-          <DuplicatesTab userEmail={appUser?.email || appUser?.name} />
         ) : activeTab === "parse_settings" ? (
           <ParseSettingsTab
             userEmail={appUser?.email || appUser?.name}

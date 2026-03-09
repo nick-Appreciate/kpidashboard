@@ -63,6 +63,7 @@ interface AppFolioPanelProps {
   vendors: string[];
   glAccounts: GLAccount[];
   properties: string[];
+  unitsByProperty?: Record<string, string[]>;
 
   /** Slot for content above the form (e.g. Brex potential-matches panel) */
   beforeForm?: React.ReactNode;
@@ -87,7 +88,7 @@ export default function AppFolioPanel({
   showInvoiceNumber,
   queueStatus, uploadResult, onSubmit, onRetry,
   previousApproval,
-  vendors, glAccounts, properties,
+  vendors, glAccounts, properties, unitsByProperty,
   beforeForm, formPrompt,
   // Display
   displayFields, displayApproval, afterDisplay,
@@ -144,6 +145,16 @@ export default function AppFolioPanel({
     const vendorOptions = vendors.map(v => ({ value: v, label: v }));
     const glOptions = glAccounts.map(gl => ({ value: gl.id, label: `${gl.id} ${gl.name}` }));
     const propOptions = properties.map(p => ({ value: p, label: p }));
+    const unitOptions = (unitsByProperty?.[draft.af_property_input] || []).map(u => ({ value: u, label: u }));
+
+    const handlePropertyChange = (val: string) => {
+      onUpdateDraft?.('af_property_input', val);
+      // Clear unit if it's no longer valid for the new property
+      const newUnits = unitsByProperty?.[val] || [];
+      if (draft.af_unit_input && !newUnits.includes(draft.af_unit_input)) {
+        onUpdateDraft?.('af_unit_input', '');
+      }
+    };
 
     return (
       <div className="space-y-3">
@@ -238,7 +249,7 @@ export default function AppFolioPanel({
               {/* @ts-ignore */}
               <DarkSelect
                 value={draft.af_property_input}
-                onChange={(val: string) => onUpdateDraft?.('af_property_input', val)}
+                onChange={(val: string) => handlePropertyChange(val)}
                 options={propOptions}
                 compact searchable
                 className="w-full"
@@ -247,13 +258,15 @@ export default function AppFolioPanel({
             </div>
             <div className="col-span-2">
               <label className={labelCls}>Unit</label>
-              <input
-                type="text"
-                className={inputCls}
+              {/* @ts-ignore */}
+              <DarkSelect
                 value={draft.af_unit_input}
-                onChange={(e) => onUpdateDraft?.('af_unit_input', e.target.value)}
-                placeholder="Unit #"
-                disabled={isLocked}
+                onChange={(val: string) => onUpdateDraft?.('af_unit_input', val)}
+                options={unitOptions}
+                compact searchable
+                className="w-full"
+                placeholder={draft.af_property_input ? "Select unit..." : "Select property first"}
+                disabled={isLocked || !draft.af_property_input}
               />
             </div>
             <div className="col-span-2">
