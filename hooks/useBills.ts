@@ -194,9 +194,16 @@ export function useBills(isAdmin: boolean, userName?: string) {
             ? { ...q, status: 'failed' as const, message: result.error || 'Upload failed. Check bot status.', completedAt: new Date() } : q
         ));
       } else if (result.bot_success === false) {
+        // Bot failed (form errors, etc.) — show as failed, not success
         setUploadQueue(prev => prev.map(q =>
           q.billId === nextItem.billId
-            ? { ...q, status: 'success' as const, message: result.bot_error ? `Approved. Bot: ${result.bot_error}` : 'Approved & sent to AppFolio', afBillId, completedAt: new Date() } : q
+            ? { ...q, status: 'failed' as const, message: result.bot_error ? `Bot error: ${result.bot_error}` : 'Bot failed to create bill in AppFolio', completedAt: new Date() } : q
+        ));
+      } else if (!afBillId) {
+        // Bot reported success but didn't return AF bill ID — awaiting confirmation
+        setUploadQueue(prev => prev.map(q =>
+          q.billId === nextItem.billId
+            ? { ...q, status: 'success' as const, message: 'Sent to AppFolio — awaiting confirmation', completedAt: new Date() } : q
         ));
       } else {
         setUploadQueue(prev => prev.map(q =>
