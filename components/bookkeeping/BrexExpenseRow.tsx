@@ -1,6 +1,6 @@
 import React from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, X, ExternalLink, Upload, Loader2, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Link2 } from "lucide-react";
-import DarkSelect from "../DarkSelect";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, X, ExternalLink, Loader2, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Link2 } from "lucide-react";
+import AppFolioPanel from "./AppFolioPanel";
 import type { BrexExpense, ExpenseDraft, PotentialMatch, BrexQueueItem, GLAccount } from "../../types/bookkeeping";
 
 // Clean up raw card descriptors for display
@@ -57,11 +57,6 @@ interface BrexExpenseRowProps {
   isFieldMissing: (expenseId: number, field: string) => boolean;
 }
 
-const inputCls = "w-full bg-white/5 border border-[var(--glass-border)] rounded px-2 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30";
-const inputMissingCls = "w-full bg-white/5 border border-red-500/50 rounded px-2 py-1 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/30";
-const labelCls = "text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-0.5 block";
-const reqStar = <span className="text-red-400 ml-0.5">*</span>;
-
 export default function BrexExpenseRow({
   expense, isExpanded, onToggleExpand, draft, prefillMap,
   potentialMatches: matchData, linkingId, actionId, uploadQueue, uploadResult,
@@ -85,10 +80,7 @@ export default function BrexExpenseRow({
   const statusColor = isPayment ? 'bg-purple-500' : isEntered ? 'bg-emerald-500' : isMatchedToBill ? 'bg-cyan-500' : isCorporateView ? 'bg-slate-500' : 'bg-amber-500';
   const statusBorder = isPayment ? 'border-purple-500/20' : isEntered ? 'border-emerald-500/20' : isMatchedToBill ? 'border-cyan-500/20' : isCorporateView ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
 
-  const vendorOptions = vendors.map((v) => ({ value: v, label: v }));
-  const glOptions = glAccounts.map((gl) => ({ value: gl.id, label: `${gl.id} ${gl.name}` }));
-  const propOptions = properties.map((p) => ({ value: p, label: p }));
-
+  // ─── Potential matches (Brex-specific: link to existing bills) ────────
   const renderPotentialMatches = () => {
     if (!matchData) return null;
     if (matchData.loading) {
@@ -193,100 +185,7 @@ export default function BrexExpenseRow({
     );
   };
 
-  const renderPendingPanel = () => {
-    if (!draft) return null;
-    const isUploading = queueItem?.status === 'uploading';
-    const isQueued = queueItem?.status === 'queued';
-    const isLocked = isUploading || isQueued;
-    const canSubmit = missing.length === 0 && !isLocked;
-
-    return (
-      <div className="space-y-3">
-        {renderPotentialMatches()}
-        <p className="text-xs text-amber-400 font-medium">Review & approve for AppFolio upload:</p>
-
-        {expense.af_approved_by && expense.af_approved_at && (
-          <p className="text-[10px] text-slate-500">
-            Previously approved by {expense.af_approved_by} on {new Date(expense.af_approved_at).toLocaleString()}
-          </p>
-        )}
-
-        <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2">
-              <label className={labelCls}>Vendor {reqStar}</label>
-              {/* @ts-ignore */}
-              <DarkSelect value={draft.vendor_name} onChange={(val: string) => onUpdateDraft(expense.id, 'vendor_name', val)} options={vendorOptions} compact searchable className={`w-full ${isFieldMissing(expense.id, 'vendor') ? '[&_div]:!border-red-500/50' : ''}`} placeholder="Search vendor..." />
-            </div>
-            <div>
-              <label className={labelCls}>Amount {reqStar}</label>
-              <input type="number" step="0.01" className={isFieldMissing(expense.id, 'amount') ? inputMissingCls : inputCls} value={draft.amount} onChange={(e) => onUpdateDraft(expense.id, 'amount', e.target.value)} disabled={isLocked} />
-            </div>
-            <div>
-              <label className={labelCls}>Invoice Date {reqStar}</label>
-              <input type="date" className={isFieldMissing(expense.id, 'invoice_date') ? inputMissingCls : inputCls} value={draft.invoice_date} onChange={(e) => onUpdateDraft(expense.id, 'invoice_date', e.target.value)} disabled={isLocked} />
-            </div>
-            <div>
-              <label className={labelCls}>Due Date</label>
-              <input type="date" className={inputCls} value={draft.due_date} onChange={(e) => onUpdateDraft(expense.id, 'due_date', e.target.value)} disabled={isLocked} />
-            </div>
-          </div>
-
-          <div>
-            <label className={labelCls}>GL Account {reqStar}</label>
-            {/* @ts-ignore */}
-            <DarkSelect value={draft.af_gl_account_input} onChange={(val: string) => onUpdateDraft(expense.id, 'af_gl_account_input', val)} options={glOptions} compact searchable className={`w-full ${isFieldMissing(expense.id, 'gl_account') ? '[&_div]:!border-red-500/50' : ''}`} placeholder="Search GL account..." />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={labelCls}>Property</label>
-              {/* @ts-ignore */}
-              <DarkSelect value={draft.af_property_input} onChange={(val: string) => onUpdateDraft(expense.id, 'af_property_input', val)} options={propOptions} compact searchable className="w-full" placeholder="Property..." />
-            </div>
-            <div>
-              <label className={labelCls}>Unit</label>
-              <input type="text" className={inputCls} value={draft.af_unit_input} onChange={(e) => onUpdateDraft(expense.id, 'af_unit_input', e.target.value)} placeholder="Unit..." disabled={isLocked} />
-            </div>
-          </div>
-
-          <div>
-            <label className={labelCls}>Description (Memo)</label>
-            <input type="text" className={inputCls} value={draft.description} onChange={(e) => onUpdateDraft(expense.id, 'description', e.target.value)} placeholder="Entered - ..." disabled={isLocked} />
-          </div>
-        </div>
-
-        {result && (
-          <div className={`text-xs px-3 py-2 rounded ${result.success ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/15 text-red-400 border border-red-500/20'}`}>
-            {result.message}
-            {!result.success && <button onClick={() => onRetryUpload(expense.id)} className="ml-2 underline font-medium">Retry</button>}
-          </div>
-        )}
-
-        {!canSubmit && missing.length > 0 && !isLocked && (
-          <p className="text-[11px] text-red-400">
-            Required: {missing.map(f => f === 'gl_account' ? 'GL Account' : f === 'invoice_date' ? 'Invoice Date' : f.charAt(0).toUpperCase() + f.slice(1)).join(', ')}
-          </p>
-        )}
-
-        <button
-          onClick={() => onEnqueueUpload(expense)}
-          disabled={!canSubmit}
-          className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            isUploading ? 'bg-cyan-900/40 text-cyan-400 cursor-wait border border-cyan-500/20'
-            : isQueued ? 'bg-slate-700 text-slate-400 cursor-wait'
-            : !canSubmit ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-          }`}
-        >
-          {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" />Uploading to AppFolio...</>
-           : isQueued ? <><Loader2 className="w-4 h-4 animate-spin" />Queued...</>
-           : <><Upload className="w-4 h-4" />Approve & Upload to AppFolio</>}
-        </button>
-      </div>
-    );
-  };
-
+  // ─── Matched-to-bill panel (Brex-specific: linked to existing bill) ──
   const renderMatchedPanel = () => (
     <div className="space-y-3">
       <p className="text-xs text-cyan-400 font-medium">Matched to existing bill in system:</p>
@@ -314,31 +213,23 @@ export default function BrexExpenseRow({
     </div>
   );
 
-  const renderEnteredPanel = () => (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-        {expense.af_vendor_name && <div><span className="text-xs text-slate-500">AF Vendor</span><p className="font-semibold text-sm text-emerald-400">{expense.af_vendor_name}</p></div>}
-        <div><span className="text-xs text-slate-500">Amount</span><p className="font-semibold text-sm text-emerald-400">${Number(expense.amount).toFixed(2)}</p></div>
-        {expense.af_property_input && <div><span className="text-xs text-slate-500">Property</span><p className="text-sm text-emerald-300/80">{expense.af_property_input}</p></div>}
-        {expense.af_gl_account_input && <div><span className="text-xs text-slate-500">GL Account</span><p className="text-sm text-emerald-300/80 truncate" title={expense.af_gl_account_input}>{expense.af_gl_account_input}</p></div>}
-        {expense.af_unit_input && <div><span className="text-xs text-slate-500">Unit</span><p className="text-sm text-emerald-300/80">{expense.af_unit_input}</p></div>}
-        {expense.appfolio_bill_id && <div><span className="text-xs text-slate-500">AF Bill</span><a href={appfolioBillUrl(expense.appfolio_bill_id)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">#{expense.appfolio_bill_id}<ExternalLink className="w-3 h-3" /></a></div>}
-      </div>
-      {expense.af_approved_by && (
-        <div className="pt-2 border-t border-emerald-500/15 text-[10px] text-emerald-500/70">
-          <p>Approved by <span className="font-medium">{expense.af_approved_by}</span></p>
-          {expense.af_approved_at && <p>{new Date(expense.af_approved_at).toLocaleString()}</p>}
-        </div>
-      )}
-    </div>
-  );
-
+  // ─── Corporate panel (Brex-specific) ─────────────────────────────────
   const renderCorporatePanel = () => (
     <div className="space-y-2">
       <p className="text-sm text-slate-400">This expense was marked as a corporate expense — not entered in AppFolio.</p>
       {expense.corporate_at && <p className="text-[10px] text-slate-600">Archived {new Date(expense.corporate_at).toLocaleDateString()}</p>}
     </div>
   );
+
+  // ─── Build display fields for entered (synced) expenses ──────────────
+  const enteredDisplayFields = isEntered ? [
+    expense.af_vendor_name ? { label: 'AF Vendor', value: <p className="font-semibold text-sm text-emerald-400">{expense.af_vendor_name}</p> } : null,
+    { label: 'Amount', value: <p className="font-semibold text-sm text-emerald-400">${Number(expense.amount).toFixed(2)}</p> },
+    expense.af_property_input ? { label: 'Property', value: <p className="text-sm text-emerald-300/80">{expense.af_property_input}</p> } : null,
+    expense.af_gl_account_input ? { label: 'GL Account', value: <p className="text-sm text-emerald-300/80 truncate" title={expense.af_gl_account_input}>{expense.af_gl_account_input}</p> } : null,
+    expense.af_unit_input ? { label: 'Unit', value: <p className="text-sm text-emerald-300/80">{expense.af_unit_input}</p> } : null,
+    expense.appfolio_bill_id ? { label: 'AF Bill', value: <a href={appfolioBillUrl(expense.appfolio_bill_id)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">#{expense.appfolio_bill_id}<ExternalLink className="w-3 h-3" /></a> } : null,
+  ].filter(Boolean) as { label: string; value: React.ReactNode; colSpan?: 1 | 2 }[] : undefined;
 
   return (
     <div className={`glass-card overflow-hidden transition-all border-l-2 border-l-violet-500/60 ${statusBorder} ${isCorporateView && !isExpanded ? 'opacity-60' : ''}`}>
@@ -383,7 +274,7 @@ export default function BrexExpenseRow({
           <span className="text-xs text-slate-500 tabular-nums">
             {expense.posted_at ? new Date(expense.posted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
              : expense.initiated_at ? new Date(expense.initiated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-             : '—'}
+             : '\u2014'}
           </span>
         </div>
 
@@ -425,7 +316,7 @@ export default function BrexExpenseRow({
             </div>
             <h2 className="text-base font-semibold text-slate-100 mb-0.5">{formatMerchantName(expense.merchant_name)}</h2>
             <p className="text-xs text-slate-500 mb-3">
-              {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name ? `${expense.merchant_raw_descriptor} · ` : ""}
+              {expense.merchant_raw_descriptor && expense.merchant_raw_descriptor !== expense.merchant_name ? `${expense.merchant_raw_descriptor} \u00B7 ` : ""}
               {expense.posted_at ? new Date(expense.posted_at).toLocaleDateString() : expense.initiated_at ? new Date(expense.initiated_at).toLocaleDateString() : "No date"}
             </p>
 
@@ -478,13 +369,43 @@ export default function BrexExpenseRow({
                 {expense.memo && <p className="text-xs text-purple-300"><span className="text-slate-500">Memo: </span>{expense.memo}</p>}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                   <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Amount</span><p className="font-semibold text-purple-300">${Number(expense.amount).toFixed(2)}</p></div>
-                  <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Posted</span><p className="text-sm text-slate-300">{expense.posted_at || '—'}</p></div>
+                  <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Posted</span><p className="text-sm text-slate-300">{expense.posted_at || '\u2014'}</p></div>
                 </div>
               </div>
             )}
-            {isPending && renderPendingPanel()}
+
+            {isPending && (
+              <AppFolioPanel
+                mode="form"
+                draft={draft}
+                onUpdateDraft={(field, value) => onUpdateDraft(expense.id, field as keyof ExpenseDraft, value)}
+                missingFields={missing}
+                isFieldMissing={(field) => isFieldMissing(expense.id, field)}
+                queueStatus={queueItem?.status === 'uploading' ? 'uploading' : queueItem?.status === 'queued' ? 'queued' : null}
+                uploadResult={result}
+                onSubmit={() => onEnqueueUpload(expense)}
+                onRetry={() => onRetryUpload(expense.id)}
+                previousApproval={expense.af_approved_by && expense.af_approved_at ? { by: expense.af_approved_by, at: expense.af_approved_at } : null}
+                vendors={vendors}
+                glAccounts={glAccounts}
+                properties={properties}
+                beforeForm={renderPotentialMatches()}
+              />
+            )}
+
             {isMatchedToBill && renderMatchedPanel()}
-            {isEntered && renderEnteredPanel()}
+
+            {isEntered && (
+              <AppFolioPanel
+                mode="display"
+                displayFields={enteredDisplayFields}
+                displayApproval={expense.af_approved_by ? { by: expense.af_approved_by, at: expense.af_approved_at || '' } : null}
+                vendors={vendors}
+                glAccounts={glAccounts}
+                properties={properties}
+              />
+            )}
+
             {isCorporateView && !isEntered && !isMatchedToBill && !isPayment && renderCorporatePanel()}
           </div>
         </div>

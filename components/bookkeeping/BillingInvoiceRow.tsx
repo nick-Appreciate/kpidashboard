@@ -1,6 +1,6 @@
 import React from "react";
-import { ExternalLink, FileText, CheckCircle2, AlertCircle, EyeOff, Eye, Upload, Loader2, ChevronDown, ChevronRight } from "lucide-react";
-import DarkSelect from "../DarkSelect";
+import { ExternalLink, FileText, CheckCircle2, AlertCircle, EyeOff, Eye, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import AppFolioPanel from "./AppFolioPanel";
 import type { Bill, BillDraft, BillQueueItem, GLAccount } from "../../types/bookkeeping";
 
 const getAttachmentUrl = (attachmentsJson: any): string | null => {
@@ -44,11 +44,6 @@ interface BillingInvoiceRowProps {
   isFieldMissing: (billId: number, field: string) => boolean;
 }
 
-const inputCls = "w-full bg-surface-base border border-[var(--glass-border)] rounded px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-accent/50";
-const inputMissingCls = "w-full bg-surface-base border border-red-500/50 rounded px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-red-400";
-const labelCls = "text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-0.5 block";
-const reqStar = <span className="text-red-400 ml-0.5">*</span>;
-
 export default function BillingInvoiceRow({
   bill, isExpanded, onToggleExpand, draft, prefillMap,
   uploadQueue, uploadResult, hidingId,
@@ -69,122 +64,15 @@ export default function BillingInvoiceRow({
   const statusColor = isMatched ? 'bg-emerald-500' : isHiddenView ? 'bg-slate-500' : 'bg-amber-500';
   const statusBorder = isMatched ? 'border-emerald-500/20' : isHiddenView ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
 
-  const vendorOptions = vendors.map((v) => ({ value: v, label: v }));
-  const glOptions = glAccounts.map((gl) => ({ value: gl.id, label: `${gl.id} ${gl.name}` }));
-  const propOptions = properties.map((p) => ({ value: p, label: p }));
-
-  const renderEditablePanel = () => {
-    if (!draft) return null;
-    const isUploading = queueItem?.status === 'uploading';
-    const isQueued = queueItem?.status === 'queued';
-    const isLocked = isUploading || isQueued;
-    const canSubmit = missing.length === 0 && !isManualEntry && !isLocked;
-
-    return (
-      <div className="space-y-3">
-        {isManualEntry ? (
-          <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2">
-            <p className="text-xs text-orange-400 font-semibold flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" />
-              Credit / Refund — Manual Entry Required
-            </p>
-            <p className="text-[11px] text-orange-300/70 mt-1">
-              Credit memos and refunds cannot be auto-uploaded. Please enter this directly in AppFolio.
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-amber-400 font-medium">Review & approve for AppFolio upload:</p>
-        )}
-
-        {bill.af_approved_by && bill.af_approved_at && (
-          <p className="text-[10px] text-slate-500">
-            Approved by {bill.af_approved_by} on {new Date(bill.af_approved_at).toLocaleString()}
-          </p>
-        )}
-
-        <div className="bg-surface-raised/80 border border-amber-500/20 rounded-lg p-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2">
-              <label className={labelCls}>Vendor {reqStar}</label>
-              {/* @ts-ignore */}
-              <DarkSelect value={draft.vendor_name} onChange={(val: string) => onUpdateDraft(bill.id, 'vendor_name', val)} options={vendorOptions} compact searchable className={`w-full ${isFieldMissing(bill.id, 'vendor') ? '[&_div]:!border-red-500/50' : ''}`} placeholder="Search vendor..." />
-            </div>
-            <div>
-              <label className={labelCls}>Amount {reqStar}</label>
-              <input type="number" step="0.01" className={isFieldMissing(bill.id, 'amount') ? inputMissingCls : inputCls} value={draft.amount} onChange={(e) => onUpdateDraft(bill.id, 'amount', e.target.value)} disabled={isLocked} />
-            </div>
-            <div>
-              <label className={labelCls}>Invoice # (Reference)</label>
-              <input type="text" className={inputCls} value={draft.invoice_number} onChange={(e) => onUpdateDraft(bill.id, 'invoice_number', e.target.value)} disabled={isLocked} />
-            </div>
-            <div>
-              <label className={labelCls}>Invoice Date {reqStar}</label>
-              <input type="date" className={isFieldMissing(bill.id, 'invoice_date') ? inputMissingCls : inputCls} value={draft.invoice_date} onChange={(e) => onUpdateDraft(bill.id, 'invoice_date', e.target.value)} disabled={isLocked} />
-            </div>
-            <div>
-              <label className={labelCls}>Due Date</label>
-              <input type="date" className={inputCls} value={draft.due_date} onChange={(e) => onUpdateDraft(bill.id, 'due_date', e.target.value)} disabled={isLocked} />
-            </div>
-          </div>
-
-          <div className="border-t border-[var(--glass-border)] my-1" />
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Bill Details (Line Item)</p>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2">
-              <label className={labelCls}>Property</label>
-              {/* @ts-ignore */}
-              <DarkSelect value={draft.af_property_input} onChange={(val: string) => onUpdateDraft(bill.id, 'af_property_input', val)} options={propOptions} compact searchable className="w-full" placeholder="Select property..." />
-            </div>
-            <div className="col-span-2">
-              <label className={labelCls}>Unit</label>
-              <input type="text" className={inputCls} value={draft.af_unit_input} onChange={(e) => onUpdateDraft(bill.id, 'af_unit_input', e.target.value)} placeholder="Unit #" disabled={isLocked} />
-            </div>
-            <div className="col-span-2">
-              <label className={labelCls}>GL Account {reqStar}</label>
-              {/* @ts-ignore */}
-              <DarkSelect value={draft.af_gl_account_input} onChange={(val: string) => onUpdateDraft(bill.id, 'af_gl_account_input', val)} options={glOptions} compact searchable className={`w-full ${isFieldMissing(bill.id, 'gl_account') ? '[&_div]:!border-red-500/50' : ''}`} placeholder="Search GL account..." />
-            </div>
-            <div className="col-span-2">
-              <label className={labelCls}>Description</label>
-              <input type="text" className={inputCls} value={draft.description} onChange={(e) => onUpdateDraft(bill.id, 'description', e.target.value)} placeholder="Line item description" disabled={isLocked} />
-            </div>
-          </div>
-        </div>
-
-        {result && (
-          <div className={`text-xs px-3 py-2 rounded ${result.success ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/15 text-red-400 border border-red-500/20'}`}>
-            {result.message}
-          </div>
-        )}
-
-        {!canSubmit && !isManualEntry && missing.length > 0 && (
-          <p className="text-[11px] text-red-400">
-            Required: {missing.map(f => f === 'gl_account' ? 'GL Account' : f === 'invoice_date' ? 'Invoice Date' : f.charAt(0).toUpperCase() + f.slice(1)).join(', ')}
-          </p>
-        )}
-
-        {isManualEntry ? (
-          <a href="https://appreciateinc.appfolio.com/accounting/payable_invoices/new" target="_blank" rel="noopener noreferrer"
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white transition-colors">
-            <ExternalLink className="w-4 h-4" />Open AppFolio to Enter Manually
-          </a>
-        ) : (
-          <button onClick={() => onEnqueueUpload(bill)} disabled={isLocked || !canSubmit}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              isUploading ? 'bg-cyan-900/40 text-cyan-400 cursor-wait border border-cyan-500/20'
-              : isQueued ? 'bg-slate-700 text-slate-400 cursor-wait'
-              : !canSubmit ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-            }`}>
-            {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" />Uploading to AppFolio...</>
-             : isQueued ? <><Loader2 className="w-4 h-4 animate-spin" />Queued...</>
-             : <><Upload className="w-4 h-4" />Approve & Upload to AppFolio</>}
-          </button>
-        )}
-      </div>
-    );
-  };
+  // Build display fields for matched bills
+  const matchedDisplayFields = isMatched ? [
+    { label: 'AF Status', value: <p className={`font-semibold text-sm ${bill.af_status === "Paid" ? "text-emerald-400" : "text-amber-400"}`}>{bill.af_status}</p> },
+    (bill.af_bill_id || bill.appfolio_bill_id) ? { label: 'AF Bill #', value: <a href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${bill.af_bill_id || bill.appfolio_bill_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">{bill.af_bill_id || bill.appfolio_bill_id}<ExternalLink className="w-3 h-3" /></a> } : null,
+    bill.af_property_name ? { label: 'Property', value: bill.af_property_name } : null,
+    bill.af_gl_account_name ? { label: 'GL Account', value: bill.af_gl_account_name, colSpan: 2 as const } : null,
+    bill.af_paid_date ? { label: 'Paid Date', value: <p className="font-mono text-sm text-slate-300">{bill.af_paid_date}</p> } : null,
+    bill.af_memo ? { label: 'Memo', value: <p className="text-sm text-slate-400">{bill.af_memo}</p>, colSpan: 2 as const } : null,
+  ].filter(Boolean) as { label: string; value: React.ReactNode; colSpan?: 1 | 2 }[] : undefined;
 
   return (
     <div className={`glass-card overflow-hidden transition-all border-l-2 border-l-blue-500/60 ${statusBorder} ${isHiddenView && !isExpanded ? "opacity-60" : ""}`}>
@@ -225,7 +113,7 @@ export default function BillingInvoiceRow({
 
         <div className="flex-shrink-0 w-24 text-right">
           <span className="text-xs text-slate-500 tabular-nums">
-            {bill.invoice_date ? new Date(bill.invoice_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+            {bill.invoice_date ? new Date(bill.invoice_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '\u2014'}
           </span>
         </div>
 
@@ -297,29 +185,27 @@ export default function BillingInvoiceRow({
               )}
             </div>
 
-            {isMatched ? (
-              <div className="space-y-2 text-sm">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <div><span className="text-xs text-slate-500">AF Status</span><p className={`font-semibold text-sm ${bill.af_status === "Paid" ? "text-emerald-400" : "text-amber-400"}`}>{bill.af_status}</p></div>
-                  {(bill.af_bill_id || bill.appfolio_bill_id) && <div><span className="text-xs text-slate-500">AF Bill #</span><a href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${bill.af_bill_id || bill.appfolio_bill_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">{bill.af_bill_id || bill.appfolio_bill_id}<ExternalLink className="w-3 h-3" /></a></div>}
-                  {bill.af_property_name && <div><span className="text-xs text-slate-500">Property</span><p className="font-medium text-sm text-slate-200">{bill.af_property_name}</p></div>}
-                  {bill.af_gl_account_name && <div className="col-span-2"><span className="text-xs text-slate-500">GL Account</span><p className="font-medium text-sm text-slate-200">{bill.af_gl_account_name}</p></div>}
-                  {bill.af_paid_date && <div><span className="text-xs text-slate-500">Paid Date</span><p className="font-mono text-sm text-slate-300">{bill.af_paid_date}</p></div>}
-                  {bill.af_memo && <div className="col-span-2"><span className="text-xs text-slate-500">Memo</span><p className="text-sm text-slate-400">{bill.af_memo}</p></div>}
-                </div>
-                {bill.af_approved_by && (
-                  <div className="mt-3 pt-2 border-t border-emerald-500/10">
-                    <p className="text-[11px] text-slate-500">
-                      <CheckCircle2 className="w-3 h-3 inline-block mr-1 text-emerald-500/60" />
-                      Approved by <span className="text-slate-400 font-medium">{bill.af_approved_by}</span>
-                      {bill.af_approved_at && <> on <span className="text-slate-400">{new Date(bill.af_approved_at).toLocaleDateString()} {new Date(bill.af_approved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></>}
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              renderEditablePanel()
-            )}
+            <AppFolioPanel
+              mode={isMatched ? 'display' : 'form'}
+              // Form props
+              draft={draft}
+              onUpdateDraft={(field, value) => onUpdateDraft(bill.id, field as keyof BillDraft, value)}
+              missingFields={missing}
+              isFieldMissing={(field) => isFieldMissing(bill.id, field)}
+              isManualEntry={isManualEntry}
+              showInvoiceNumber
+              queueStatus={queueItem?.status === 'uploading' ? 'uploading' : queueItem?.status === 'queued' ? 'queued' : null}
+              uploadResult={result}
+              onSubmit={() => onEnqueueUpload(bill)}
+              onRetry={() => onRetryUpload(bill.id)}
+              previousApproval={bill.af_approved_by && bill.af_approved_at ? { by: bill.af_approved_by, at: bill.af_approved_at } : null}
+              vendors={vendors}
+              glAccounts={glAccounts}
+              properties={properties}
+              // Display props
+              displayFields={matchedDisplayFields}
+              displayApproval={isMatched && bill.af_approved_by ? { by: bill.af_approved_by, at: bill.af_approved_at || '' } : null}
+            />
           </div>
         </div>
       )}
