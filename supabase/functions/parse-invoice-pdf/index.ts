@@ -7,7 +7,7 @@
  * 3. Download PDF from Front API
  * 4. Send PDF to Claude for intelligent invoice parsing
  * 5. Store PDF in Supabase Storage
- * 6. Insert parsed data into bills table (unified) + ops_bills (backward compat)
+ * 6. Insert parsed data into bills table (unified)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
@@ -69,25 +69,15 @@ function bufferToBase64(buffer: Uint8Array): string {
   return btoa(binary);
 }
 
-// Check if a bill already exists for this front_message_id (check both tables)
+// Check if a bill already exists for this front_message_id
 async function billAlreadyExists(frontMessageId: string): Promise<boolean> {
-  // Check unified bills table first
   const { data: billData } = await supabase
     .from('bills')
     .select('id')
     .eq('front_message_id', frontMessageId)
     .limit(1);
 
-  if (billData && billData.length > 0) return true;
-
-  // Also check legacy ops_bills for backward compat
-  const { data: opsData } = await supabase
-    .from('ops_bills')
-    .select('id')
-    .eq('front_message_id', frontMessageId)
-    .limit(1);
-
-  return opsData !== null && opsData.length > 0;
+  return billData !== null && billData.length > 0;
 }
 
 // Strip common prefixes/suffixes for better vendor matching
@@ -418,7 +408,6 @@ Deno.serve(async (req: Request) => {
 
     const results: Array<Record<string, unknown>> = [];
     const billInserts: Array<Record<string, unknown>> = [];
-    const opsBillInserts: Array<Record<string, unknown>> = [];
 
     for (const msg of messages as FrontMessage[]) {
       try {
@@ -526,27 +515,6 @@ Deno.serve(async (req: Request) => {
           af_unit_input: suggestions.unit,
         });
 
-        // Also insert into legacy ops_bills for backward compat
-        opsBillInserts.push({
-          vendor_name: invoice.vendor_name,
-          amount: invoice.invoice_amount,
-          invoice_date: invoice.invoice_date,
-          invoice_number: invoice.invoice_number,
-          front_conversation_id: msg.conversation_id,
-          front_message_id: msg.front_id,
-          front_email_subject: msg.subject,
-          front_email_from: msg.sender_email,
-          attachments_json: attachmentsJson,
-          status: billStatus,
-          due_date: invoice.due_date,
-          description: billDescription,
-          document_type: invoice.document_type || 'invoice',
-          payment_status: invoice.payment_status || 'unpaid',
-          af_property_input: suggestions.property,
-          af_gl_account_input: suggestions.gl_account,
-          af_unit_input: suggestions.unit,
-        });
-
         await supabase
           .from('front_messages')
           .update({
@@ -601,34 +569,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Also insert into legacy ops_bills for backward compat
-    let opsInserted = 0;
-    const opsInsertErrors: Array<{ vendor: string; error: string }> = [];
-
-    for (const bill of opsBillInserts) {
-      const { error: insertError } = await supabase
-        .from('ops_bills')
-        .insert(bill);
-
-      if (insertError) {
-        console.error(`ops_bills insert error for ${bill.vendor_name}:`, insertError.message);
-        opsInsertErrors.push({
-          vendor: bill.vendor_name as string,
-          error: insertError.message,
-        });
-      } else {
-        opsInserted++;
-      }
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
         processed: results.length,
         bills_inserted: billsInserted,
-        ops_bills_inserted: opsInserted,
         insertErrors: billInsertErrors.length > 0 ? billInsertErrors : undefined,
-        opsInsertErrors: opsInsertErrors.length > 0 ? opsInsertErrors : undefined,
         skipped: results.filter(r => r.status === 'skipped').length,
         incomplete: results.filter(r => r.status === 'incomplete').length,
         errors: results.filter(r => r.status === 'error').length,

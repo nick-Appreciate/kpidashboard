@@ -7,10 +7,9 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
  * Fetches bills from Supabase, then forwards them to the
  * Appfolio Bot server (Playwright on Hostinger) for browser-based upload.
  *
- * Supports three sources:
- *   1. unified_bill — the new unified bills table (default)
- *   2. bill — legacy ops_bills path (backward compat)
- *   3. expense — legacy brex_expenses path (backward compat)
+ * Supports two sources:
+ *   1. unified_bill — reads from the unified bills table (default)
+ *   2. expense — legacy brex_expenses path (backward compat, used for direct expense uploads)
  *
  * Invoke:
  *   curl -X POST '<SUPABASE_URL>/functions/v1/upload-appfolio-bills' \
@@ -267,141 +266,6 @@ async function handleExpenseSource(expenseId: number, dryRun: boolean): Promise<
   });
 }
 
-// ─── Legacy ops_bills source handler ────────────────────────────────────────
-
-interface LegacyBill {
-  id: number;
-  vendor_name: string;
-  amount: number;
-  invoice_date: string;
-  invoice_number: string | null;
-  due_date: string | null;
-  description: string | null;
-  document_type: string;
-  payment_status: string;
-  status: string | null;
-  attachments_json: any;
-  af_match_status: string;
-  af_bill_id: string | null;
-  af_property_input: string | null;
-  af_gl_account_input: string | null;
-  af_unit_input: string | null;
-}
-
-async function handleLegacyBillSource(billId: number | null, dryRun: boolean): Promise<Response> {
-  console.log(`=== Appfolio Bill Upload (legacy ops_bills) ===`);
-  console.log(`Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}`);
-  if (billId) console.log(`Single bill: #${billId}`);
-
-  const { ok, health } = await checkBotHealth();
-  if (!ok) return errorResponse('Bot server is not logged in to Appfolio.', 503, { bot_status: health });
-  console.log('  Bot is healthy and logged in.');
-
-  const { data: bills, error: fetchErr } = await supabase
-    .rpc('get_bills_with_af_match', { include_hidden: false });
-
-  if (fetchErr) throw new Error(`Supabase error: ${fetchErr.message}`);
-
-  const toProcess = (bills as LegacyBill[]).filter(b =>
-    b.af_match_status !== 'matched' &&
-    b.document_type === 'invoice' &&
-    b.payment_status !== 'paid' &&
-    b.status !== 'manual_entry' &&
-    (billId ? b.id === billId : true)
-  );
-
-  console.log(`  Found ${toProcess.length} bill(s) to process.`);
-
-  if (toProcess.length === 0) {
-    return new Response(JSON.stringify({
-      success: true,
-      message: 'No unmatched bills to process.',
-      results: [],
-    }), { headers: { 'Content-Type': 'application/json' } });
-  }
-
-  const billPayloads = toProcess.map(b => {
-    let attachment_url: string | null = null;
-    let attachment_filename: string | null = null;
-    if (Array.isArray(b.attachments_json) && b.attachments_json.length > 0) {
-      attachment_url = b.attachments_json[0].url || null;
-      attachment_filename = b.attachments_json[0].filename || null;
-    }
-    return {
-      id: b.id,
-      vendor_name: b.vendor_name,
-      amount: b.amount,
-      invoice_date: b.invoice_date,
-      invoice_number: b.invoice_number,
-      due_date: b.due_date,
-      description: b.description,
-      property: b.af_property_input,
-      unit: b.af_unit_input,
-      gl_account: b.af_gl_account_input,
-      attachment_url,
-      attachment_filename,
-    };
-  });
-
-  console.log(`Sending ${billPayloads.length} bills to bot...`);
-  const botRes = await fetch(`${botUrl}/api/upload-bills`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${botSecret}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ bills: billPayloads, dry_run: dryRun }),
-  });
-
-  const botResult = await botRes.json();
-
-  if (!dryRun && botResult.results) {
-    for (const result of botResult.results as BotUploadResult[]) {
-      if (result.success) {
-        const updateData: Record<string, unknown> = {
-          appfolio_synced: true,
-          appfolio_checked_at: new Date().toISOString(),
-          status: 'entered',
-        };
-        if (result.af_bill_id) {
-          updateData.appfolio_bill_id = parseInt(result.af_bill_id);
-        }
-        const { error: updateErr } = await supabase
-          .from('ops_bills')
-          .update(updateData)
-          .eq('id', result.bill_id);
-
-        if (updateErr) {
-          console.error(`  Failed to update bill #${result.bill_id}: ${updateErr.message}`);
-        } else {
-          console.log(`  Updated bill #${result.bill_id} → AF Bill ${result.af_bill_id}`);
-        }
-      }
-    }
-  }
-
-  const results = (botResult.results || []).map((r: BotUploadResult) => ({
-    bill_id: r.bill_id,
-    vendor: toProcess.find(b => b.id === r.bill_id)?.vendor_name || 'unknown',
-    amount: toProcess.find(b => b.id === r.bill_id)?.amount || 0,
-    success: r.success,
-    error: r.error,
-    af_bill_url: r.af_bill_url,
-  }));
-
-  const succeeded = results.filter((r: any) => r.success).length;
-  const failed = results.filter((r: any) => !r.success).length;
-
-  return new Response(JSON.stringify({
-    success: failed === 0,
-    dry_run: dryRun,
-    summary: { total: results.length, succeeded, failed },
-    results,
-  }, null, 2), {
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 // ─── Main Handler ───────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -430,14 +294,14 @@ Deno.serve(async (req: Request) => {
     if (url.searchParams.get('expense_id')) expenseId = parseInt(url.searchParams.get('expense_id')!);
 
     // Route to the appropriate handler
-    if (source === 'unified_bill' && billId) {
-      return handleUnifiedBill(billId, dryRun);
-    }
     if (source === 'expense' && expenseId) {
       return handleExpenseSource(expenseId, dryRun);
     }
-    // Legacy ops_bills path
-    return handleLegacyBillSource(billId, dryRun);
+    // Default: unified bills table
+    if (billId) {
+      return handleUnifiedBill(billId, dryRun);
+    }
+    return errorResponse('Missing bill_id parameter', 400);
 
   } catch (error: any) {
     console.error('Fatal error:', error);

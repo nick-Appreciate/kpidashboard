@@ -74,6 +74,28 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // Sync corporate status to brex_expenses if this is a brex-sourced bill
+    if (data.source === 'brex' && data.brex_expense_id && 'status' in body) {
+      const isCorporate = body.status === 'corporate';
+      const brexUpdate: Record<string, unknown> = {
+        is_corporate: isCorporate,
+        updated_at: new Date().toISOString(),
+      };
+      if (isCorporate) {
+        brexUpdate.match_status = 'corporate';
+        brexUpdate.corporate_at = new Date().toISOString();
+        brexUpdate.corporate_note = body.corporate_note || 'Marked via unified dashboard';
+      } else {
+        brexUpdate.match_status = 'unmatched';
+        brexUpdate.corporate_at = null;
+        brexUpdate.corporate_note = null;
+      }
+      await supabaseAdmin
+        .from('brex_expenses')
+        .update(brexUpdate)
+        .eq('id', data.brex_expense_id);
+    }
+
     return NextResponse.json({ success: true, bill: data });
   } catch (error) {
     console.error("Error in PATCH /api/admin/bills/[id]:", error);

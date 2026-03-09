@@ -326,15 +326,6 @@ export function useBills(isAdmin: boolean) {
         body: JSON.stringify({ status: 'corporate' }),
       });
       if (!res.ok) throw new Error("Failed to mark as corporate");
-      // Also update the brex_expense if it exists
-      const bill = bills.find(b => b.id === billId);
-      if (bill?.brex_expense_id) {
-        await fetch("/api/admin/brex/corporate", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: bill.brex_expense_id, is_corporate: true, note: '' }),
-        });
-      }
       await fetchBills(true);
     } catch (error) {
       console.error("Error marking corporate:", error);
@@ -352,14 +343,6 @@ export function useBills(isAdmin: boolean) {
         body: JSON.stringify({ status: 'pending' }),
       });
       if (!res.ok) throw new Error("Failed to unmark corporate");
-      const bill = bills.find(b => b.id === billId);
-      if (bill?.brex_expense_id) {
-        await fetch("/api/admin/brex/corporate", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: bill.brex_expense_id, is_corporate: false }),
-        });
-      }
       await fetchBills(true);
     } catch (error) {
       console.error("Error unmarking corporate:", error);
