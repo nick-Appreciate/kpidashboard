@@ -73,6 +73,7 @@ export interface Bill {
   af_unit_input: string | null;
   af_approved_by: string | null;
   af_approved_at: string | null;
+  appfolio_bill_id: number | null;
 }
 
 export interface GLAccount {
@@ -123,6 +124,7 @@ export interface BrexQueueItem {
   amount: number;
   status: 'queued' | 'uploading' | 'success' | 'failed';
   message?: string;
+  afBillId?: number;
   queuedAt: Date;
   completedAt?: Date;
 }
@@ -133,6 +135,7 @@ export interface BillQueueItem {
   amount: number;
   status: 'queued' | 'uploading' | 'success' | 'failed';
   message?: string;
+  afBillId?: number;
   queuedAt: Date;
   completedAt?: Date;
 }

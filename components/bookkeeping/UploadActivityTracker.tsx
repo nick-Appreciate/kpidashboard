@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckCircle2, AlertCircle, X, Upload, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Upload, Loader2, RefreshCw, ExternalLink } from "lucide-react";
 import type { BrexQueueItem, BillQueueItem } from "../../types/bookkeeping";
 
 interface UploadActivityTrackerProps {
@@ -21,6 +21,7 @@ type UnifiedItem = {
   amount: number;
   status: 'queued' | 'uploading' | 'success' | 'failed';
   message?: string;
+  afBillId?: number;
 };
 
 export default function UploadActivityTracker({
@@ -30,8 +31,8 @@ export default function UploadActivityTracker({
   onClearFinishedBrex, onClearFinishedBill,
 }: UploadActivityTrackerProps) {
   const items: UnifiedItem[] = [
-    ...brexQueue.map(q => ({ key: `brex-${q.expenseId}`, type: 'brex' as const, id: q.expenseId, vendorName: q.vendorName, amount: q.amount, status: q.status, message: q.message })),
-    ...billQueue.map(q => ({ key: `bill-${q.billId}`, type: 'bill' as const, id: q.billId, vendorName: q.vendorName, amount: q.amount, status: q.status, message: q.message })),
+    ...brexQueue.map(q => ({ key: `brex-${q.expenseId}`, type: 'brex' as const, id: q.expenseId, vendorName: q.vendorName, amount: q.amount, status: q.status, message: q.message, afBillId: q.afBillId })),
+    ...billQueue.map(q => ({ key: `bill-${q.billId}`, type: 'bill' as const, id: q.billId, vendorName: q.vendorName, amount: q.amount, status: q.status, message: q.message, afBillId: q.afBillId })),
   ];
 
   if (items.length === 0) return null;
@@ -103,6 +104,11 @@ export default function UploadActivityTracker({
               <span className="text-xs text-slate-200">{q.vendorName}</span>
               <span className="text-xs text-slate-500">${q.amount.toFixed(2)}</span>
               <span className="text-[10px] text-emerald-400">Done</span>
+              {q.afBillId && (
+                <a href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${q.afBillId}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-0.5 text-[10px] text-accent hover:underline font-medium" title="View in AppFolio">
+                  AF #{q.afBillId}<ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              )}
             </div>
             <button onClick={() => dismiss(q)} className="text-slate-600 hover:text-slate-400 transition-colors" title="Dismiss"><X className="w-3.5 h-3.5" /></button>
           </div>

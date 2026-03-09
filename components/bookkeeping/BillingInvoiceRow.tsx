@@ -165,7 +165,7 @@ export default function BillingInvoiceRow({
         )}
 
         {isManualEntry ? (
-          <a href="https://appreciate.appfolio.com/accounting/bills/new" target="_blank" rel="noopener noreferrer"
+          <a href="https://appreciateinc.appfolio.com/accounting/payable_invoices/new" target="_blank" rel="noopener noreferrer"
             className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white transition-colors">
             <ExternalLink className="w-4 h-4" />Open AppFolio to Enter Manually
           </a>
@@ -301,7 +301,7 @@ export default function BillingInvoiceRow({
               <div className="space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                   <div><span className="text-xs text-slate-500">AF Status</span><p className={`font-semibold text-sm ${bill.af_status === "Paid" ? "text-emerald-400" : "text-amber-400"}`}>{bill.af_status}</p></div>
-                  {bill.af_bill_id && <div><span className="text-xs text-slate-500">AF Bill #</span><a href={`https://appreciate.appfolio.com/accounting/bills/${bill.af_bill_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">{bill.af_bill_id}<ExternalLink className="w-3 h-3" /></a></div>}
+                  {(bill.af_bill_id || bill.appfolio_bill_id) && <div><span className="text-xs text-slate-500">AF Bill #</span><a href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${bill.af_bill_id || bill.appfolio_bill_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">{bill.af_bill_id || bill.appfolio_bill_id}<ExternalLink className="w-3 h-3" /></a></div>}
                   {bill.af_property_name && <div><span className="text-xs text-slate-500">Property</span><p className="font-medium text-sm text-slate-200">{bill.af_property_name}</p></div>}
                   {bill.af_gl_account_name && <div className="col-span-2"><span className="text-xs text-slate-500">GL Account</span><p className="font-medium text-sm text-slate-200">{bill.af_gl_account_name}</p></div>}
                   {bill.af_paid_date && <div><span className="text-xs text-slate-500">Paid Date</span><p className="font-mono text-sm text-slate-300">{bill.af_paid_date}</p></div>}

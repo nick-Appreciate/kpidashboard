@@ -278,15 +278,20 @@ export function useBrexExpenses(isAdmin: boolean) {
       });
 
       const result = await res.json();
+      // Extract AF bill ID from upload response
+      const botResults = result.upload?.results || [];
+      const thisExpResult = botResults.find((r: any) => r.bill_id == nextItem.expenseId);
+      const afBillId = thisExpResult?.af_bill_id ? parseInt(thisExpResult.af_bill_id) : undefined;
+
       if (!res.ok || result.error) {
         setUploadQueue(prev => prev.map(q => q.expenseId === nextItem.expenseId
           ? { ...q, status: 'failed' as const, message: result.error || 'Upload failed. Check bot status.', completedAt: new Date() } : q));
       } else if (result.bot_success === false) {
         setUploadQueue(prev => prev.map(q => q.expenseId === nextItem.expenseId
-          ? { ...q, status: 'success' as const, message: result.bot_error ? `Approved. Bot: ${result.bot_error}` : 'Approved & sent to AppFolio', completedAt: new Date() } : q));
+          ? { ...q, status: 'success' as const, message: result.bot_error ? `Approved. Bot: ${result.bot_error}` : 'Approved & sent to AppFolio', afBillId, completedAt: new Date() } : q));
       } else {
         setUploadQueue(prev => prev.map(q => q.expenseId === nextItem.expenseId
-          ? { ...q, status: 'success' as const, message: 'Uploaded to AppFolio!', completedAt: new Date() } : q));
+          ? { ...q, status: 'success' as const, message: 'Uploaded to AppFolio!', afBillId, completedAt: new Date() } : q));
       }
       await fetchExpenses(true);
     } catch (error) {

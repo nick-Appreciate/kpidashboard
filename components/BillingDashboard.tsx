@@ -736,7 +736,7 @@ export default function BillingDashboard() {
         {/* Approve & Upload Button */}
         {isManualEntry ? (
           <a
-            href="https://appreciate.appfolio.com/accounting/bills/new"
+            href="https://appreciateinc.appfolio.com/accounting/payable_invoices/new"
             target="_blank"
             rel="noopener noreferrer"
             className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-orange-600 hover:bg-orange-500 text-white transition-colors"
@@ -1258,7 +1258,7 @@ export default function BillingDashboard() {
                                 <div>
                                   <span className="text-xs text-slate-500">AF Bill #</span>
                                   <a
-                                    href={`https://appreciate.appfolio.com/accounting/bills/${bill.af_bill_id}`}
+                                    href={`https://appreciateinc.appfolio.com/accounting/payable_invoices/${bill.af_bill_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-1 font-mono text-sm text-accent hover:underline"

@@ -104,7 +104,7 @@ const brexExpenseUrl = (expenseId: string | null, merchantName?: string | null) 
 };
 
 const appfolioBillUrl = (billId: number) =>
-  `https://appreciate.appfolio.com/accounting/bills/${billId}`;
+  `https://appreciateinc.appfolio.com/accounting/payable_invoices/${billId}`;
 
 // Clean up raw card descriptors for display (e.g. "LOWE'S #1830" → "Lowe's")
 const formatMerchantName = (name: string): string => {

@@ -29,7 +29,7 @@ const brexExpenseUrl = (expenseId: string | null, merchantName?: string | null) 
 };
 
 const appfolioBillUrl = (billId: number) =>
-  `https://appreciate.appfolio.com/accounting/bills/${billId}`;
+  `https://appreciateinc.appfolio.com/accounting/payable_invoices/${billId}`;
 
 interface BrexExpenseRowProps {
   expense: BrexExpense;
