@@ -113,11 +113,12 @@ export async function POST(
       updated_at: new Date().toISOString(),
     };
 
-    if (botSuccess) {
-      syncUpdate.status = 'entered';
-    }
+    // Only mark as 'entered' when we have a confirmed appfolio_bill_id.
+    // If the bot succeeded but didn't return the ID, the bill stays pending
+    // and will be matched by the next af_bill_detail sync cycle.
     if (thisResult?.af_bill_id) {
       syncUpdate.appfolio_bill_id = parseInt(thisResult.af_bill_id);
+      syncUpdate.status = 'entered';
     }
 
     await supabaseAdmin

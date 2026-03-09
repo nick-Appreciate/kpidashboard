@@ -120,12 +120,14 @@ async function handleUnifiedBill(billId: number, dryRun: boolean): Promise<Respo
     for (const result of botResult.results as BotUploadResult[]) {
       if (result.success) {
         const updateData: Record<string, unknown> = {
-          status: 'entered',
           appfolio_synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
+        // Only mark as 'entered' when we have a confirmed af_bill_id.
+        // Otherwise the bill stays pending and gets matched by the next sync.
         if (result.af_bill_id) {
           updateData.appfolio_bill_id = parseInt(result.af_bill_id);
+          updateData.status = 'entered';
         }
 
         const { error: updateErr } = await supabase
