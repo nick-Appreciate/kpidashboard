@@ -53,6 +53,15 @@ export interface UnifiedBill {
   brex_memo: string | null;
   brex_receipt_ids: string[] | null;
   brex_expense_id_str: string | null;
+  // AppFolio match data (joined from af_bill_detail when appfolio_bill_id is set)
+  af_vendor_name: string | null;
+  af_property_name: string | null;
+  af_gl_account_name: string | null;
+  af_bill_date: string | null;
+  af_status: string | null;       // 'Paid' | 'Unpaid' | 'Approved'
+  af_paid_date: string | null;
+  af_memo: string | null;
+  af_unit: string | null;
 }
 
 export interface UnifiedBillDraft {

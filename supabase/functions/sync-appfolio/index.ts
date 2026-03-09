@@ -844,7 +844,24 @@ Deno.serve(async (req: Request) => {
     
     const successCount = results.filter(r => r.success).length;
     const totalRows = results.reduce((sum, r) => sum + r.rowsProcessed, 0);
-    
+
+    // After bill_detail sync, match pending bills against AppFolio records
+    const billDetailSynced = results.some(r => r.report === 'bill_detail' && r.success);
+    if (billDetailSynced) {
+      try {
+        const { data: matches, error: matchErr } = await supabase.rpc('match_bills_to_appfolio');
+        if (matchErr) {
+          console.error('Bill matching error:', matchErr.message);
+        } else if (matches && matches.length > 0) {
+          const highConf = matches.filter((m: any) => m.confidence === 'high').length;
+          const lowConf = matches.filter((m: any) => m.confidence === 'low').length;
+          console.log(`Matched ${matches.length} bills to AppFolio (${highConf} auto-linked, ${lowConf} low confidence)`);
+        }
+      } catch (e: any) {
+        console.error('Bill matching failed:', e?.message || String(e));
+      }
+    }
+
     return new Response(JSON.stringify({
       success: successCount === results.length,
       syncedAt: new Date().toISOString(),

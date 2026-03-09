@@ -94,13 +94,19 @@ export default function BillRow({
     ? (bill.brex_posted_at || bill.brex_initiated_at || bill.invoice_date)
     : (bill.invoice_date || bill.created_at);
 
-  // Entered display fields
+  // Entered display fields — prefer AF match data over bill's own input fields
+  const afPropertyDisplay = bill.af_property_name || bill.af_property_input;
+  const afGlAccountDisplay = bill.af_gl_account_name || bill.af_gl_account_input;
+  const afUnitDisplay = bill.af_unit || bill.af_unit_input;
+  const afVendorDisplay = bill.af_vendor_name || bill.vendor_name;
+
   const enteredDisplayFields = isEntered ? [
-    { label: 'Vendor', value: <p className="font-semibold text-sm text-emerald-400">{bill.vendor_name}</p> },
+    { label: 'Vendor', value: <p className="font-semibold text-sm text-emerald-400">{afVendorDisplay}</p> },
     { label: 'Amount', value: <p className="font-semibold text-sm text-emerald-400">${Number(bill.amount).toFixed(2)}</p> },
-    bill.af_property_input ? { label: 'Property', value: <p className="text-sm text-emerald-300/80">{bill.af_property_input}</p> } : null,
-    bill.af_gl_account_input ? { label: 'GL Account', value: <p className="text-sm text-emerald-300/80 truncate" title={bill.af_gl_account_input}>{bill.af_gl_account_input}</p> } : null,
-    bill.af_unit_input ? { label: 'Unit', value: <p className="text-sm text-emerald-300/80">{bill.af_unit_input}</p> } : null,
+    afPropertyDisplay ? { label: 'Property', value: <p className="text-sm text-emerald-300/80">{afPropertyDisplay}</p> } : null,
+    afGlAccountDisplay ? { label: 'GL Account', value: <p className="text-sm text-emerald-300/80 truncate" title={afGlAccountDisplay}>{afGlAccountDisplay}</p> } : null,
+    afUnitDisplay ? { label: 'Unit', value: <p className="text-sm text-emerald-300/80">{afUnitDisplay}</p> } : null,
+    bill.af_status ? { label: 'Status', value: <p className={`text-sm font-medium ${bill.af_status === 'Paid' ? 'text-emerald-400' : bill.af_status === 'Unpaid' ? 'text-amber-400' : 'text-slate-300'}`}>{bill.af_status}{bill.af_paid_date ? ` · ${new Date(bill.af_paid_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</p> } : null,
     bill.appfolio_bill_id ? { label: 'AF Bill', value: <a href={appfolioBillUrl(bill.appfolio_bill_id)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-sm text-accent hover:underline">#{bill.appfolio_bill_id}<ExternalLink className="w-3 h-3" /></a> } : null,
   ].filter(Boolean) as { label: string; value: React.ReactNode; colSpan?: 1 | 2 }[] : undefined;
 
