@@ -109,9 +109,14 @@ export async function POST(
     const botSuccess = thisResult?.success === true;
 
     const syncUpdate: Record<string, unknown> = {
-      appfolio_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    // Only set appfolio_synced_at when the bot actually succeeded.
+    // This lets the UI distinguish "awaiting AF confirmation" from "bot failed".
+    if (botSuccess) {
+      syncUpdate.appfolio_synced_at = new Date().toISOString();
+    }
 
     // Only mark as 'entered' when we have a confirmed appfolio_bill_id.
     // If the bot succeeded but didn't return the ID, the bill stays pending

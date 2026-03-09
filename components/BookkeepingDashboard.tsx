@@ -63,7 +63,8 @@ export default function BookkeepingDashboard() {
 
   // Counts
   const counts = useMemo(() => {
-    let actionNeeded = 0;
+    let needsEntered = 0;
+    let awaitingAF = 0;
     let completed = 0;
     let corporate = 0;
     let hidden = 0;
@@ -79,10 +80,13 @@ export default function BookkeepingDashboard() {
       else if (bill.status === 'payment') payments++;
       else if (bill.is_hidden || bill.status === 'hidden') hidden++;
       else if (bill.status === 'entered') completed++;
-      else if (bill.status === 'pending') actionNeeded++;
+      else if (bill.status === 'pending') {
+        if (bill.appfolio_synced_at) awaitingAF++;
+        else needsEntered++;
+      }
     }
 
-    return { actionNeeded, completed, corporate, hidden, payments, brexTotal, invoiceTotal };
+    return { needsEntered, awaitingAF, actionNeeded: needsEntered + awaitingAF, completed, corporate, hidden, payments, brexTotal, invoiceTotal };
   }, [b.bills]);
 
   // Filter + sort feed
@@ -162,9 +166,10 @@ export default function BookkeepingDashboard() {
                 )}
                 <span className="text-blue-400">{counts.invoiceTotal} invoices</span>
                 {" · "}
-                <span className="text-amber-400">{counts.actionNeeded} action needed</span>
+                <span className="text-amber-400">{counts.needsEntered} needs entered</span>
+                {counts.awaitingAF > 0 && <>{" · "}<span className="text-cyan-400">{counts.awaitingAF} pending</span></>}
                 {" · "}
-                <span className="text-emerald-400">{counts.completed} completed</span>
+                <span className="text-emerald-400">{counts.completed} entered</span>
                 {isAdmin && counts.corporate > 0 && <>{" · "}<span className="text-slate-500">{counts.corporate} corporate</span></>}
                 {counts.hidden > 0 && <>{" · "}<span className="text-slate-500">{counts.hidden} hidden</span></>}
                 {isAdmin && counts.payments > 0 && <>{" · "}<span className="text-purple-400">{counts.payments} payments</span></>}
@@ -227,8 +232,8 @@ export default function BookkeepingDashboard() {
               <div className="flex gap-1.5 flex-1 flex-wrap">
                 {([
                   { key: "all" as UnifiedFilterOption, label: `All (${b.bills.filter(x => !x.is_hidden && x.status !== 'hidden').length})`, color: "bg-accent text-surface-base" },
-                  { key: "action_needed" as UnifiedFilterOption, label: `Action Needed (${counts.actionNeeded})`, color: "bg-amber-500/15 text-amber-400" },
-                  { key: "completed" as UnifiedFilterOption, label: `Completed (${counts.completed})`, color: "bg-emerald-500/15 text-emerald-400" },
+                  { key: "action_needed" as UnifiedFilterOption, label: `Needs Entered (${counts.needsEntered})${counts.awaitingAF > 0 ? ` + ${counts.awaitingAF} pending` : ''}`, color: "bg-amber-500/15 text-amber-400" },
+                  { key: "completed" as UnifiedFilterOption, label: `Entered (${counts.completed})`, color: "bg-emerald-500/15 text-emerald-400" },
                   ...(isAdmin ? [{ key: "corporate" as UnifiedFilterOption, label: `Corporate (${counts.corporate})`, color: "bg-slate-500/20 text-slate-300" }] : []),
                   { key: "hidden" as UnifiedFilterOption, label: `Hidden (${counts.hidden})`, color: "bg-slate-500/20 text-slate-300" },
                   ...(isAdmin ? [{ key: "payments" as UnifiedFilterOption, label: `Payments (${counts.payments})`, color: "bg-purple-500/15 text-purple-400" }] : []),

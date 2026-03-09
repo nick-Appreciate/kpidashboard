@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, ExternalLink, Loader2, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
+import { CheckCircle2, AlertCircle, Archive, ArchiveRestore, ExternalLink, Loader2, Image as ImageIcon, XCircle, ChevronDown, ChevronRight, Eye, EyeOff, Clock } from "lucide-react";
 import AppFolioPanel from "./AppFolioPanel";
 import type { UnifiedBill, UnifiedBillDraft, UnifiedQueueItemV2, GLAccount } from "../../types/bookkeeping";
 
@@ -70,6 +70,17 @@ export default function BillRow({
   const isCorporate = bill.status === 'corporate';
   const isHidden = bill.is_hidden;
   const isPending = bill.status === 'pending';
+  // Distinguish pending bills: sent to AppFolio (awaiting confirmation) vs needs user action
+  // appfolio_synced_at is only set when the bot succeeds, so failed uploads show the retry form
+  const isSentToAF = isPending && !!bill.appfolio_synced_at;
+
+  // Elapsed time since sent to AF (updates on each 12s poll)
+  const syncElapsedSec = isSentToAF && bill.appfolio_synced_at
+    ? Math.floor((Date.now() - new Date(bill.appfolio_synced_at).getTime()) / 1000)
+    : 0;
+  const syncElapsedStr = syncElapsedSec < 60
+    ? `${syncElapsedSec}s ago`
+    : `${Math.floor(syncElapsedSec / 60)}m ${syncElapsedSec % 60}s ago`;
 
   const queueItem = uploadQueue.find(q => q.billId === bill.id);
   const result = uploadResultMap[bill.id];
@@ -77,8 +88,8 @@ export default function BillRow({
   const isManualEntry = bill.document_type === 'credit_memo' || Number(bill.amount) < 0;
 
   // Status colors
-  const statusColor = isPayment ? 'bg-purple-500' : isEntered ? 'bg-emerald-500' : isCorporate ? 'bg-slate-500' : isHidden ? 'bg-slate-500' : 'bg-amber-500';
-  const statusBorder = isPayment ? 'border-purple-500/20' : isEntered ? 'border-emerald-500/20' : isCorporate ? 'border-slate-600' : isHidden ? 'border-slate-600' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
+  const statusColor = isPayment ? 'bg-purple-500' : isEntered ? 'bg-emerald-500' : isCorporate ? 'bg-slate-500' : isHidden ? 'bg-slate-500' : isSentToAF ? 'bg-cyan-500' : 'bg-amber-500';
+  const statusBorder = isPayment ? 'border-purple-500/20' : isEntered ? 'border-emerald-500/20' : isCorporate ? 'border-slate-600' : isHidden ? 'border-slate-600' : isSentToAF ? 'border-cyan-500/20' : queueItem?.status === 'uploading' ? 'border-cyan-500/30' : queueItem?.status === 'failed' ? 'border-red-500/30' : 'border-[var(--glass-border)]';
   const sourceBorderColor = isBrex ? 'border-l-violet-500/60' : 'border-l-blue-500/60';
 
   // Source badge
@@ -159,7 +170,8 @@ export default function BillRow({
            : queueItem?.status === 'uploading' ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-500/15 text-cyan-400"><Loader2 className="w-3 h-3 animate-spin" />Sending</span>
            : queueItem?.status === 'queued' ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-500/15 text-slate-400">Queued</span>
            : result?.success === false ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-500/15 text-red-400"><XCircle className="w-3 h-3" />Failed</span>
-           : <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-500/15 text-amber-400">Pending</span>}
+           : isSentToAF ? <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-500/15 text-cyan-400"><Clock className="w-3 h-3" />Pending</span>
+           : <span className="flex items-center justify-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-500/15 text-amber-400">Needs Entered</span>}
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -274,7 +286,7 @@ export default function BillRow({
           </div>
 
           {/* RIGHT: AppFolio panel */}
-          <div className={`p-4 ${isPayment ? "bg-purple-500/5" : isEntered ? "bg-emerald-500/5" : isCorporate ? "bg-white/[0.02]" : isHidden ? "bg-white/[0.02]" : "bg-amber-500/5"}`}>
+          <div className={`p-4 ${isPayment ? "bg-purple-500/5" : isEntered ? "bg-emerald-500/5" : isCorporate ? "bg-white/[0.02]" : isHidden ? "bg-white/[0.02]" : isSentToAF ? "bg-cyan-500/5" : "bg-amber-500/5"}`}>
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 {isPayment ? 'Payment Record' : 'AppFolio'}
@@ -283,7 +295,8 @@ export default function BillRow({
                : isEntered ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400"><CheckCircle2 className="w-3 h-3" />Entered</span>
                : isCorporate ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-500/20 text-slate-400"><Archive className="w-3 h-3" />Corporate</span>
                : isHidden ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-slate-500/20 text-slate-400"><EyeOff className="w-3 h-3" />Hidden</span>
-               : <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-500/20 text-amber-400"><AlertCircle className="w-3 h-3" />Pending</span>}
+               : isSentToAF ? <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-cyan-500/20 text-cyan-400"><Clock className="w-3 h-3" />Pending</span>
+               : <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-amber-500/20 text-amber-400"><AlertCircle className="w-3 h-3" />Needs Entered</span>}
             </div>
 
             {isPayment && (
@@ -297,7 +310,31 @@ export default function BillRow({
               </div>
             )}
 
-            {isPending && (
+            {isPending && isSentToAF && result?.success !== false && !queueItem && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 px-3 py-2 rounded bg-cyan-500/10 border border-cyan-500/20">
+                  <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-cyan-300">Sent to AppFolio — awaiting data confirmation</p>
+                    <p className="text-[10px] text-cyan-400/60">Sent {syncElapsedStr} · auto-verifies at 5 min</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Vendor</span><p className="text-sm text-cyan-300">{draft?.vendor_name || bill.vendor_name}</p></div>
+                  <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Amount</span><p className="text-sm text-cyan-300">${Number(draft?.amount || bill.amount).toFixed(2)}</p></div>
+                  {draft?.af_property_input && <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Property</span><p className="text-sm text-slate-300">{draft.af_property_input}</p></div>}
+                  {draft?.af_gl_account_input && <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">GL Account</span><p className="text-sm text-slate-300 truncate" title={draft.af_gl_account_input}>{draft.af_gl_account_input}</p></div>}
+                  {draft?.af_unit_input && <div><span className="text-[10px] text-slate-500 uppercase tracking-wide">Unit</span><p className="text-sm text-slate-300">{draft.af_unit_input}</p></div>}
+                </div>
+                {bill.approved_by && (
+                  <p className="text-[10px] text-slate-600">
+                    Approved by {bill.approved_by} {bill.approved_at ? `· ${new Date(bill.approved_at).toLocaleString()}` : ''}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {isPending && !(isSentToAF && result?.success !== false && !queueItem) && (
               <AppFolioPanel
                 mode="form"
                 draft={draft}

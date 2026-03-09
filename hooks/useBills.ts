@@ -4,16 +4,11 @@ import type { UnifiedBill, UnifiedBillDraft, UnifiedQueueItemV2, PrefillData } f
 const POLL_INTERVAL = 12_000;
 
 function makeDraft(bill: UnifiedBill, prefill?: PrefillData | null): UnifiedBillDraft {
-  const dateStr = bill.source === 'brex'
-    ? (bill.brex_posted_at || bill.brex_initiated_at || bill.invoice_date || '')
-    : (bill.invoice_date || '');
+  // Bill Date & Due Date default to today (upload date), not the invoice/transaction date
+  const today = new Date().toISOString().split('T')[0];
+  const dateStr = today;
 
-  let defaultDue = bill.due_date || '';
-  if (!defaultDue && dateStr) {
-    const d = new Date(dateStr);
-    d.setDate(d.getDate() + 15);
-    defaultDue = d.toISOString().split('T')[0];
-  }
+  const defaultDue = bill.due_date || today;
 
   let description = bill.description || '';
   if (!description && bill.source === 'brex') {
@@ -52,6 +47,7 @@ export function useBills(isAdmin: boolean, userName?: string) {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const verifiedBillsRef = useRef<Set<number>>(new Set());
 
   // Derive upload results from queue
   const uploadResult: Record<number, { success: boolean; message: string }> = {};
@@ -142,6 +138,33 @@ export function useBills(isAdmin: boolean, userName?: string) {
       return next;
     });
   }, [bills, prefillMap]);
+
+  // Auto-verify bills that have been awaiting AF confirmation > 5 min.
+  // Updates our AF records (matching), then marks as failed if still no match.
+  useEffect(() => {
+    const VERIFY_AFTER_MS = 5 * 60 * 1000; // 5 minutes
+    const now = Date.now();
+
+    const needsVerify = bills.filter(b =>
+      b.status === 'pending' &&
+      b.appfolio_synced_at &&
+      !verifiedBillsRef.current.has(b.id) &&
+      (now - new Date(b.appfolio_synced_at).getTime()) > VERIFY_AFTER_MS
+    );
+
+    if (needsVerify.length === 0) return;
+
+    for (const bill of needsVerify) {
+      verifiedBillsRef.current.add(bill.id);
+      fetch(`/api/admin/bills/${bill.id}/verify-upload`, { method: 'POST' })
+        .then(res => res.json())
+        .then(result => {
+          console.log(`Verify bill ${bill.id}:`, result.matched ? 'matched!' : 'not matched — marked for retry');
+          fetchBills(true);
+        })
+        .catch(err => console.error(`Verify bill ${bill.id} failed:`, err));
+    }
+  }, [bills, fetchBills]);
 
   // ─── Queue processor ──────────────────────────────────────────────────
 
