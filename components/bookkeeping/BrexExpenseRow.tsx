@@ -95,9 +95,6 @@ export default function BrexExpenseRow({
     }
     if (matchData.matches.length === 0) return null;
 
-    const amountMatches = matchData.matches.filter(m => Math.abs(m.amount - Number(expense.amount)) < 0.01);
-    const vendorOnlyMatches = matchData.matches.filter(m => Math.abs(m.amount - Number(expense.amount)) >= 0.01);
-
     return (
       <div className="bg-cyan-500/5 border border-cyan-500/15 rounded-lg p-3 space-y-2">
         <div className="flex items-center justify-between">
@@ -105,82 +102,40 @@ export default function BrexExpenseRow({
             <Link2 className="w-3.5 h-3.5" />
             Potential Matches ({matchData.matches.length})
           </p>
-          <p className="text-[10px] text-slate-500">Bills already entered that may match this expense</p>
+          <p className="text-[10px] text-slate-500">Bills with matching vendor & amount</p>
         </div>
 
-        {amountMatches.length > 0 && (
-          <div className="space-y-1">
-            {amountMatches.length > 0 && vendorOnlyMatches.length > 0 && (
-              <p className="text-[10px] text-cyan-500 font-medium uppercase tracking-wide mt-1">Exact Amount Matches</p>
-            )}
-            {amountMatches.map(match => (
-              <div key={match.id} className="flex items-center gap-2 px-2.5 py-2 rounded bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-cyan-300 truncate">{match.vendor_name}</span>
-                    <span className="text-xs font-bold text-cyan-200 tabular-nums">${match.amount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5 flex-wrap">
-                    {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
-                    {match.invoice_number && <span>#{match.invoice_number}</span>}
-                    {match.property_name && <span className="text-slate-400">{match.property_name}</span>}
-                    {match.payment_status && (
-                      <span className={match.payment_status === 'paid' ? 'text-emerald-500' : 'text-amber-500'}>{match.payment_status}</span>
-                    )}
-                    <span className={`px-1 py-px rounded text-[9px] font-medium ${match.source === 'af_bill_detail' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-500/15 text-slate-400'}`}>
-                      {match.source === 'af_bill_detail' ? 'AppFolio' : 'Pending'}
-                    </span>
-                  </div>
+        <div className="space-y-1">
+          {matchData.matches.map(match => (
+            <div key={`${match.source}:${match.id}`} className="flex items-center gap-2 px-2.5 py-2 rounded bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-cyan-300 truncate">{match.vendor_name}</span>
+                  <span className="text-xs font-bold text-cyan-200 tabular-nums">${match.amount.toFixed(2)}</span>
                 </div>
-                <button
-                  onClick={() => onLinkExpenseToBill(expense.id, typeof match.id === 'string' ? parseInt(match.id) || 0 : match.id)}
-                  disabled={linkingId === expense.id}
-                  className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded bg-cyan-600 hover:bg-cyan-500 text-white transition-colors disabled:opacity-50"
-                >
-                  {linkingId === expense.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                  Link
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {vendorOnlyMatches.length > 0 && (
-          <div className="space-y-1">
-            {amountMatches.length > 0 && (
-              <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mt-1">Same Vendor (Different Amount)</p>
-            )}
-            {vendorOnlyMatches.slice(0, 5).map(match => (
-              <div key={match.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-white/[0.03] border border-[var(--glass-border)] hover:bg-white/[0.06] transition-colors">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-300 truncate">{match.vendor_name}</span>
-                    <span className="text-xs text-slate-400 tabular-nums">${match.amount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-600 mt-0.5 flex-wrap">
-                    {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
-                    {match.invoice_number && <span>#{match.invoice_number}</span>}
-                    {match.property_name && <span className="text-slate-400">{match.property_name}</span>}
-                    {match.payment_status && (
-                      <span className={match.payment_status === 'paid' ? 'text-emerald-600' : 'text-amber-600'}>{match.payment_status}</span>
-                    )}
-                    <span className={`px-1 py-px rounded text-[9px] font-medium ${match.source === 'af_bill_detail' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-500/15 text-slate-400'}`}>
-                      {match.source === 'af_bill_detail' ? 'AppFolio' : 'Pending'}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5 flex-wrap">
+                  {match.invoice_date && <span>{new Date(match.invoice_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                  {match.invoice_number && <span>#{match.invoice_number}</span>}
+                  {match.property_name && <span className="text-slate-400">{match.property_name}</span>}
+                  {match.payment_status && (
+                    <span className={match.payment_status === 'paid' ? 'text-emerald-500' : 'text-amber-500'}>{match.payment_status}</span>
+                  )}
+                  <span className={`px-1 py-px rounded text-[9px] font-medium ${match.source === 'af_bill_detail' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-500/15 text-slate-400'}`}>
+                    {match.source === 'af_bill_detail' ? 'AppFolio' : 'Pending'}
+                  </span>
                 </div>
-                <button
-                  onClick={() => onLinkExpenseToBill(expense.id, typeof match.id === 'string' ? parseInt(match.id) || 0 : match.id)}
-                  disabled={linkingId === expense.id}
-                  className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors border border-[var(--glass-border)] disabled:opacity-50"
-                >
-                  {linkingId === expense.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                  Link
-                </button>
               </div>
-            ))}
-          </div>
-        )}
+              <button
+                onClick={() => onLinkExpenseToBill(expense.id, typeof match.id === 'string' ? parseInt(match.id) || 0 : match.id)}
+                disabled={linkingId === expense.id}
+                className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded bg-cyan-600 hover:bg-cyan-500 text-white transition-colors disabled:opacity-50"
+              >
+                {linkingId === expense.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                Link
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
