@@ -84,7 +84,7 @@ export default function RenewalsDashboard() {
   // Lease detail multi-select filters
   const [activeIssues, setActiveIssues] = useState(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']));
   const [activeStatuses, setActiveStatuses] = useState(new Set());
-  const [activeProperties, setActiveProperties] = useState(new Set());
+  const [activeMonth, setActiveMonth] = useState(null); // { year, month } or null
   const [leaseDetailView, setLeaseDetailView] = useState('table');
 
   // Chart refs (always-mounted pattern)
@@ -194,24 +194,12 @@ export default function RenewalsDashboard() {
     return statuses;
   }, [tableleases]);
 
-  // Collect unique properties
-  const allProperties = useMemo(() => {
-    return [...new Set(tableleases.map(l => l.property).filter(Boolean))].sort();
-  }, [tableleases]);
-
   // Initialize activeStatuses to all on first data load
   useEffect(() => {
     if (allRenewalStatuses.length > 0 && activeStatuses.size === 0) {
       setActiveStatuses(new Set(allRenewalStatuses));
     }
   }, [allRenewalStatuses]);
-
-  // Initialize activeProperties to all on first data load
-  useEffect(() => {
-    if (allProperties.length > 0 && activeProperties.size === 0) {
-      setActiveProperties(new Set(allProperties));
-    }
-  }, [allProperties]);
 
   // Issue type button config
   const issueButtons = [
@@ -236,21 +224,9 @@ export default function RenewalsDashboard() {
       return next;
     });
   };
-  const toggleProperty = (key) => {
-    setActiveProperties(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
-
   // Quick-filter: click a cell value to isolate it; click again to restore all
   const filterOnly = (dimension, value) => {
-    if (dimension === 'property') {
-      setActiveProperties(prev =>
-        prev.size === 1 && prev.has(value) ? new Set(allProperties) : new Set([value])
-      );
-    } else if (dimension === 'issue') {
+    if (dimension === 'issue') {
       setActiveIssues(prev =>
         prev.size === 1 && prev.has(value)
           ? new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming'])
@@ -263,12 +239,30 @@ export default function RenewalsDashboard() {
     }
   };
 
+  // Helper: get the expiration month bucket for a lease
+  const getLeaseExpirationMonth = (lease) => {
+    const today = new Date();
+    let expDate;
+    if (lease.leaseEnd) {
+      expDate = new Date(lease.leaseEnd + 'T00:00:00');
+    } else if (lease.daysUntilExpiration != null) {
+      expDate = new Date(today);
+      expDate.setDate(expDate.getDate() + lease.daysUntilExpiration);
+    }
+    if (!expDate) return null;
+    return { year: expDate.getFullYear(), month: expDate.getMonth() };
+  };
+
   // Filtered + sorted leases: filter by issue type & renewal status, sort by days left asc, evictions last
   const filteredLeases = useMemo(() => {
     return tableleases
       .filter(l => activeIssues.has(l.issueType))
       .filter(l => activeStatuses.has(l.renewalStatus || 'Unknown'))
-      .filter(l => activeProperties.size === 0 || activeProperties.has(l.property))
+      .filter(l => {
+        if (!activeMonth) return true;
+        const exp = getLeaseExpirationMonth(l);
+        return exp && exp.year === activeMonth.year && exp.month === activeMonth.month;
+      })
       .sort((a, b) => {
         // Evictions always at the bottom
         if (a.issueType === 'eviction' && b.issueType !== 'eviction') return 1;
@@ -285,7 +279,7 @@ export default function RenewalsDashboard() {
         const bDays = b.daysUntilExpiration ?? Infinity;
         return aDays - bDays;
       });
-  }, [tableleases, activeIssues, activeStatuses, activeProperties]);
+  }, [tableleases, activeIssues, activeStatuses, activeMonth]);
 
   // Counts per issue type (unfiltered by status, for button badges)
   const issueCounts = useMemo(() => {
@@ -496,9 +490,18 @@ export default function RenewalsDashboard() {
     }
     if (!expirationsMiniCanvasRef.current || !monthlyExpirations.length) return;
 
-    const dataKey = monthlyExpirations.map(m => m.count).join(',');
+    const monthKey = activeMonth ? `${activeMonth.year}-${activeMonth.month}` : 'none';
+    const dataKey = monthlyExpirations.map(m => m.count).join(',') + '|' + monthKey;
     if (expirationsMiniRenderedRef.current === dataKey) return;
     expirationsMiniRenderedRef.current = dataKey;
+
+    // Highlight selected month bar, dim others
+    const getBarColors = () => monthlyExpirations.map((m, i) => {
+      if (activeMonth && (m.year !== activeMonth.year || m.month !== activeMonth.month)) {
+        return 'rgba(100,116,139,0.2)'; // dimmed slate
+      }
+      return i === 0 ? '#f59e0b' : '#3b82f6';
+    });
 
     expirationsMiniChartRef.current = new Chart(expirationsMiniCanvasRef.current.getContext('2d'), {
       type: 'bar',
@@ -506,7 +509,7 @@ export default function RenewalsDashboard() {
         labels: monthlyExpirations.map(m => m.label),
         datasets: [{
           data: monthlyExpirations.map(m => m.count),
-          backgroundColor: monthlyExpirations.map((m, i) => i === 0 ? '#f59e0b' : '#3b82f6'),
+          backgroundColor: getBarColors(),
           borderRadius: 3,
           barPercentage: 0.6,
         }]
@@ -515,11 +518,26 @@ export default function RenewalsDashboard() {
         ...DARK_CHART_DEFAULTS,
         responsive: true,
         maintainAspectRatio: false,
+        onHover: (event, elements) => {
+          event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+        },
+        onClick: (event, elements) => {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            const clicked = monthlyExpirations[idx];
+            setActiveMonth(prev => {
+              if (prev && prev.year === clicked.year && prev.month === clicked.month) {
+                return null; // toggle off
+              }
+              return { year: clicked.year, month: clicked.month };
+            });
+          }
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: (ctx) => `${ctx.parsed.y} lease${ctx.parsed.y !== 1 ? 's' : ''} expiring`
+              label: (ctx) => `${ctx.parsed.y} lease${ctx.parsed.y !== 1 ? 's' : ''} expiring — click to filter`
             }
           }
         },
@@ -544,7 +562,7 @@ export default function RenewalsDashboard() {
       }
       expirationsMiniRenderedRef.current = null;
     };
-  }, [monthlyExpirations]);
+  }, [monthlyExpirations, activeMonth]);
 
   // Renewal status badge config for filter buttons
   const statusButtonConfig = {
@@ -562,15 +580,6 @@ export default function RenewalsDashboard() {
     tableleases.forEach(l => {
       const s = l.renewalStatus || 'Unknown';
       counts[s] = (counts[s] || 0) + 1;
-    });
-    return counts;
-  }, [tableleases]);
-
-  // Counts per property (unfiltered by issue/status, for button badges)
-  const propertyCounts = useMemo(() => {
-    const counts = {};
-    tableleases.forEach(l => {
-      if (l.property) counts[l.property] = (counts[l.property] || 0) + 1;
     });
     return counts;
   }, [tableleases]);
@@ -774,49 +783,21 @@ export default function RenewalsDashboard() {
               </div>
             </div>
 
-            {/* Property filter buttons */}
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xs text-slate-500">Property</span>
-                {activeProperties.size < allProperties.length && (
-                  <button
-                    onClick={() => setActiveProperties(new Set(allProperties))}
-                    className="text-[10px] text-accent hover:text-accent-light transition-colors"
-                  >
-                    Show all
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {allProperties.map(prop => {
-                  const active = activeProperties.has(prop);
-                  return (
-                    <button
-                      key={prop}
-                      onClick={() => toggleProperty(prop)}
-                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                        active
-                          ? 'bg-cyan-500/20 text-cyan-300'
-                          : 'bg-surface-overlay text-slate-500 hover:text-slate-300'
-                      }`}
-                    >
-                      {prop}
-                      <span className="ml-1 tabular-nums opacity-70">{propertyCounts[prop] || 0}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* Active filter summary */}
-            {(activeIssues.size < 4 || activeStatuses.size < allRenewalStatuses.length || activeProperties.size < allProperties.length) && (
+            {(activeIssues.size < 4 || activeStatuses.size < allRenewalStatuses.length || activeMonth) && (
               <div className="flex items-center gap-2 mb-3 text-[11px] text-slate-500">
                 <span>Showing {filteredLeases.length} of {tableleases.length} leases</span>
+                {activeMonth && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[11px] font-medium">
+                    {new Date(activeMonth.year, activeMonth.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                    <button onClick={() => setActiveMonth(null)} className="hover:text-white ml-0.5">✕</button>
+                  </span>
+                )}
                 <button
                   onClick={() => {
                     setActiveIssues(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']));
                     setActiveStatuses(new Set(allRenewalStatuses));
-                    setActiveProperties(new Set(allProperties));
+                    setActiveMonth(null);
                   }}
                   className="text-accent hover:text-accent-light transition-colors underline"
                 >
@@ -841,24 +822,12 @@ export default function RenewalsDashboard() {
                     <table className="w-full text-sm">
                       <thead className="bg-surface-raised/80 text-xs text-slate-400 sticky top-0 z-10">
                         <tr>
-                          <th className={`px-3 py-2 text-left font-medium cursor-pointer hover:text-cyan-300 transition-colors ${activeProperties.size < allProperties.length ? 'text-cyan-400' : ''}`}
-                              onClick={() => setActiveProperties(prev => prev.size < allProperties.length ? new Set(allProperties) : prev)}
-                              title="Click a property value below to filter">
-                            Property {activeProperties.size < allProperties.length && <span className="text-[10px] ml-0.5">✦</span>}
-                          </th>
+                          <th className="px-3 py-2 text-left font-medium">Property</th>
                           <th className="px-3 py-2 text-left font-medium">Unit</th>
                           <th className="px-3 py-2 text-left font-medium">Tenant</th>
-                          <th className={`px-3 py-2 text-left font-medium cursor-pointer hover:text-cyan-300 transition-colors ${activeIssues.size < 4 ? 'text-cyan-400' : ''}`}
-                              onClick={() => setActiveIssues(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']))}
-                              title="Click an issue badge below to filter; click header to reset">
-                            Issue {activeIssues.size < 4 && <span className="text-[10px] ml-0.5">✦</span>}
-                          </th>
+                          <th className="px-3 py-2 text-left font-medium">Issue</th>
                           <th className="px-3 py-2 text-center font-medium">Days Left</th>
-                          <th className={`px-3 py-2 text-center font-medium cursor-pointer hover:text-cyan-300 transition-colors ${activeStatuses.size < allRenewalStatuses.length ? 'text-cyan-400' : ''}`}
-                              onClick={() => setActiveStatuses(new Set(allRenewalStatuses))}
-                              title="Click a renewal badge below to filter; click header to reset">
-                            Renewal {activeStatuses.size < allRenewalStatuses.length && <span className="text-[10px] ml-0.5">✦</span>}
-                          </th>
+                          <th className="px-3 py-2 text-center font-medium">Renewal</th>
                           <th className="px-3 py-2 text-right font-medium">Rent</th>
                           <th className="px-3 py-2 text-center font-medium w-[60px]"></th>
                         </tr>
@@ -866,11 +835,7 @@ export default function RenewalsDashboard() {
                       <tbody className="divide-y divide-white/5">
                         {filteredLeases.map((lease, idx) => (
                           <tr key={idx} className="hover:bg-white/5 transition-colors">
-                            <td
-                              className="px-3 py-2 text-slate-200 truncate max-w-[140px] cursor-pointer hover:text-cyan-300 transition-colors"
-                              title={`Filter: ${lease.property}`}
-                              onClick={() => filterOnly('property', lease.property)}
-                            >
+                            <td className="px-3 py-2 text-slate-200 truncate max-w-[140px]" title={lease.property}>
                               {lease.property}
                             </td>
                             <td className="px-3 py-2 font-medium text-slate-100">{lease.unit}</td>
@@ -937,7 +902,7 @@ export default function RenewalsDashboard() {
                         onClick={() => {
                           setActiveIssues(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']));
                           setActiveStatuses(new Set(allRenewalStatuses));
-                          setActiveProperties(new Set(allProperties));
+                          setActiveMonth(null);
                         }}
                         className="mt-2 text-xs text-accent hover:text-accent-light transition-colors"
                       >
