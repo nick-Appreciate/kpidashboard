@@ -3,24 +3,24 @@ import { supabase } from '../../../../../lib/supabase';
 import { normalizeMerchant, normalizeAfVendor, matchScore } from '../../../../../lib/vendor-matching';
 
 /**
- * POST /api/admin/brex/prefill
+ * POST /api/admin/bills/prefill
  *
- * Takes an array of Brex merchant names and fuzzy-matches them against
+ * Takes an array of vendor names and fuzzy-matches them against
  * historical af_bill_detail records to pre-fill vendor, property, and GL account.
  *
- * Body: { merchants: string[] }
- * Returns: { [merchant_name]: { vendor_name, property, gl_account } | null }
+ * Body: { vendors: string[] }
+ * Returns: { [vendor_name]: { vendor_name, property, gl_account, description } | null }
  */
 
-// Minimum score to consider a match (tuned to avoid false positives)
 const MIN_MATCH_SCORE = 0.5;
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const merchants: string[] = body.merchants || [];
+    // Accept both 'vendors' and 'merchants' for backward compat
+    const vendors: string[] = body.vendors || body.merchants || [];
 
-    if (merchants.length === 0) {
+    if (vendors.length === 0) {
       return NextResponse.json({});
     }
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: bdErr.message }, { status: 500 });
     }
 
-    // Build a lookup: normalized AF vendor name -> { vendor_name, property, gl_account, description, count }
+    // Build lookup: normalized AF vendor name -> { vendor_name, property, gl_account, description, count }
     const vendorMap = new Map<string, Map<string, { vendor_name: string; property: string; gl_account: string; description: string; count: number }>>();
 
     for (const row of billDetails || []) {
@@ -48,7 +48,6 @@ export async function POST(request: Request) {
       const existing = combos.get(key);
       if (existing) {
         existing.count++;
-        // Keep the most recent non-empty memo
         if (row.memo && !existing.description) {
           existing.description = row.memo;
         }
@@ -65,35 +64,34 @@ export async function POST(request: Request) {
 
     const vendorEntries = Array.from(vendorMap.entries());
 
-    // For each merchant, find the best match
+    // For each vendor, find the best match
     const result: Record<string, { vendor_name: string; property: string; gl_account: string; description: string } | null> = {};
 
-    for (const merchant of merchants) {
-      const merchantNorm = normalizeMerchant(merchant);
+    for (const vendor of vendors) {
+      const vendorNorm = normalizeMerchant(vendor);
 
       let bestScore = 0;
       let bestCombos: Map<string, { vendor_name: string; property: string; gl_account: string; description: string; count: number }> | null = null;
 
-      // 1. Exact normalized match (score = 1.0)
-      if (vendorMap.has(merchantNorm)) {
+      // 1. Exact normalized match
+      if (vendorMap.has(vendorNorm)) {
         bestScore = 1.0;
-        bestCombos = vendorMap.get(merchantNorm)!;
+        bestCombos = vendorMap.get(vendorNorm)!;
       }
 
-      // 2. Score-based fuzzy matching against all vendors
+      // 2. Score-based fuzzy matching
       if (bestScore < 1.0) {
-        for (const [normVendor, combos] of vendorEntries) {
-          const score = matchScore(merchantNorm, normVendor);
+        for (const [normV, combos] of vendorEntries) {
+          const score = matchScore(vendorNorm, normV);
           if (score > bestScore && score >= MIN_MATCH_SCORE) {
             bestScore = score;
             bestCombos = combos;
-            if (score >= 1.0) break; // Perfect match, stop looking
+            if (score >= 1.0) break;
           }
         }
       }
 
       if (bestCombos) {
-        // Pick the combo with the highest count
         const comboValues = Array.from(bestCombos.values());
         let best: (typeof comboValues)[number] | null = null;
         for (const combo of comboValues) {
@@ -101,18 +99,14 @@ export async function POST(request: Request) {
             best = combo;
           }
         }
-        if (best) {
-          result[merchant] = {
-            vendor_name: best.vendor_name,
-            property: best.property,
-            gl_account: best.gl_account,
-            description: best.description,
-          };
-        } else {
-          result[merchant] = null;
-        }
+        result[vendor] = best ? {
+          vendor_name: best.vendor_name,
+          property: best.property,
+          gl_account: best.gl_account,
+          description: best.description,
+        } : null;
       } else {
-        result[merchant] = null;
+        result[vendor] = null;
       }
     }
 

@@ -7,14 +7,12 @@ import DarkSelect from "./DarkSelect";
 import { useAuth } from "../contexts/AuthContext";
 import { useSearchParams } from "next/navigation";
 import { useAfOptions } from "../hooks/useAfOptions";
-import { useBrexExpenses } from "../hooks/useBrexExpenses";
-import { useBillingInvoices } from "../hooks/useBillingInvoices";
-import BrexExpenseRow from "./bookkeeping/BrexExpenseRow";
-import BillingInvoiceRow from "./bookkeeping/BillingInvoiceRow";
+import { useBills } from "../hooks/useBills";
+import BillRow from "./bookkeeping/BillRow";
 import UploadActivityTracker from "./bookkeeping/UploadActivityTracker";
 import DuplicatesTab from "./bookkeeping/DuplicatesTab";
 import ParseSettingsTab from "./bookkeeping/ParseSettingsTab";
-import type { FeedItem, UnifiedFilterOption, SourceFilter, UnifiedSortOption } from "../types/bookkeeping";
+import type { UnifiedBill, UnifiedFilterOption, SourceFilter, UnifiedSortOption } from "../types/bookkeeping";
 
 type TabOption = "feed" | "duplicates" | "parse_settings";
 
@@ -36,124 +34,98 @@ export default function BookkeepingDashboard() {
 
   const { glAccounts, properties, vendors } = useAfOptions();
 
-  const brex = useBrexExpenses(isAdmin);
-  const billing = useBillingInvoices();
+  const b = useBills(isAdmin);
 
-  // Unified expanded IDs
-  const toggleExpand = (id: string) => {
-    if (id.startsWith("brex-")) {
-      brex.setExpandedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-    } else {
-      billing.setExpandedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-    }
+  // Hide modal state (for Front invoices)
+  const [hideModal, setHideModal] = useState<{ bill: UnifiedBill; note: string } | null>(null);
+
+  // Toggle expand
+  const toggleExpand = (id: number) => {
+    b.setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  // Build unified feed
+  // Counts
+  const counts = useMemo(() => {
+    let actionNeeded = 0;
+    let completed = 0;
+    let duplicates = 0;
+    let corporate = 0;
+    let hidden = 0;
+    let payments = 0;
+    let brexTotal = 0;
+    let invoiceTotal = 0;
+
+    for (const bill of b.bills) {
+      if (bill.source === 'brex') brexTotal++;
+      else invoiceTotal++;
+
+      if (bill.status === 'corporate') corporate++;
+      else if (bill.status === 'payment') payments++;
+      else if (bill.is_hidden || bill.status === 'hidden') hidden++;
+      else if (bill.status === 'entered') completed++;
+      else if (bill.is_duplicate && bill.status === 'pending') duplicates++;
+      else if (bill.status === 'pending') actionNeeded++;
+    }
+
+    return { actionNeeded, completed, duplicates, corporate, hidden, payments, brexTotal, invoiceTotal };
+  }, [b.bills]);
+
+  // Filter + sort feed
   const feedItems = useMemo(() => {
-    const items: FeedItem[] = [];
+    let items = b.bills.filter(bill => {
+      // Source filter
+      if (sourceFilter === 'brex' && bill.source !== 'brex') return false;
+      if (sourceFilter === 'invoices' && bill.source === 'brex') return false;
 
-    // Add Brex expenses (only for admins)
-    if (isAdmin && sourceFilter !== "invoices") {
-      let brexList = brex.expenses;
-      if (filter === "corporate") brexList = brex.corporateExpenses;
-      else if (filter === "payments") brexList = brex.collectionExpenses;
-
-      for (const expense of brexList) {
-        if (filter === "action_needed") {
-          if (expense.appfolio_synced || expense.match_status === "matched") continue;
-        } else if (filter === "completed") {
-          if (!expense.appfolio_synced && expense.match_status !== "matched") continue;
-        } else if (filter === "corporate") {
-          // Already filtered above
-        } else if (filter === "payments") {
-          // Already filtered above
-        } else if (filter === "hidden") {
-          continue;
-        }
-
-        items.push({
-          type: "brex",
-          data: expense,
-          sortDate: new Date(expense.posted_at || expense.initiated_at || expense.synced_at),
-        });
+      // Status filter
+      switch (filter) {
+        case 'action_needed':
+          return bill.status === 'pending' && !bill.is_hidden && !bill.is_duplicate;
+        case 'completed':
+          return bill.status === 'entered';
+        case 'duplicates':
+          return bill.is_duplicate && bill.status !== 'hidden';
+        case 'corporate':
+          return bill.status === 'corporate';
+        case 'hidden':
+          return bill.is_hidden || bill.status === 'hidden';
+        case 'payments':
+          return bill.status === 'payment';
+        case 'all':
+          return !bill.is_hidden && bill.status !== 'hidden';
+        default:
+          return true;
       }
-    }
-
-    // Add billing invoices
-    if (sourceFilter !== "brex") {
-      const billList = filter === "hidden" ? billing.hiddenBills : billing.bills;
-
-      for (const bill of billList) {
-        if (filter === "action_needed") {
-          if (bill.af_match_status === "matched") continue;
-        } else if (filter === "completed") {
-          if (bill.af_match_status !== "matched") continue;
-        } else if (filter === "corporate" || filter === "payments") {
-          continue;
-        } else if (filter === "hidden") {
-          // Already using hiddenBills above
-        }
-
-        items.push({
-          type: "bill",
-          data: bill,
-          sortDate: new Date(bill.invoice_date || bill.created_at),
-        });
-      }
-    }
+    });
 
     // Sort
     items.sort((a, b) => {
+      const dateA = new Date(a.source === 'brex' ? (a.brex_posted_at || a.brex_initiated_at || a.invoice_date) : (a.invoice_date || a.created_at));
+      const dateB = new Date(b.source === 'brex' ? (b.brex_posted_at || b.brex_initiated_at || b.invoice_date) : (b.invoice_date || b.created_at));
+
       if (sort === "action_first") {
-        const aIsAction = a.type === "brex"
-          ? (!a.data.appfolio_synced && a.data.match_status !== "matched" && !a.data.is_corporate && a.data.transaction_type !== "COLLECTION")
-          : (a.data as any).af_match_status === "unmatched";
-        const bIsAction = b.type === "brex"
-          ? (!b.data.appfolio_synced && b.data.match_status !== "matched" && !b.data.is_corporate && b.data.transaction_type !== "COLLECTION")
-          : (b.data as any).af_match_status === "unmatched";
+        const aIsAction = a.status === 'pending' && !a.is_hidden && !a.is_duplicate;
+        const bIsAction = b.status === 'pending' && !b.is_hidden && !b.is_duplicate;
         if (aIsAction !== bIsAction) return aIsAction ? -1 : 1;
-        return b.sortDate.getTime() - a.sortDate.getTime();
+        return dateB.getTime() - dateA.getTime();
       }
-      if (sort === "date_newest") return b.sortDate.getTime() - a.sortDate.getTime();
-      if (sort === "date_oldest") return a.sortDate.getTime() - b.sortDate.getTime();
-      if (sort === "amount_high") return Number(b.data.amount) - Number(a.data.amount);
-      if (sort === "amount_low") return Number(a.data.amount) - Number(b.data.amount);
+      if (sort === "date_newest") return dateB.getTime() - dateA.getTime();
+      if (sort === "date_oldest") return dateA.getTime() - dateB.getTime();
+      if (sort === "amount_high") return Number(b.amount) - Number(a.amount);
+      if (sort === "amount_low") return Number(a.amount) - Number(b.amount);
       return 0;
     });
 
     return items;
-  }, [
-    isAdmin, sourceFilter, filter, sort,
-    brex.expenses, brex.corporateExpenses, brex.collectionExpenses,
-    billing.bills, billing.hiddenBills,
-  ]);
-
-  // Counts
-  const brexPendingCount = brex.expenses.filter(e => !e.appfolio_synced && e.match_status !== "matched").length;
-  const brexMatchedCount = brex.expenses.filter(e => e.match_status === "matched" && !e.appfolio_synced).length;
-  const brexEnteredCount = brex.expenses.filter(e => e.appfolio_synced).length;
-  const brexCorporateCount = brex.corporateExpenses.length;
-  const brexPaymentsCount = brex.collectionExpenses.length;
-
-  const billUnmatchedCount = billing.bills.filter(b => b.af_match_status === "unmatched").length;
-  const billMatchedCount = billing.bills.filter(b => b.af_match_status === "matched").length;
-  const billHiddenCount = billing.hiddenBills.length;
-
-  const actionNeededCount = brexPendingCount + billUnmatchedCount;
-  const completedCount = brexEnteredCount + brexMatchedCount + billMatchedCount;
+  }, [b.bills, filter, sourceFilter, sort]);
 
   // Loading state
-  if (authLoading || (brex.loading && billing.loading)) {
+  if (authLoading || b.loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LogoLoader text="Loading bookkeeping..." />
@@ -161,15 +133,9 @@ export default function BookkeepingDashboard() {
     );
   }
 
-  const handleRefresh = () => {
-    if (isAdmin) brex.fetchExpenses();
-    billing.fetchBills(true);
+  const handleHide = (bill: UnifiedBill) => {
+    setHideModal({ bill, note: '' });
   };
-
-  const lastRefreshTime = new Date(Math.max(
-    brex.lastRefresh.getTime(),
-    billing.lastRefresh.getTime()
-  ));
 
   return (
     <div className="min-h-screen p-4">
@@ -182,29 +148,30 @@ export default function BookkeepingDashboard() {
               <p className="text-sm text-slate-400">
                 {isAdmin && (
                   <>
-                    <span className="text-violet-400">{brex.expenses.length + brex.corporateExpenses.length} Brex</span>
-                    {" \u00b7 "}
+                    <span className="text-violet-400">{counts.brexTotal} Brex</span>
+                    {" · "}
                   </>
                 )}
-                <span className="text-blue-400">{billing.bills.length} invoices</span>
-                {" \u00b7 "}
-                <span className="text-amber-400">{actionNeededCount} action needed</span>
-                {" \u00b7 "}
-                <span className="text-emerald-400">{completedCount} completed</span>
-                {isAdmin && brexCorporateCount > 0 && <>{" \u00b7 "}<span className="text-slate-500">{brexCorporateCount} corporate</span></>}
-                {billHiddenCount > 0 && <>{" \u00b7 "}<span className="text-slate-500">{billHiddenCount} hidden</span></>}
-                {isAdmin && brexPaymentsCount > 0 && <>{" \u00b7 "}<span className="text-purple-400">{brexPaymentsCount} payments</span></>}
+                <span className="text-blue-400">{counts.invoiceTotal} invoices</span>
+                {" · "}
+                <span className="text-amber-400">{counts.actionNeeded} action needed</span>
+                {" · "}
+                <span className="text-emerald-400">{counts.completed} completed</span>
+                {counts.duplicates > 0 && <>{" · "}<span className="text-orange-400">{counts.duplicates} duplicates</span></>}
+                {isAdmin && counts.corporate > 0 && <>{" · "}<span className="text-slate-500">{counts.corporate} corporate</span></>}
+                {counts.hidden > 0 && <>{" · "}<span className="text-slate-500">{counts.hidden} hidden</span></>}
+                {isAdmin && counts.payments > 0 && <>{" · "}<span className="text-purple-400">{counts.payments} payments</span></>}
               </p>
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={handleRefresh}
-                disabled={brex.refreshing || billing.refreshing}
+                onClick={() => b.fetchBills()}
+                disabled={b.refreshing}
                 className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
                 title="Refresh now"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${(brex.refreshing || billing.refreshing) ? "animate-spin" : ""}`} />
-                {lastRefreshTime.toLocaleTimeString()}
+                <RefreshCw className={`w-3.5 h-3.5 ${b.refreshing ? "animate-spin" : ""}`} />
+                {b.lastRefresh.toLocaleTimeString()}
               </button>
               {/* @ts-ignore */}
               <DarkSelect
@@ -262,12 +229,13 @@ export default function BookkeepingDashboard() {
               {/* Filter chips */}
               <div className="flex gap-1.5 flex-1 flex-wrap">
                 {([
-                  { key: "all" as UnifiedFilterOption, label: `All (${feedItems.length})`, color: "bg-accent text-surface-base" },
-                  { key: "action_needed" as UnifiedFilterOption, label: `Action Needed (${actionNeededCount})`, color: "bg-amber-500/15 text-amber-400" },
-                  { key: "completed" as UnifiedFilterOption, label: `Completed (${completedCount})`, color: "bg-emerald-500/15 text-emerald-400" },
-                  ...(isAdmin ? [{ key: "corporate" as UnifiedFilterOption, label: `Corporate (${brexCorporateCount})`, color: "bg-slate-500/20 text-slate-300" }] : []),
-                  { key: "hidden" as UnifiedFilterOption, label: `Hidden (${billHiddenCount})`, color: "bg-slate-500/20 text-slate-300" },
-                  ...(isAdmin ? [{ key: "payments" as UnifiedFilterOption, label: `Payments (${brexPaymentsCount})`, color: "bg-purple-500/15 text-purple-400" }] : []),
+                  { key: "all" as UnifiedFilterOption, label: `All (${b.bills.filter(x => !x.is_hidden && x.status !== 'hidden').length})`, color: "bg-accent text-surface-base" },
+                  { key: "action_needed" as UnifiedFilterOption, label: `Action Needed (${counts.actionNeeded})`, color: "bg-amber-500/15 text-amber-400" },
+                  { key: "completed" as UnifiedFilterOption, label: `Completed (${counts.completed})`, color: "bg-emerald-500/15 text-emerald-400" },
+                  ...(counts.duplicates > 0 ? [{ key: "duplicates" as UnifiedFilterOption, label: `Duplicates (${counts.duplicates})`, color: "bg-orange-500/15 text-orange-400" }] : []),
+                  ...(isAdmin ? [{ key: "corporate" as UnifiedFilterOption, label: `Corporate (${counts.corporate})`, color: "bg-slate-500/20 text-slate-300" }] : []),
+                  { key: "hidden" as UnifiedFilterOption, label: `Hidden (${counts.hidden})`, color: "bg-slate-500/20 text-slate-300" },
+                  ...(isAdmin ? [{ key: "payments" as UnifiedFilterOption, label: `Payments (${counts.payments})`, color: "bg-purple-500/15 text-purple-400" }] : []),
                 ]).map((f) => (
                   <button
                     key={f.key}
@@ -310,14 +278,10 @@ export default function BookkeepingDashboard() {
           <>
             {/* Upload Activity Tracker */}
             <UploadActivityTracker
-              brexQueue={brex.uploadQueue}
-              billQueue={billing.uploadQueue}
-              onDismissBrex={brex.dismissQueueItem}
-              onDismissBill={billing.dismissQueueItem}
-              onRetryBrex={brex.retryUpload}
-              onRetryBill={billing.retryUpload}
-              onClearFinishedBrex={brex.clearFinished}
-              onClearFinishedBill={billing.clearFinished}
+              queue={b.uploadQueue}
+              onDismiss={b.dismissQueueItem}
+              onRetry={b.retryUpload}
+              onClearFinished={b.clearFinished}
             />
 
             {/* Feed items */}
@@ -327,67 +291,31 @@ export default function BookkeepingDashboard() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                {feedItems.map(item => {
-                  if (item.type === "brex") {
-                    const expense = item.data;
-                    const expandKey = `brex-${expense.id}`;
-                    return (
-                      <BrexExpenseRow
-                        key={expandKey}
-                        expense={expense}
-                        isExpanded={brex.expandedIds.has(expandKey)}
-                        onToggleExpand={() => toggleExpand(expandKey)}
-                        draft={brex.drafts[expense.id]}
-                        prefillMap={brex.prefillMap}
-                        potentialMatches={brex.potentialMatches[expense.id]}
-                        linkingId={brex.linkingId}
-                        actionId={brex.actionId}
-                        uploadQueue={brex.uploadQueue}
-                        uploadResult={brex.uploadResult}
-                        vendors={vendors}
-                        glAccounts={glAccounts}
-                        properties={properties}
-                        filter={filter}
-                        onUpdateDraft={brex.updateDraft}
-                        onEnqueueUpload={brex.enqueueUpload}
-                        onRetryUpload={brex.retryUpload}
-                        onLinkExpenseToBill={brex.linkExpenseToBill}
-                        onUnlinkExpense={brex.unlinkExpense}
-                        onArchiveCorporate={brex.archiveCorporate}
-                        onUnarchiveCorporate={brex.unarchiveCorporate}
-                        getMissingFields={brex.getMissingFields}
-                        isFieldMissing={brex.isFieldMissing}
-                      />
-                    );
-                  } else {
-                    const bill = item.data;
-                    const expandKey = `bill-${bill.id}`;
-                    return (
-                      <BillingInvoiceRow
-                        key={expandKey}
-                        bill={bill}
-                        isExpanded={billing.expandedIds.has(expandKey)}
-                        onToggleExpand={() => toggleExpand(expandKey)}
-                        draft={billing.drafts[bill.id]}
-                        prefillMap={billing.prefillMap}
-                        uploadQueue={billing.uploadQueue}
-                        uploadResult={billing.uploadResult}
-                        hidingId={billing.hidingId}
-                        vendors={vendors}
-                        glAccounts={glAccounts}
-                        properties={properties}
-                        filter={filter}
-                        onUpdateDraft={billing.updateDraft}
-                        onEnqueueUpload={billing.enqueueUpload}
-                        onRetryUpload={billing.retryUpload}
-                        onSetHideModal={billing.setHideModal}
-                        onUnhideBill={billing.unhideBill}
-                        getMissingFields={billing.getMissingFields}
-                        isFieldMissing={billing.isFieldMissing}
-                      />
-                    );
-                  }
-                })}
+                {feedItems.map(bill => (
+                  <BillRow
+                    key={bill.id}
+                    bill={bill}
+                    isExpanded={b.expandedIds.has(bill.id)}
+                    onToggleExpand={() => toggleExpand(bill.id)}
+                    draft={b.drafts[bill.id]}
+                    uploadQueue={b.uploadQueue}
+                    uploadResult={b.uploadResult}
+                    vendors={vendors}
+                    glAccounts={glAccounts}
+                    properties={properties}
+                    filter={filter}
+                    actionId={b.actionId}
+                    onUpdateDraft={b.updateDraft}
+                    onEnqueueUpload={b.enqueueUpload}
+                    onRetryUpload={b.retryUpload}
+                    onHide={handleHide}
+                    onUnhide={b.unhideBill}
+                    onMarkCorporate={b.markCorporate}
+                    onUnmarkCorporate={b.unmarkCorporate}
+                    getMissingFields={b.getMissingFields}
+                    isFieldMissing={b.isFieldMissing}
+                  />
+                ))}
               </div>
             )}
           </>
@@ -396,41 +324,44 @@ export default function BookkeepingDashboard() {
         ) : activeTab === "parse_settings" ? (
           <ParseSettingsTab
             userEmail={appUser?.email || appUser?.name}
-            onMerchantToggled={() => brex.fetchExpenses(true)}
+            onMerchantToggled={() => b.fetchBills()}
           />
         ) : null}
       </div>
 
       {/* Hide Bill Modal */}
-      {billing.hideModal && (
+      {hideModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="glass-card max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-100">Hide Bill</h3>
-              <button onClick={() => billing.setHideModal(null)} className="text-slate-400 hover:text-slate-300"><X className="w-5 h-5" /></button>
+              <button onClick={() => setHideModal(null)} className="text-slate-400 hover:text-slate-300"><X className="w-5 h-5" /></button>
             </div>
             <p className="text-sm text-slate-400 mb-1">
-              <span className="font-medium">{billing.hideModal.bill.vendor_name}</span> — ${Number(billing.hideModal.bill.amount).toFixed(2)}
+              <span className="font-medium">{hideModal.bill.vendor_name}</span> — ${Number(hideModal.bill.amount).toFixed(2)}
             </p>
-            <p className="text-xs text-slate-500 mb-4">{billing.hideModal.bill.front_email_subject}</p>
+            <p className="text-xs text-slate-500 mb-4">{hideModal.bill.front_email_subject || hideModal.bill.description}</p>
             <div className="mb-4">
               <label className="block text-sm font-medium text-slate-200 mb-1">Why are you hiding this? <span className="text-slate-500 font-normal">(optional)</span></label>
               <textarea
-                value={billing.hideModal.note}
-                onChange={(e) => billing.setHideModal((prev) => prev ? { ...prev, note: e.target.value } : null)}
+                value={hideModal.note}
+                onChange={(e) => setHideModal((prev) => prev ? { ...prev, note: e.target.value } : null)}
                 placeholder="e.g., This is a rent payment, not a bill"
                 className="dark-input w-full"
                 rows={2}
               />
             </div>
             <div className="flex gap-3">
-              <button onClick={() => billing.setHideModal(null)} className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-200 rounded-lg hover:bg-white/5 text-sm">Cancel</button>
+              <button onClick={() => setHideModal(null)} className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-200 rounded-lg hover:bg-white/5 text-sm">Cancel</button>
               <button
-                onClick={() => billing.hideBill(billing.hideModal!.bill.id, billing.hideModal!.note)}
-                disabled={billing.hidingId === billing.hideModal.bill.id}
+                onClick={async () => {
+                  await b.hideBill(hideModal.bill.id, hideModal.note);
+                  setHideModal(null);
+                }}
+                disabled={b.actionId === hideModal.bill.id}
                 className="flex-1 px-4 py-2 btn-accent rounded-lg text-sm font-medium disabled:opacity-50"
               >
-                {billing.hidingId === billing.hideModal.bill.id ? "Hiding..." : "Hide Bill"}
+                {b.actionId === hideModal.bill.id ? "Hiding..." : "Hide Bill"}
               </button>
             </div>
           </div>
