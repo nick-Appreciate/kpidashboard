@@ -8,7 +8,10 @@ function makeDraft(bill: UnifiedBill, prefill?: PrefillData | null): UnifiedBill
   const today = new Date().toISOString().split('T')[0];
   const dateStr = today;
 
-  const defaultDue = bill.due_date || today;
+  // Due date must never be before bill date (AppFolio rejects it).
+  // Since bill date defaults to today, ensure due date is at least today.
+  const rawDue = bill.due_date || today;
+  const defaultDue = rawDue >= today ? rawDue : today;
 
   let description = bill.description || '';
   if (!description && bill.source === 'brex') {
