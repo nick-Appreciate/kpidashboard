@@ -205,6 +205,9 @@ export function useBills(isAdmin: boolean, userName?: string) {
         ));
       }
       await fetchBills(true);
+      // Delayed re-fetch: the approve route triggers a background AF bill_detail sync,
+      // so re-poll after ~8s to pick up the real AppFolio data (vendor, GL, status, etc.)
+      setTimeout(() => fetchBills(true), 8000);
     } catch (error) {
       setUploadQueue(prev => prev.map(q =>
         q.billId === nextItem.billId

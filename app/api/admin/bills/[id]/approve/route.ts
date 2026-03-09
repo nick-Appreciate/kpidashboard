@@ -150,6 +150,18 @@ export async function POST(
         .eq('id', bill.brex_expense_id);
     }
 
+    // 4. Fire-and-forget: refresh af_bill_detail from AppFolio so the new bill appears immediately
+    if (botSuccess) {
+      fetch(`${sbUrl}/functions/v1/sync-appfolio`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sbAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ report: 'bill_detail' }),
+      }).catch(err => console.error('Background bill_detail sync failed:', err));
+    }
+
     return NextResponse.json({
       success: true,
       approved: true,
