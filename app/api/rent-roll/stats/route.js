@@ -935,39 +935,68 @@ export async function GET(request) {
       })
       .sort((a, b) => new Date(b.leaseStart) - new Date(a.leaseStart)); // Most recent first
     
-    // Renewals by month (last 12 months)
+    // Renewals by month (all available data) + month-to-month transitions
     const renewalsByMonth = [];
-    const twelveMonthsAgo = new Date(today);
-    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-    
-    // Create all 12 months with 0 counts
-    for (let i = 11; i >= 0; i--) {
-      const monthDate = new Date(today);
-      monthDate.setMonth(monthDate.getMonth() - i);
-      const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
-      const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    const monthToMonthByMonth = [];
+
+    const renewedRecords = filteredRenewalData.filter(r => r.status === 'Renewed' && r.lease_start);
+    const didNotRenewRecords = filteredRenewalData.filter(r => r.status === 'Did Not Renew' && r.lease_start);
+
+    // Find earliest date across both datasets
+    let earliestDate = new Date(today);
+    renewedRecords.forEach(r => {
+      const d = new Date(r.lease_start);
+      if (d < earliestDate) earliestDate = d;
+    });
+    didNotRenewRecords.forEach(r => {
+      const d = new Date(r.lease_start);
+      if (d < earliestDate) earliestDate = d;
+    });
+    earliestDate.setDate(1); // first of month
+
+    // Find latest date across both datasets (may extend beyond today for upcoming MTM)
+    let latestDataDate = new Date(today);
+    renewedRecords.forEach(r => {
+      const d = new Date(r.lease_start);
+      if (d > latestDataDate) latestDataDate = d;
+    });
+    didNotRenewRecords.forEach(r => {
+      const d = new Date(r.lease_start);
+      if (d > latestDataDate) latestDataDate = d;
+    });
+
+    // Build dynamic month buckets from earliest to latest data point
+    const cursor = new Date(earliestDate);
+    while (cursor <= latestDataDate) {
+      const monthKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
       renewalsByMonth.push({ month: monthKey, label: monthLabel, count: 0 });
+      monthToMonthByMonth.push({ month: monthKey, label: monthLabel, count: 0 });
+      cursor.setMonth(cursor.getMonth() + 1);
     }
-    
-    // Count renewals by month from filtered renewal data
-    filteredRenewalData
-      .filter(r => r.status === 'Renewed' && r.lease_start)
-      .forEach(r => {
-        const leaseStart = new Date(r.lease_start);
-        if (leaseStart >= twelveMonthsAgo) {
-          const monthKey = `${leaseStart.getFullYear()}-${String(leaseStart.getMonth() + 1).padStart(2, '0')}`;
-          const monthEntry = renewalsByMonth.find(m => m.month === monthKey);
-          if (monthEntry) {
-            monthEntry.count++;
-          }
-        }
-      });
+
+    // Count renewals by lease_start month
+    renewedRecords.forEach(r => {
+      const leaseStart = new Date(r.lease_start);
+      const monthKey = `${leaseStart.getFullYear()}-${String(leaseStart.getMonth() + 1).padStart(2, '0')}`;
+      const monthEntry = renewalsByMonth.find(m => m.month === monthKey);
+      if (monthEntry) monthEntry.count++;
+    });
+
+    // Count month-to-month transitions by lease_start month (when current lease expires)
+    didNotRenewRecords.forEach(r => {
+      const leaseStart = new Date(r.lease_start);
+      const monthKey = `${leaseStart.getFullYear()}-${String(leaseStart.getMonth() + 1).padStart(2, '0')}`;
+      const monthEntry = monthToMonthByMonth.find(m => m.month === monthKey);
+      if (monthEntry) monthEntry.count++;
+    });
     
     const leaseHealthDetails = {
       badLeasesByReason,
       upcomingExpirations,
       recentRenewals,
       renewalsByMonth,
+      monthToMonthByMonth,
       rescuedLeases,
       newBadLeases
     };

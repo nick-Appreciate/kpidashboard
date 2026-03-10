@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import Chart from 'chart.js/auto';
-import { DARK_CHART_DEFAULTS } from '../lib/chartTheme';
+import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 
 // Color palette for multi-property charts
@@ -425,7 +425,7 @@ export default function RenewalsDashboard() {
     };
   }, [stats, selectedProperty]);
 
-  // --- Renewals by Month Chart ---
+  // --- Renewals by Month Chart (line + MTM bar overlay) ---
   useEffect(() => {
     if (renewalsChartRef.current) {
       renewalsChartRef.current.destroy();
@@ -434,40 +434,89 @@ export default function RenewalsDashboard() {
     if (!renewalsCanvasRef.current || !stats?.leaseHealthDetails?.renewalsByMonth?.length) return;
 
     const renewalData = stats.leaseHealthDetails.renewalsByMonth;
-
-    // Strict Mode double-render guard
-    const dataKey = renewalData.map(d => d.count).join(',');
-    if (renewalsRenderedRef.current === dataKey) return;
-    renewalsRenderedRef.current = dataKey;
+    const mtmData = stats.leaseHealthDetails.monthToMonthByMonth || [];
 
     renewalsChartRef.current = new Chart(renewalsCanvasRef.current.getContext('2d'), {
       type: 'bar',
       data: {
         labels: renewalData.map(d => d.label),
-        datasets: [{
-          label: 'Renewals',
-          data: renewalData.map(d => d.count),
-          backgroundColor: '#22c55e',
-          borderColor: '#16a34a',
-          borderWidth: 1
-        }]
+        datasets: [
+          {
+            type: 'line',
+            label: 'Renewals',
+            data: renewalData.map(d => d.count),
+            borderColor: CHART_COLORS.emerald,
+            backgroundColor: CHART_COLORS.emerald + '20',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: CHART_COLORS.emerald,
+            pointBorderColor: '#1e293b',
+            pointBorderWidth: 2,
+            order: 0
+          },
+          {
+            type: 'bar',
+            label: 'Went Month-to-Month',
+            data: mtmData.map(d => d.count),
+            backgroundColor: CHART_COLORS.rose + '80',
+            borderColor: CHART_COLORS.rose,
+            borderWidth: 1,
+            borderRadius: 3,
+            order: 1
+          }
+        ]
       },
       options: {
         ...DARK_CHART_DEFAULTS,
         responsive: true,
         maintainAspectRatio: true,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              color: '#94a3b8',
+              font: { size: 11 },
+              boxWidth: 12,
+              padding: 16,
+              usePointStyle: true,
+              pointStyleWidth: 12
+            }
+          },
           tooltip: {
+            ...DARK_CHART_DEFAULTS.plugins.tooltip,
+            mode: 'index',
+            intersect: false,
             callbacks: {
-              label: (context) => `${context.parsed.y} renewals`
+              label: (context) => {
+                const value = context.parsed.y;
+                if (value === 0) return null;
+                return `  ${context.dataset.label}: ${value}`;
+              }
             }
           }
         },
         scales: {
           y: {
             beginAtZero: true,
-            ticks: { stepSize: 1 }
+            ticks: { stepSize: 1, color: '#64748b', font: { size: 11 } },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+          },
+          x: {
+            ticks: {
+              color: '#64748b',
+              font: { size: 11 },
+              maxRotation: 45,
+              autoSkip: true,
+              maxTicksLimit: 18
+            },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
           }
         }
       }
@@ -478,7 +527,6 @@ export default function RenewalsDashboard() {
         renewalsChartRef.current.destroy();
         renewalsChartRef.current = null;
       }
-      renewalsRenderedRef.current = null;
     };
   }, [stats]);
 
@@ -1034,7 +1082,7 @@ export default function RenewalsDashboard() {
           {/* Renewals by Month Chart */}
           <div className="glass-card p-6 mb-6">
             <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">
-              Renewals by Month (Last 12 Months)
+              Renewals by Month
             </h2>
             <canvas
               ref={renewalsCanvasRef}
