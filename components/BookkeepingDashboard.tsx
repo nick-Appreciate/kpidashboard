@@ -89,6 +89,11 @@ export default function BookkeepingDashboard() {
     return { needsEntered, awaitingAF, actionNeeded: needsEntered + awaitingAF, completed, corporate, hidden, payments, brexTotal, invoiceTotal };
   }, [b.bills]);
 
+  // Hide handler (must be before early returns to preserve hook order)
+  const handleHide = useCallback((bill: UnifiedBill) => {
+    setHideModal({ bill, note: '' });
+  }, []);
+
   // Filter + sort feed
   const feedItems = useMemo(() => {
     let items = b.bills.filter(bill => {
@@ -144,10 +149,6 @@ export default function BookkeepingDashboard() {
       </div>
     );
   }
-
-  const handleHide = useCallback((bill: UnifiedBill) => {
-    setHideModal({ bill, note: '' });
-  }, []);
 
   return (
     <div className="min-h-screen p-4">
