@@ -87,12 +87,12 @@ Deno.serve(async (req: Request) => {
     const health = await healthRes.json();
     console.log(`[sync-bpu] Bot health:`, health);
 
-    // Step 2: Scrape BPU (if logged in)
+    // Step 2: Trigger BPU scrape (fire-and-forget — bot uploads directly to Supabase)
     let bpuResult: any = null;
     if (health.bpu?.logged_in ?? health.logged_in) {
-      console.log('[sync-bpu] Triggering BPU scrape...');
+      console.log('[sync-bpu] Triggering BPU async scrape...');
       try {
-        const scrapeRes = await fetch(`${botUrl}/api/scrape`, {
+        const scrapeRes = await fetch(`${botUrl}/api/scrape-async`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${botSecret}`,
@@ -101,30 +101,24 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun }),
         });
 
-        if (scrapeRes.ok) {
-          bpuResult = await scrapeRes.json();
-          console.log('[sync-bpu] BPU result:', bpuResult);
-        } else {
-          const errText = await scrapeRes.text();
-          console.error(`[sync-bpu] BPU scrape failed: ${scrapeRes.status} ${errText}`);
-          bpuResult = { success: false, error: errText };
-        }
+        bpuResult = await scrapeRes.json();
+        console.log('[sync-bpu] BPU trigger result:', bpuResult);
       } catch (err) {
-        console.error('[sync-bpu] BPU scrape error:', err);
-        bpuResult = { success: false, error: (err as Error).message };
+        console.error('[sync-bpu] BPU trigger error:', err);
+        bpuResult = { triggered: false, error: (err as Error).message };
       }
     } else {
       console.warn('[sync-bpu] ⚠️  BPU not logged in — skipping. Run `npm run login` on VPS.');
-      bpuResult = { success: false, error: 'Not logged in' };
+      bpuResult = { triggered: false, error: 'Not logged in' };
     }
 
-    // Step 3: Scrape COMO (if logged in)
+    // Step 3: Trigger COMO scrape (fire-and-forget)
     let comoResult: any = null;
     const comoLoggedIn = health.como?.logged_in ?? false;
     if (comoLoggedIn) {
-      console.log('[sync-bpu] Triggering COMO scrape...');
+      console.log('[sync-bpu] Triggering COMO async scrape...');
       try {
-        const comoRes = await fetch(`${botUrl}/api/como/scrape`, {
+        const comoRes = await fetch(`${botUrl}/api/como/scrape-async`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${botSecret}`,
@@ -133,21 +127,15 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun }),
         });
 
-        if (comoRes.ok) {
-          comoResult = await comoRes.json();
-          console.log('[sync-bpu] COMO result:', comoResult);
-        } else {
-          const errText = await comoRes.text();
-          console.error(`[sync-bpu] COMO scrape failed: ${comoRes.status} ${errText}`);
-          comoResult = { success: false, error: errText };
-        }
+        comoResult = await comoRes.json();
+        console.log('[sync-bpu] COMO trigger result:', comoResult);
       } catch (err) {
-        console.error('[sync-bpu] COMO scrape error:', err);
-        comoResult = { success: false, error: (err as Error).message };
+        console.error('[sync-bpu] COMO trigger error:', err);
+        comoResult = { triggered: false, error: (err as Error).message };
       }
     } else {
       console.warn('[sync-bpu] ⚠️  COMO not logged in — skipping. Run `npm run login:como` on VPS.');
-      comoResult = { success: false, error: 'Not logged in' };
+      comoResult = { triggered: false, error: 'Not logged in' };
     }
 
     return new Response(JSON.stringify({ bpu: bpuResult, como: comoResult }), {

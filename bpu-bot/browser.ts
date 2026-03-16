@@ -338,9 +338,14 @@ export async function scrapeUsageData(
   const page = await getNewPage();
 
   try {
-    // Step 1: Navigate to BPU
+    // Step 1: Navigate to BPU (fresh load to ensure latest data)
     console.log('[scrape] Navigating to BPU...');
     await page.goto(BPU_BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(3000);
+
+    // Force reload to ensure fresh meter data is populated (not stale cached page)
+    console.log('[scrape] Reloading page to ensure fresh data...');
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(3000);
 
     // Verify we're logged in
