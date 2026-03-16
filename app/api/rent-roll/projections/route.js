@@ -56,10 +56,22 @@ export async function GET(request) {
     }
     
     const totalUnits = currentUnits?.length || 0;
-    const currentOccupied = currentUnits?.filter(u => 
+    const currentOccupied = currentUnits?.filter(u =>
       u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented'
     ).length || 0;
-    
+
+    // Get move-out dates from af_tenant_directory (authoritative source from AppFolio)
+    const { data: tenantDirData } = await supabase
+      .from('af_tenant_directory')
+      .select('property_name, unit, move_out')
+      .not('move_out', 'is', null);
+
+    const moveOutDateMap = new Map();
+    (tenantDirData || []).forEach(d => {
+      const key = `${d.property_name}-${d.unit}`.toLowerCase();
+      if (!moveOutDateMap.has(key)) moveOutDateMap.set(key, d.move_out);
+    });
+
     // Get future events from tenant_events (only for projections)
     const today = new Date().toISOString().split('T')[0];
     const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -77,7 +89,7 @@ export async function GET(request) {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     let eventsQuery = supabase
       .from('tenant_events')
-      .select('event_date, event_type, property, unit, tenant_name, rent')
+      .select('event_date, event_type, property, unit, tenant_name, rent, lease_to')
       .gte('event_date', thirtyDaysAgo)
       .lte('event_date', ninetyDaysOut)
       .order('event_date', { ascending: true });
@@ -114,6 +126,51 @@ export async function GET(request) {
         .map(u => `${u.property}||${u.unit}`.toLowerCase())
     );
 
+    // Only allow move-ins for units with approved applications (Vacant-Rented or Notice-Rented)
+    const approvedMoveInKeys = new Set(
+      (currentUnits || [])
+        .filter(u => u.status === 'Vacant-Rented' || u.status === 'Notice-Rented')
+        .map(u => `${u.property}||${u.unit}`.toLowerCase())
+    );
+
+    // Build lookup map for move-out dates: prefer af_tenant_directory move_out, fallback to lease_to
+    const unitMoveOutMap = new Map();
+    (currentUnits || []).forEach(u => {
+      const key = `${u.property}-${u.unit}`.toLowerCase();
+      const moveOut = moveOutDateMap.get(key);
+      if (moveOut) {
+        unitMoveOutMap.set(key, moveOut);
+      } else if (u.lease_to) {
+        unitMoveOutMap.set(key, u.lease_to);
+      }
+    });
+
+    // Collect trailing events (past events that already happened) before dedup/filter
+    // For Notice events, use move-out date from af_tenant_directory (most accurate) instead of event_date
+    const trailingEvents = [];
+    const seenTrailing = new Map();
+    rawFutureEvents?.forEach(event => {
+      if (event.event_date < today) {
+        const key = `${event.property}-${event.unit}-${event.event_type}`;
+        if (!seenTrailing.has(key)) {
+          seenTrailing.set(key, true);
+          const trailingEvent = { ...event };
+          // For Notice/Move-out events, show the actual move-out date (lease end) not the notice date
+          if (event.event_type === 'Notice' || event.event_type === 'Move-out') {
+            const unitKey = `${event.property}-${event.unit}`.toLowerCase();
+            const snapshotLeaseTo = unitMoveOutMap.get(unitKey);
+            // Prefer rent_roll_snapshots lease_to, fall back to tenant_events lease_to
+            if (snapshotLeaseTo) {
+              trailingEvent.event_date = snapshotLeaseTo;
+            } else if (event.lease_to) {
+              trailingEvent.event_date = event.lease_to;
+            }
+          }
+          trailingEvents.push(trailingEvent);
+        }
+      }
+    });
+
     // Deduplicate events by property+unit+event_type (keep only one per unit per event type)
     const seenEvents = new Map();
     const futureEvents = [];
@@ -122,10 +179,22 @@ export async function GET(request) {
       const key = `${event.property}-${event.unit}-${event.event_type}`;
       if (!seenEvents.has(key)) {
         seenEvents.set(key, event);
-        // Skip move-ins for units already occupied (tenant already moved in)
+        // Skip move-ins for units already occupied or without approved applications
         if (event.event_type === 'Move-in') {
           const unitKey = `${event.property}||${event.unit}`.toLowerCase();
           if (occupiedUnitKeys.has(unitKey)) return;
+          // Only show move-ins for Vacant-Rented or Notice-Rented (approved application)
+          if (!approvedMoveInKeys.has(unitKey)) return;
+        }
+        // For Notice/Move-out events, use authoritative lease_to from rent_roll_snapshots
+        if (event.event_type === 'Notice' || event.event_type === 'Move-out') {
+          const unitKey = `${event.property}-${event.unit}`.toLowerCase();
+          const snapshotLeaseTo = unitMoveOutMap.get(unitKey);
+          if (snapshotLeaseTo) {
+            event.event_date = snapshotLeaseTo;
+          } else if (event.lease_to) {
+            event.event_date = event.lease_to;
+          }
         }
         // Past move-ins: snap to today (they haven't moved in yet)
         if (event.event_type === 'Move-in' && event.event_date < today) {
@@ -153,15 +222,22 @@ export async function GET(request) {
       evictionDateMap[`${e.property_name}||${e.unit}`.toLowerCase()] = e.eviction_started_at;
     });
 
-    // Create projected eviction move-outs (45 days from eviction filed date, or 45 days from today as fallback)
+    // Create projected eviction move-outs (45 days from eviction filed date)
+    // If 45-day projection is already past, use today + 7 days (still in eviction status)
+    const sevenDaysOut = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const evictionMoveOuts = currentEvictions.map(evict => {
       const unitKey = `${evict.property}||${evict.unit}`.toLowerCase();
       const filedDate = evictionDateMap[unitKey];
-      const baseDate = filedDate ? new Date(filedDate) : new Date();
-      const projectedMoveOut = new Date(baseDate.getTime() + 45 * 24 * 60 * 60 * 1000);
-      let eventDate = projectedMoveOut.toISOString().split('T')[0];
-      // Snap past projected dates to today (eviction hasn't completed yet)
-      if (eventDate < today) eventDate = today;
+      let eventDate;
+      if (filedDate) {
+        const projectedMoveOut = new Date(new Date(filedDate).getTime() + 45 * 24 * 60 * 60 * 1000);
+        eventDate = projectedMoveOut.toISOString().split('T')[0];
+        // If 45-day projection is past, tenant is still in eviction — project 7 days out
+        if (eventDate < today) eventDate = sevenDaysOut;
+      } else {
+        // No filed date — project 45 days from today
+        eventDate = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      }
       return {
         event_date: eventDate,
         event_type: 'Eviction',
@@ -185,11 +261,13 @@ export async function GET(request) {
     const noticeMoveOuts = noticeUnits
       .filter(n => !existingMoveOutKeys.has(`${n.property}||${n.unit}`.toLowerCase()))
       .map(notice => {
-        // Use lease end date as projected move-out; fallback to 30 days from today
-        let moveOutDate = notice.lease_to
-          ? notice.lease_to
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        // Snap past lease_to dates to today (tenant hasn't moved out yet)
+        // Use move-out date from af_delinquency (AppFolio), fallback to lease_to, then 30 days
+        const unitKey = `${notice.property}-${notice.unit}`.toLowerCase();
+        const afMoveOut = moveOutDateMap.get(unitKey);
+        let moveOutDate = afMoveOut
+          || notice.lease_to
+          || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        // Snap past dates to today (tenant hasn't moved out yet)
         if (moveOutDate < today) moveOutDate = today;
         return {
           event_date: moveOutDate,
@@ -203,7 +281,7 @@ export async function GET(request) {
       .filter(e => e.event_date <= ninetyDaysOut);
 
     // --- Applications as Projected Move-Ins ---
-    // Fetch approved apps AND pipeline apps (NULL status = in-progress in Appfolio)
+    // Fetch approved apps and pipeline apps, but filter by unit status (Vacant-Rented = approved)
     const { data: allApps } = await supabase
       .from('rental_applications')
       .select('applicants, unit, approved_at, desired_move_in, move_in_date, lease_start_date, application_status')
@@ -262,8 +340,9 @@ export async function GET(request) {
 
       const unitKey = `${parsed.property}||${parsed.unit}`.toLowerCase();
 
-      // Skip if unit already occupied, has a tenant_events move-in, or already seen
+      // Skip if unit already occupied, not approved (Vacant-Rented), has a tenant_events move-in, or already seen
       if (occupiedUnitKeys.has(unitKey)) continue;
+      if (!approvedMoveInKeys.has(unitKey)) continue;
       if (existingMoveInKeys.has(unitKey)) continue;
       if (seenAppUnits.has(unitKey)) continue;
       seenAppUnits.add(unitKey);
@@ -391,6 +470,76 @@ export async function GET(request) {
       });
     }
     
+    // Trailing weekly data (past 4 weeks)
+    const trailingNetChangeByWeek = [];
+    for (let i = 4; i >= 1; i--) {
+      const weekEnd = new Date(Date.now() - (i - 1) * 7 * 24 * 60 * 60 * 1000);
+      const weekStart = new Date(Date.now() - i * 7 * 24 * 60 * 60 * 1000);
+      const weekStartStr = weekStart.toISOString().split('T')[0];
+      const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+      let weekMoveIns = 0;
+      let weekMoveOuts = 0;
+      const weekMoveInDetails = [];
+      const weekMoveOutDetails = [];
+
+      trailingEvents.forEach(event => {
+        if (event.event_date >= weekStartStr && event.event_date < weekEndStr) {
+          const detail = {
+            tenant: event.tenant_name || 'Unknown',
+            unit: event.unit,
+            property: event.property,
+            date: event.event_date,
+            type: event.event_type
+          };
+          if (event.event_type === 'Move-in') {
+            weekMoveIns++;
+            weekMoveInDetails.push(detail);
+          } else {
+            weekMoveOuts++;
+            weekMoveOutDetails.push(detail);
+          }
+        }
+      });
+
+      const weekLabel = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      trailingNetChangeByWeek.push({
+        weekStart: weekStartStr,
+        weekLabel,
+        moveIns: weekMoveIns,
+        moveOuts: weekMoveOuts,
+        netChange: weekMoveIns - weekMoveOuts,
+        moveInDetails: weekMoveInDetails,
+        moveOutDetails: weekMoveOutDetails,
+        isTrailing: true
+      });
+    }
+
+    // Trailing occupancy projections (work backward from current)
+    // Calculate what occupancy was at each trailing week start
+    const trailingProjections = [];
+    // Sum up all trailing net changes to find occupancy 4 weeks ago
+    const totalTrailingNet = trailingNetChangeByWeek.reduce((sum, w) => sum + w.netChange, 0);
+    let trailingOccupied = currentOccupied - totalTrailingNet;
+
+    for (const week of trailingNetChangeByWeek) {
+      trailingProjections.push({
+        date: week.weekStart,
+        occupied: Math.max(0, Math.min(totalUnits, trailingOccupied)),
+        occupancyRate: totalUnits > 0 ? ((Math.max(0, Math.min(totalUnits, trailingOccupied)) / totalUnits) * 100).toFixed(1) : 0
+      });
+      trailingOccupied += week.netChange;
+    }
+
+    // Trailing summary (past 30 days)
+    const trailingSummary = {
+      moveIns: trailingNetChangeByWeek.reduce((sum, w) => sum + w.moveIns, 0),
+      moveOuts: trailingNetChangeByWeek.reduce((sum, w) => sum + w.moveOuts, 0),
+      netChange: trailingNetChangeByWeek.reduce((sum, w) => sum + w.netChange, 0),
+      moveInDetails: trailingNetChangeByWeek.flatMap(w => w.moveInDetails),
+      moveOutDetails: trailingNetChangeByWeek.flatMap(w => w.moveOutDetails)
+    };
+
     // Summary stats — discrete buckets (0-30, 30-60, 60-90 days)
     const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const sixtyDaysOut = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
@@ -444,6 +593,9 @@ export async function GET(request) {
           netChange: moveIns60_90 - moveOuts60_90
         }
       },
+      trailingNetChangeByWeek,
+      trailingProjections,
+      trailingSummary,
       upcomingMoveIns: upcomingMoveIns.slice(0, 20),
       upcomingMoveOuts: upcomingMoveOuts.slice(0, 20)
     });

@@ -19,7 +19,6 @@ export default function OccupancyDashboard() {
   const [occupiedOverride, setOccupiedOverride] = useState(null); // Temporary override for occupied count
   const [pctEditing, setPctEditing] = useState(null); // Local text while editing percentage input
   const [selectedExpirationRange, setSelectedExpirationRange] = useState(null); // Filter from chart click
-  const [groupByProperty, setGroupByProperty] = useState(false); // Toggle bad leases grouping
   
   // Calculate date range based on preset
   const getDateRangeFromPreset = (preset) => {
@@ -63,6 +62,7 @@ export default function OccupancyDashboard() {
   const statusChartRef = useRef(null);
   const delinquencyChartRef = useRef(null);
   const leaseChartRef = useRef(null);
+  const evictionChartRef = useRef(null);
   const headerRef = useRef(null);
   
   // Update dates when preset changes
@@ -192,24 +192,33 @@ export default function OccupancyDashboard() {
       });
     }
 
-    const weeklyData = projections.netChangeByWeek;
+    // Combine trailing + "today" + forward weekly data
+    const trailingWeeks = projections.trailingNetChangeByWeek || [];
+    const forwardWeeks = projections.netChangeByWeek;
+    // Insert a "Today" marker between trailing and forward
+    const todayMarker = { weekLabel: 'Today', moveIns: 0, moveOuts: 0, netChange: 0, isToday: true };
+    const weeklyData = [...trailingWeeks, todayMarker, ...forwardWeeks];
 
-    // Use week labels from netChangeByWeek as shared x-axis
+    // Labels
     const labels = weeklyData.map(d => d.weekLabel);
 
-    // Map projection data to the same week labels
-    // projections.projections dates are weekly and should align with netChangeByWeek
-    const projDateMap = {};
-    adjustedProjections.forEach(d => {
-      const [year, month, day] = d.date.split('-');
-      projDateMap[`${month}/${day}`] = parseFloat(d.occupancyRate);
-    });
-    // Also map by weekLabel from netChangeByWeek for exact alignment
+    // Build occupancy line data: trailing projections + today's actual + forward projections
+    const trailingProjs = projections.trailingProjections || [];
+    const currentRate = parseFloat(projections.currentOccupancy?.occupancyRate || 0);
+    const todayIndex = trailingWeeks.length; // index of the "Today" point
     const occupancyByWeek = weeklyData.map((week, i) => {
-      // Try matching by label first
-      if (projDateMap[week.weekLabel]) return projDateMap[week.weekLabel];
-      // Fallback: use projection at same index
-      if (adjustedProjections[i]) return parseFloat(adjustedProjections[i].occupancyRate);
+      if (i < trailingWeeks.length) {
+        // Trailing week — use trailing projection data
+        if (trailingProjs[i]) return parseFloat(trailingProjs[i].occupancyRate);
+        return null;
+      }
+      if (i === todayIndex) {
+        // Today — use actual current occupancy
+        return currentRate;
+      }
+      // Forward week — use forward projection data
+      const forwardIdx = i - todayIndex - 1;
+      if (adjustedProjections[forwardIdx]) return parseFloat(adjustedProjections[forwardIdx].occupancyRate);
       return null;
     });
 
@@ -218,6 +227,8 @@ export default function OccupancyDashboard() {
       ...weeklyData.map(d => Math.max(d.moveIns, d.moveOuts)),
       1
     );
+
+    // Index of "today" point (for styling: solid trailing, dashed forward)
 
     projectionCanvas.chart = new Chart(ctx, {
       type: 'bar',
@@ -232,10 +243,12 @@ export default function OccupancyDashboard() {
             backgroundColor: '#8b5cf620',
             fill: true,
             tension: 0.4,
-            borderDash: [5, 5],
+            segment: {
+              borderDash: ctx => ctx.p0DataIndex >= todayIndex ? [5, 5] : undefined
+            },
             borderWidth: 2,
-            pointRadius: 4,
-            pointBackgroundColor: '#8b5cf6',
+            pointRadius: occupancyByWeek.map((_, i) => i === todayIndex ? 6 : 4),
+            pointBackgroundColor: occupancyByWeek.map((_, i) => i === todayIndex ? '#f1f5f9' : '#8b5cf6'),
             pointBorderColor: '#1e293b',
             pointBorderWidth: 2,
             yAxisID: 'y',
@@ -245,8 +258,8 @@ export default function OccupancyDashboard() {
             type: 'bar',
             label: 'Move-ins',
             data: weeklyData.map(d => d.moveIns),
-            backgroundColor: '#10b98180',
-            borderColor: '#10b981',
+            backgroundColor: weeklyData.map(d => d.isTrailing ? '#10b98140' : '#10b98180'),
+            borderColor: weeklyData.map(d => d.isTrailing ? '#10b98180' : '#10b981'),
             borderWidth: 1,
             borderRadius: 3,
             yAxisID: 'y1',
@@ -256,8 +269,8 @@ export default function OccupancyDashboard() {
             type: 'bar',
             label: 'Move-outs',
             data: weeklyData.map(d => -d.moveOuts),
-            backgroundColor: '#ef444480',
-            borderColor: '#ef4444',
+            backgroundColor: weeklyData.map(d => d.isTrailing ? '#ef444440' : '#ef444480'),
+            borderColor: weeklyData.map(d => d.isTrailing ? '#ef444480' : '#ef4444'),
             borderWidth: 1,
             borderRadius: 3,
             yAxisID: 'y1',
@@ -325,8 +338,8 @@ export default function OccupancyDashboard() {
                   lines.push('');
                   lines.push('Move-ins:');
                   week.moveInDetails.slice(0, 5).forEach(d => {
-                    const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    lines.push(`  ${d.unit} - ${d.tenant} (${dateStr})`);
+                    const dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    lines.push(`  ${d.unit} ${d.property} - ${d.tenant} (${dateStr})`);
                   });
                   if (week.moveInDetails.length > 5) lines.push(`  +${week.moveInDetails.length - 5} more`);
                 }
@@ -335,9 +348,9 @@ export default function OccupancyDashboard() {
                   lines.push('');
                   lines.push('Move-outs:');
                   week.moveOutDetails.slice(0, 5).forEach(d => {
-                    const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     const typeStr = d.type === 'Eviction' ? ' [Evict]' : d.type === 'Notice' ? ' [Notice]' : '';
-                    lines.push(`  ${d.unit} - ${d.tenant}${typeStr} (${dateStr})`);
+                    lines.push(`  ${d.unit} ${d.property}${typeStr} - ${d.tenant} (${dateStr})`);
                   });
                   if (week.moveOutDetails.length > 5) lines.push(`  +${week.moveOutDetails.length - 5} more`);
                 }
@@ -618,6 +631,72 @@ export default function OccupancyDashboard() {
       });
     }
 
+    // Evictions by Property Chart
+    if (evictionChartRef.current && stats.units?.length > 0) {
+      const ctx = evictionChartRef.current.getContext('2d');
+      if (evictionChartRef.current.chart) evictionChartRef.current.chart.destroy();
+
+      const evictionUnits = stats.units.filter(u => u.status === 'Evict');
+      const evictionsByProp = {};
+      const evictionDetailsByProp = {};
+      evictionUnits.forEach(u => {
+        const prop = u.property || 'Unknown';
+        evictionsByProp[prop] = (evictionsByProp[prop] || 0) + 1;
+        if (!evictionDetailsByProp[prop]) evictionDetailsByProp[prop] = [];
+        evictionDetailsByProp[prop].push({ unit: u.unit, tenant: u.tenant_name || 'Unknown' });
+      });
+
+      const evictionEntries = Object.entries(evictionsByProp).sort((a, b) => b[1] - a[1]);
+      const evictionDetails = evictionEntries.map(([prop]) => evictionDetailsByProp[prop]);
+
+      if (evictionEntries.length > 0) {
+        evictionChartRef.current.chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: evictionEntries.map(([prop]) => prop.length > 25 ? prop.substring(0, 25) + '...' : prop),
+            datasets: [{
+              label: 'Evictions',
+              data: evictionEntries.map(([, count]) => count),
+              backgroundColor: '#ef4444',
+              borderColor: '#dc2626',
+              borderWidth: 1,
+              borderRadius: 3
+            }]
+          },
+          options: {
+            ...DARK_CHART_DEFAULTS,
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: (items) => items[0]?.label || '',
+                  label: () => '',
+                  afterBody: (items) => {
+                    const idx = items[0]?.dataIndex;
+                    if (idx == null || !evictionDetails[idx]) return [];
+                    return evictionDetails[idx].map(d => `  ${d.unit} - ${d.tenant}`);
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { stepSize: 1, color: '#64748b' },
+                grid: { color: 'rgba(255, 255, 255, 0.05)' }
+              },
+              x: {
+                ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 45, minRotation: 0 },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+      }
+    }
+
     // Delinquency Chart
     if (delinquencyChartRef.current && stats.delinquencyStats?.length > 0) {
       const ctx = delinquencyChartRef.current.getContext('2d');
@@ -859,8 +938,9 @@ export default function OccupancyDashboard() {
               <div className="glass-card p-6 mb-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pb-2 border-b border-[var(--glass-border)]">
                   <h2 className="text-lg font-semibold text-slate-100">Occupancy Projections</h2>
-                  <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-4 text-xs flex-wrap">
                     {[
+                      { label: 'Past 30d', data: projections.trailingSummary },
                       { label: '0-30d', data: projections.summary?.days0_30 },
                       { label: '30-60d', data: projections.summary?.days30_60 },
                       { label: '60-90d', data: projections.summary?.days60_90 },
@@ -901,368 +981,173 @@ export default function OccupancyDashboard() {
               </div>
             </div>
             
-            {/* Bad Leases Tape Feed */}
-            <div className="glass-card p-6 mb-6">
-              <div className="flex justify-between items-center mb-4 pb-2 border-b border-[var(--glass-border)]">
-                <h2 className="text-lg font-semibold text-slate-100">
-                  Bad Leases Detail
-                </h2>
-                <button
-                  onClick={() => setGroupByProperty(!groupByProperty)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    groupByProperty
-                      ? 'bg-accent text-white hover:bg-accent/80'
-                      : 'bg-surface-overlay text-slate-300 hover:bg-surface-overlay/80 border border-[var(--glass-border)]'
-                  }`}
-                >
-                  {groupByProperty ? 'Grouped by Property' : 'Group by Type'}
-                </button>
-              </div>
-              <p className="text-sm text-slate-400 mb-4">
-                Units requiring attention (excluding vacant units)
-                {selectedExpirationRange && (
-                  <button
-                    onClick={() => setSelectedExpirationRange(null)}
-                    className="ml-2 px-2 py-0.5 bg-accent/20 text-accent rounded text-xs font-medium hover:bg-accent/30"
-                  >
-                    Filtered: {selectedExpirationRange === 'expired' ? 'Expired' : selectedExpirationRange === 'noEnd' ? 'No End Date' : selectedExpirationRange + ' days'} ✕
-                  </button>
+            {/* Evictions by Property + Move Activity */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              {/* Evictions by Property */}
+              <div className="glass-card p-6">
+                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Evictions by Property</h2>
+                {stats.units?.filter(u => u.status === 'Evict').length > 0 ? (
+                  <canvas ref={evictionChartRef}></canvas>
+                ) : (
+                  <div className="text-center py-8 text-slate-500">
+                    <p>No active evictions</p>
+                  </div>
                 )}
-              </p>
-
-              <div className="max-h-[600px] overflow-y-auto">
-                {(() => {
-                  let allBadLeases = [];
-
-                  stats.leaseHealthDetails?.badLeasesByReason?.evictions?.forEach(lease =>
-                    allBadLeases.push({ ...lease, type: 'eviction', color: 'red', priority: 1 })
-                  );
-                  stats.leaseHealthDetails?.badLeasesByReason?.monthToMonth?.forEach(lease =>
-                    allBadLeases.push({ ...lease, type: 'monthToMonth', color: 'orange', priority: 2 })
-                  );
-                  stats.leaseHealthDetails?.badLeasesByReason?.expiringWithin60Days?.forEach(lease =>
-                    allBadLeases.push({ ...lease, type: 'expiring', color: 'yellow', priority: 3 })
-                  );
-
-                  // Filter by selected expiration range from chart click
-                  if (selectedExpirationRange) {
-                    allBadLeases = allBadLeases.filter(lease => {
-                      const days = lease.daysUntilExpiration;
-                      switch (selectedExpirationRange) {
-                        case 'expired': return days !== null && days !== undefined && days < 0;
-                        case '0-30': return days !== null && days !== undefined && days >= 0 && days <= 30;
-                        case '31-60': return days !== null && days !== undefined && days > 30 && days <= 60;
-                        case '61-90': return days !== null && days !== undefined && days > 60 && days <= 90;
-                        case '90+': return days !== null && days !== undefined && days > 90;
-                        case 'noEnd': return days === null || days === undefined;
-                        default: return true;
-                      }
-                    });
-                  }
-
-                  if (allBadLeases.length === 0) {
-                    return (
-                      <div className="text-center py-8 text-slate-500">
-                        <div className="text-2xl mb-2">🎉</div>
-                        <p>No bad leases found!</p>
-                      </div>
-                    );
-                  }
-                  
-                  if (groupByProperty) {
-                    const groupedByProperty = allBadLeases.reduce((acc, lease) => {
-                      if (!acc[lease.property]) acc[lease.property] = [];
-                      acc[lease.property].push(lease);
-                      return acc;
-                    }, {});
-                    
-                    return Object.entries(groupedByProperty).map(([property, leases]) => (
-                      <div key={property} className="mb-4">
-                        <div className="bg-surface-overlay px-3 py-2 rounded-t-lg flex justify-between items-center border border-[var(--glass-border)]">
-                          <span className="font-semibold text-slate-100">{property}</span>
-                          <span className="bg-surface-raised px-2 py-0.5 rounded text-xs text-slate-400">{leases.length} units</span>
-                        </div>
-                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
-                          <table className="w-full text-sm">
-                            <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
-                              <tr>
-                                <th className="px-2 py-2 text-left font-medium">Unit</th>
-                                <th className="px-2 py-2 text-left font-medium">Tenant</th>
-                                <th className="px-2 py-2 text-left font-medium">Issue</th>
-                                <th className="px-2 py-2 text-center font-medium">Days Left</th>
-                                <th className="px-2 py-2 text-center font-medium">Renewal</th>
-                                <th className="px-2 py-2 text-right font-medium">Rent</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                              {leases.sort((a, b) => a.priority - b.priority).map((lease, idx) => (
-                                <tr key={idx} className={`${
-                                  lease.color === 'red' ? 'bg-rose-500/10 hover:bg-rose-500/20' :
-                                  lease.color === 'orange' ? 'bg-amber-500/10 hover:bg-amber-500/20' :
-                                  'bg-yellow-500/10 hover:bg-yellow-500/20'
-                                } transition-colors`}>
-                                  <td className="px-2 py-2 font-medium text-slate-200">{lease.unit}</td>
-                                  <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
-                                    {lease.tenantName || <span className="text-slate-500 italic text-xs">No renewal</span>}
-                                  </td>
-                                  <td className="px-2 py-2">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      lease.color === 'red' ? 'bg-rose-500/20 text-rose-400' :
-                                      lease.color === 'orange' ? 'bg-amber-500/20 text-amber-400' :
-                                      'bg-yellow-500/20 text-yellow-400'
-                                    }`}>
-                                      {lease.type === 'eviction' ? '⚠️ Evict' :
-                                       lease.type === 'monthToMonth' ? '📅 MTM' :
-                                       '⏰ Expiring'}
-                                    </span>
-                                  </td>
-                                  <td className="px-2 py-2 text-center text-xs font-medium">
-                                    {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
-                                      <span className={lease.daysUntilExpiration < 0 ? 'text-rose-400' : lease.daysUntilExpiration <= 30 ? 'text-amber-400' : 'text-slate-400'}>
-                                        {lease.daysUntilExpiration}
-                                      </span>
-                                    ) : '-'}
-                                  </td>
-                                  <td className="px-2 py-2 text-center">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      lease.renewalStatus === 'Renewed' ? 'bg-emerald-500/20 text-emerald-400' :
-                                      lease.renewalStatus === 'Pending' ? 'bg-blue-500/20 text-blue-400' :
-                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-rose-500/20 text-rose-400' :
-                                      lease.renewalStatus === 'Canceled by User' ? 'bg-slate-500/20 text-slate-400' :
-                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-500/20 text-purple-400' :
-                                      'bg-slate-500/20 text-slate-500'
-                                    }`}>
-                                      {lease.renewalStatus === 'Renewed' ? '✓' :
-                                       lease.renewalStatus === 'Pending' ? '⏳' :
-                                       lease.renewalStatus === 'Did Not Renew' ? '✗' :
-                                       lease.renewalStatus === 'Canceled by User' ? '—' :
-                                       lease.renewalStatus === 'Not sent' ? '📭' : '?'}
-                                      <span className="ml-1 hidden sm:inline">
-                                        {lease.renewalStatus}
-                                      </span>
-                                    </span>
-                                  </td>
-                                  <td className="px-2 py-2 text-right font-medium text-slate-300">
-                                    {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    ));
-                  } else {
-                    const typeGroups = [
-                      { key: 'eviction', label: 'Evictions', color: 'red', icon: '⚠️', leases: allBadLeases.filter(l => l.type === 'eviction') },
-                      { key: 'monthToMonth', label: 'Month-to-Month', color: 'orange', icon: '📅', leases: allBadLeases.filter(l => l.type === 'monthToMonth') },
-                      { key: 'expiring', label: 'Expiring Soon', color: 'yellow', icon: '⏰', leases: allBadLeases.filter(l => l.type === 'expiring') }
-                    ].filter(g => g.leases.length > 0);
-
-                    return typeGroups.map(group => (
-                      <div key={group.key} className="mb-4">
-                        <div className={`px-3 py-2 rounded-t-lg flex justify-between items-center ${
-                          group.color === 'red' ? 'bg-rose-600/80 text-white' :
-                          group.color === 'orange' ? 'bg-amber-600/80 text-white' :
-                          'bg-yellow-600/80 text-white'
-                        }`}>
-                          <span className="font-semibold">{group.icon} {group.label}</span>
-                          <span className={`px-2 py-0.5 rounded text-xs ${
-                            group.color === 'red' ? 'bg-rose-700/50' :
-                            group.color === 'orange' ? 'bg-amber-700/50' :
-                            'bg-yellow-700/50'
-                          }`}>{group.leases.length} units</span>
-                        </div>
-                        <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
-                          <table className="w-full text-sm">
-                            <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
-                              <tr>
-                                <th className="px-2 py-2 text-left font-medium">Property</th>
-                                <th className="px-2 py-2 text-left font-medium">Unit</th>
-                                <th className="px-2 py-2 text-left font-medium">Tenant</th>
-                                <th className="px-2 py-2 text-center font-medium">Days Left</th>
-                                <th className="px-2 py-2 text-center font-medium">Renewal</th>
-                                <th className="px-2 py-2 text-right font-medium">Rent</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                              {group.leases.map((lease, idx) => (
-                                <tr key={idx} className={`${
-                                  group.color === 'red' ? 'bg-rose-500/10 hover:bg-rose-500/20' :
-                                  group.color === 'orange' ? 'bg-amber-500/10 hover:bg-amber-500/20' :
-                                  'bg-yellow-500/10 hover:bg-yellow-500/20'
-                                } transition-colors`}>
-                                  <td className="px-2 py-2 text-slate-300 truncate max-w-[140px]" title={lease.property}>
-                                    {lease.property}
-                                  </td>
-                                  <td className="px-2 py-2 font-medium text-slate-200">{lease.unit}</td>
-                                  <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
-                                    {lease.tenantName || <span className="text-slate-500 italic text-xs">No renewal</span>}
-                                  </td>
-                                  <td className="px-2 py-2 text-center text-xs font-medium">
-                                    {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
-                                      <span className={lease.daysUntilExpiration < 0 ? 'text-rose-400' : lease.daysUntilExpiration <= 30 ? 'text-amber-400' : 'text-slate-400'}>
-                                        {lease.daysUntilExpiration}
-                                      </span>
-                                    ) : '-'}
-                                  </td>
-                                  <td className="px-2 py-2 text-center">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      lease.renewalStatus === 'Renewed' ? 'bg-emerald-500/20 text-emerald-400' :
-                                      lease.renewalStatus === 'Pending' ? 'bg-blue-500/20 text-blue-400' :
-                                      lease.renewalStatus === 'Did Not Renew' ? 'bg-rose-500/20 text-rose-400' :
-                                      lease.renewalStatus === 'Canceled by User' ? 'bg-slate-500/20 text-slate-400' :
-                                      lease.renewalStatus === 'Not sent' ? 'bg-purple-500/20 text-purple-400' :
-                                      'bg-slate-500/20 text-slate-500'
-                                    }`}>
-                                      {lease.renewalStatus === 'Renewed' ? '✓' :
-                                       lease.renewalStatus === 'Pending' ? '⏳' :
-                                       lease.renewalStatus === 'Did Not Renew' ? '✗' :
-                                       lease.renewalStatus === 'Canceled by User' ? '—' :
-                                       lease.renewalStatus === 'Not sent' ? '📭' : '?'}
-                                      <span className="ml-1 hidden sm:inline">
-                                        {lease.renewalStatus}
-                                      </span>
-                                    </span>
-                                  </td>
-                                  <td className="px-2 py-2 text-right font-medium text-slate-300">
-                                    {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    ));
-                  }
-                })()}
               </div>
 
-              {/* Upcoming Expirations */}
-              {stats.leaseHealthDetails?.upcomingExpirations?.length > 0 && (!selectedExpirationRange || selectedExpirationRange === '61-90') && (
-                <div className="mt-6 pt-6 border-t border-[var(--glass-border)]">
-                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-blue-600/80 text-white">
-                    <span className="font-semibold">📆 Upcoming Expirations (61-90 days)</span>
-                    <span className="px-2 py-0.5 rounded text-xs bg-blue-700/50">{stats.leaseHealthDetails.upcomingExpirations.length} units</span>
-                  </div>
-                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
-                        <tr>
-                          <th className="px-2 py-2 text-left font-medium">Property</th>
-                          <th className="px-2 py-2 text-left font-medium">Unit</th>
-                          <th className="px-2 py-2 text-left font-medium">Tenant</th>
-                          <th className="px-2 py-2 text-center font-medium">Days Left</th>
-                          <th className="px-2 py-2 text-center font-medium">Renewal</th>
-                          <th className="px-2 py-2 text-right font-medium">Rent</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {stats.leaseHealthDetails.upcomingExpirations.map((lease, idx) => (
-                          <tr key={idx} className="bg-blue-500/10 hover:bg-blue-500/20 transition-colors">
-                            <td className="px-2 py-2 text-slate-300 truncate max-w-[140px]" title={lease.property}>
-                              {lease.property}
-                            </td>
-                            <td className="px-2 py-2 font-medium text-slate-200">{lease.unit}</td>
-                            <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={lease.tenantName || 'No renewal sent'}>
-                              {lease.tenantName || <span className="text-slate-500 italic text-xs">No renewal</span>}
-                            </td>
-                            <td className="px-2 py-2 text-center text-xs font-medium">
-                              {lease.daysUntilExpiration !== null && lease.daysUntilExpiration !== undefined ? (
-                                <span className={lease.daysUntilExpiration < 0 ? 'text-rose-400' : lease.daysUntilExpiration <= 30 ? 'text-amber-400' : 'text-blue-400'}>
-                                  {lease.daysUntilExpiration}
-                                </span>
-                              ) : '-'}
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                lease.renewalStatus === 'Renewed' ? 'bg-emerald-500/20 text-emerald-400' :
-                                lease.renewalStatus === 'Pending' ? 'bg-blue-500/20 text-blue-400' :
-                                lease.renewalStatus === 'Did Not Renew' ? 'bg-rose-500/20 text-rose-400' :
-                                lease.renewalStatus === 'Canceled by User' ? 'bg-slate-500/20 text-slate-400' :
-                                lease.renewalStatus === 'Not sent' ? 'bg-purple-500/20 text-purple-400' :
-                                'bg-slate-500/20 text-slate-500'
-                              }`}>
-                                {lease.renewalStatus === 'Renewed' ? '✓' :
-                                 lease.renewalStatus === 'Pending' ? '⏳' :
-                                 lease.renewalStatus === 'Did Not Renew' ? '✗' :
-                                 lease.renewalStatus === 'Canceled by User' ? '—' :
-                                 lease.renewalStatus === 'Not sent' ? '📭' : '?'}
-                                <span className="ml-1 hidden sm:inline">
-                                  {lease.renewalStatus}
-                                </span>
-                              </span>
-                            </td>
-                            <td className="px-2 py-2 text-right font-medium text-slate-300">
-                              {lease.rent ? `$${Number(lease.rent).toLocaleString()}` : '-'}
-                            </td>
-                          </tr>
+              {/* Move-In / Move-Out Activity */}
+              <div className="glass-card p-6">
+                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Move-In / Move-Out Activity</h2>
+                <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                  {/* Trailing (Past 30 Days) */}
+                  {projections?.trailingSummary && (projections.trailingSummary.moveIns > 0 || projections.trailingSummary.moveOuts > 0) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-slate-300">Past 30 Days</span>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-emerald-400 font-semibold">+{projections.trailingSummary.moveIns} in</span>
+                          <span className="text-slate-600">/</span>
+                          <span className="text-rose-400 font-semibold">-{projections.trailingSummary.moveOuts} out</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {projections.trailingSummary.moveInDetails?.map((d, i) => (
+                          <div key={`ti-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-emerald-500/10">
+                            <span className="text-emerald-400 font-medium w-4 text-center">+</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}</span>
+                            <span className="text-slate-500">{new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Recent Renewals */}
-              {stats.leaseHealthDetails?.recentRenewals?.length > 0 && (
-                <div className="mt-6 pt-6 border-t border-[var(--glass-border)]">
-                  <div className="px-3 py-2 rounded-t-lg flex justify-between items-center bg-emerald-600/80 text-white">
-                    <span className="font-semibold">🔄 Recent Renewals (Last 60 Days + Future)</span>
-                    <span className="px-2 py-0.5 rounded text-xs bg-emerald-700/50">{stats.leaseHealthDetails.recentRenewals.length} renewals</span>
-                  </div>
-                  <div className="border border-[var(--glass-border)] border-t-0 rounded-b-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-surface-raised text-xs text-slate-400">
-                        <tr>
-                          <th className="px-2 py-2 text-left font-medium">Property</th>
-                          <th className="px-2 py-2 text-left font-medium">Unit</th>
-                          <th className="px-2 py-2 text-left font-medium">Tenant</th>
-                          <th className="px-2 py-2 text-center font-medium">Lease Start</th>
-                          <th className="px-2 py-2 text-right font-medium">Rent</th>
-                          <th className="px-2 py-2 text-right font-medium">Change</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {stats.leaseHealthDetails.recentRenewals.map((renewal, idx) => (
-                          <tr key={idx} className="bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors">
-                            <td className="px-2 py-2 text-slate-300 truncate max-w-[140px]" title={renewal.property}>
-                              {renewal.property}
-                            </td>
-                            <td className="px-2 py-2 font-medium text-slate-200">{renewal.unit}</td>
-                            <td className="px-2 py-2 text-slate-300 truncate max-w-[120px]" title={renewal.tenantName || ''}>
-                              {renewal.tenantName || <span className="text-slate-500 italic text-xs">-</span>}
-                            </td>
-                            <td className="px-2 py-2 text-center text-xs">
-                              <span className={renewal.daysFromToday > 0 ? 'text-blue-400 font-medium' : 'text-slate-400'}>
-                                {new Date(renewal.leaseStart).toLocaleDateString()}
-                                {renewal.daysFromToday > 0 && <span className="ml-1 text-blue-400">(+{renewal.daysFromToday}d)</span>}
-                              </span>
-                            </td>
-                            <td className="px-2 py-2 text-right font-medium text-slate-300">
-                              {renewal.rent ? `$${Number(renewal.rent).toLocaleString()}` : '-'}
-                            </td>
-                            <td className="px-2 py-2 text-right text-xs">
-                              {renewal.percentDifference !== null && renewal.percentDifference !== undefined ? (
-                                <span className={Number(renewal.percentDifference) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                                  {Number(renewal.percentDifference) >= 0 ? '+' : ''}{Number(renewal.percentDifference).toFixed(1)}%
-                                </span>
-                              ) : renewal.dollarDifference !== null && renewal.dollarDifference !== undefined ? (
-                                <span className={Number(renewal.dollarDifference) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                                  {Number(renewal.dollarDifference) >= 0 ? '+' : ''}${Number(renewal.dollarDifference).toLocaleString()}
-                                </span>
-                              ) : (
-                                <span className="text-slate-500">-</span>
-                              )}
-                            </td>
-                          </tr>
+                        {projections.trailingSummary.moveOutDetails?.map((d, i) => (
+                          <div key={`to-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-rose-500/10">
+                            <span className="text-rose-400 font-medium w-4 text-center">-</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}{d.type === 'Eviction' ? ' [Evict]' : d.type === 'Notice' ? ' [Notice]' : ''}</span>
+                            <span className="text-slate-500">{new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Next 30 Days */}
+                  {projections?.summary?.days0_30 && (projections.summary.days0_30.moveIns > 0 || projections.summary.days0_30.moveOuts > 0) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-slate-300">Next 30 Days</span>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-emerald-400 font-semibold">+{projections.summary.days0_30.moveIns} in</span>
+                          <span className="text-slate-600">/</span>
+                          <span className="text-rose-400 font-semibold">-{projections.summary.days0_30.moveOuts} out</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {projections.upcomingMoveIns?.filter(e => {
+                          const d = new Date(e.event_date);
+                          return d <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                        }).map((d, i) => (
+                          <div key={`fi-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-emerald-500/10">
+                            <span className="text-emerald-400 font-medium w-4 text-center">+</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}</span>
+                            <span className="text-slate-500">{new Date(d.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                        ))}
+                        {projections.upcomingMoveOuts?.filter(e => {
+                          const d = new Date(e.event_date);
+                          return d <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                        }).map((d, i) => (
+                          <div key={`fo-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-rose-500/10">
+                            <span className="text-rose-400 font-medium w-4 text-center">-</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}{d.event_type === 'Eviction' ? ' [Evict]' : d.event_type === 'Notice' ? ' [Notice]' : ''}</span>
+                            <span className="text-slate-500">{new Date(d.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* 30-60 Days */}
+                  {projections?.summary?.days30_60 && (projections.summary.days30_60.moveIns > 0 || projections.summary.days30_60.moveOuts > 0) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-slate-300">30-60 Days</span>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-emerald-400 font-semibold">+{projections.summary.days30_60.moveIns} in</span>
+                          <span className="text-slate-600">/</span>
+                          <span className="text-rose-400 font-semibold">-{projections.summary.days30_60.moveOuts} out</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {projections.upcomingMoveIns?.filter(e => {
+                          const d = new Date(e.event_date);
+                          return d > new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && d <= new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+                        }).map((d, i) => (
+                          <div key={`mi30-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-emerald-500/10">
+                            <span className="text-emerald-400 font-medium w-4 text-center">+</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}</span>
+                            <span className="text-slate-500">{new Date(d.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                        ))}
+                        {projections.upcomingMoveOuts?.filter(e => {
+                          const d = new Date(e.event_date);
+                          return d > new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && d <= new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+                        }).map((d, i) => (
+                          <div key={`mo30-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-rose-500/10">
+                            <span className="text-rose-400 font-medium w-4 text-center">-</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}{d.event_type === 'Eviction' ? ' [Evict]' : d.event_type === 'Notice' ? ' [Notice]' : ''}</span>
+                            <span className="text-slate-500">{new Date(d.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* 60-90 Days */}
+                  {projections?.summary?.days60_90 && (projections.summary.days60_90.moveIns > 0 || projections.summary.days60_90.moveOuts > 0) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-slate-300">60-90 Days</span>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-emerald-400 font-semibold">+{projections.summary.days60_90.moveIns} in</span>
+                          <span className="text-slate-600">/</span>
+                          <span className="text-rose-400 font-semibold">-{projections.summary.days60_90.moveOuts} out</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {projections.upcomingMoveIns?.filter(e => {
+                          const d = new Date(e.event_date);
+                          return d > new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) && d <= new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+                        }).map((d, i) => (
+                          <div key={`mi60-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-emerald-500/10">
+                            <span className="text-emerald-400 font-medium w-4 text-center">+</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}</span>
+                            <span className="text-slate-500">{new Date(d.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                        ))}
+                        {projections.upcomingMoveOuts?.filter(e => {
+                          const d = new Date(e.event_date);
+                          return d > new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) && d <= new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+                        }).map((d, i) => (
+                          <div key={`mo60-${i}`} className="flex items-center gap-2 text-xs py-1 px-2 rounded bg-rose-500/10">
+                            <span className="text-rose-400 font-medium w-4 text-center">-</span>
+                            <span className="text-slate-300 font-medium">{d.unit}</span>
+                            <span className="text-slate-500 truncate flex-1">{d.property}{d.event_type === 'Eviction' ? ' [Evict]' : d.event_type === 'Notice' ? ' [Notice]' : ''}</span>
+                            <span className="text-slate-500">{new Date(d.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {!projections && (
+                    <div className="text-center py-8 text-slate-500">
+                      <p>Loading activity data...</p>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Other Charts */}
