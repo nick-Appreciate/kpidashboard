@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import useSWR from 'swr';
 import Chart from 'chart.js/auto';
 import Link from 'next/link';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
+import { fetcher } from '../lib/swr';
 
 // Helper: aggregate daily data points into weekly (one per week, using last value in each week)
 const aggregateWeekly = (dataPoints, dateKey = 'date', valueKey = 'occupancyRate') => {
@@ -30,11 +32,6 @@ const formatWeekLabel = (dateStr) => {
 };
 
 export default function OccupancyDashboard() {
-  const [stats, setStats] = useState(null);
-  const [projections, setProjections] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const [error, setError] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState('portfolio');
   const [dateRange, setDateRange] = useState('all_time');
   const [startDate, setStartDate] = useState('');
@@ -97,21 +94,50 @@ export default function OccupancyDashboard() {
       setEndDate(range.end);
     }
   }, [dateRange]);
-  
-  useEffect(() => {
-    fetchStats();
-    fetchProjections();
-  }, [selectedProperty, startDate, endDate]);
-  
+
+  // Build SWR cache keys from current filters
+  const buildStatsKey = () => {
+    const params = new URLSearchParams();
+    if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
+      if (selectedProperty.startsWith('region_')) {
+        params.append('region', selectedProperty);
+      } else {
+        params.append('property', selectedProperty);
+      }
+    }
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return `/api/rent-roll/stats?${params}`;
+  };
+
+  const buildProjectionsKey = () => {
+    const params = new URLSearchParams();
+    if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
+      if (selectedProperty.startsWith('region_')) {
+        params.append('region', selectedProperty);
+      } else {
+        params.append('property', selectedProperty);
+      }
+    }
+    return `/api/rent-roll/projections?${params}`;
+  };
+
+  // SWR data fetching — cached across navigations, deduped, background revalidation
+  const { data: stats, error, isLoading: loading, isValidating } = useSWR(buildStatsKey(), fetcher, {
+    revalidateOnMount: true,
+  });
+  const { data: projections } = useSWR(buildProjectionsKey(), fetcher, {
+    revalidateOnMount: true,
+  });
+
   useEffect(() => {
     if (stats) {
       updateCharts();
     }
   }, [stats, selectedProperty, occupiedOverride]);
-  
+
   useEffect(() => {
     if (projections && stats && !loading) {
-      // Small delay to ensure canvas elements are mounted after conditional render
       const timer = setTimeout(() => {
         updateProjectionCharts();
       }, 200);
@@ -122,76 +148,18 @@ export default function OccupancyDashboard() {
 
   // Define region mappings - KC properties, Columbia is everything else
   const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
-  
+
   const getPropertiesForSelection = (selection) => {
     if (selection === 'region_kansas_city') {
-      return stats?.properties?.filter(prop => 
+      return stats?.properties?.filter(prop =>
         KC_PROPERTIES.some(kc => prop.toLowerCase().includes(kc))
       ) || [];
     } else if (selection === 'region_columbia') {
-      return stats?.properties?.filter(prop => 
+      return stats?.properties?.filter(prop =>
         !KC_PROPERTIES.some(kc => prop.toLowerCase().includes(kc))
       ) || [];
     }
     return selection;
-  };
-  
-  const fetchStats = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-        if (selectedProperty.startsWith('region_')) {
-          params.append('region', selectedProperty);
-        } else {
-          params.append('property', selectedProperty);
-        }
-      }
-      if (startDate) {
-        params.append('startDate', startDate);
-      }
-      if (endDate) {
-        params.append('endDate', endDate);
-      }
-      
-      const res = await fetch(`/api/rent-roll/stats?${params}`);
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      const data = await res.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      setStats(data);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching stats:', err);
-      setError(err.message || 'Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const fetchProjections = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-        if (selectedProperty.startsWith('region_')) {
-          params.append('region', selectedProperty);
-        } else {
-          params.append('property', selectedProperty);
-        }
-      }
-      
-      const res = await fetch(`/api/rent-roll/projections?${params}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!data.error) {
-        setProjections(data);
-      }
-    } catch (err) {
-      console.error('Error fetching projections:', err);
-    }
   };
   
   const updateProjectionCharts = () => {
@@ -745,13 +713,13 @@ export default function OccupancyDashboard() {
     );
   }
   
-  if (error) {
+  if (error && !stats) {
     return (
       <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
         <div className="glass-card p-6 max-w-md">
-          <p className="text-rose-400 mb-4">Error: {error}</p>
+          <p className="text-rose-400 mb-4">Error: {error.message || String(error)}</p>
           <button
-            onClick={fetchStats}
+            onClick={() => window.location.reload()}
             className="btn-accent w-full"
           >
             Retry

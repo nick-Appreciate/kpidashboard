@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import useSWR from 'swr';
 import { LogoLoader } from './Logo';
 import Chart from 'chart.js/auto';
 import JustCallDialer, { useJustCall } from './JustCallDialer';
 import DarkSelect from './DarkSelect';
 import { DARK_CHART_DEFAULTS } from '@/lib/chartTheme';
+import { fetcher } from '../lib/swr';
 
 const EnvelopeIcon = ({ className = "h-3.5 w-3.5" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 20 20" fill="currentColor">
@@ -15,18 +17,21 @@ const EnvelopeIcon = ({ className = "h-3.5 w-3.5" }) => (
 );
 
 export default function CollectionsDashboard() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [selectedAgingBuckets, setSelectedAgingBuckets] = useState([]);
   const trendChartRef = useRef(null);
   const trendChartInstance = useRef(null);
   const { makeCall, openDialer } = useJustCall();
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedProperty]);
+  // SWR data fetching — cached across navigations
+  const buildCollectionsKey = () => {
+    const params = new URLSearchParams();
+    if (selectedProperty !== 'all') params.append('property', selectedProperty);
+    return `/api/collections?${params}`;
+  };
+  const { data, error, isLoading: loading, isValidating, mutate } = useSWR(buildCollectionsKey(), fetcher, {
+    revalidateOnMount: true,
+  });
 
   // Render trend chart when data changes
   useEffect(() => {
@@ -136,29 +141,6 @@ export default function CollectionsDashboard() {
     );
   };
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedProperty !== 'all') params.append('property', selectedProperty);
-
-      const res = await fetch(`/api/collections?${params}`);
-      const result = await res.json();
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      setData(result);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching collections:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -240,9 +222,9 @@ export default function CollectionsDashboard() {
     return (
       <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
         <div className="glass-card p-8 max-w-md">
-          <p className="text-red-400 mb-4">Error: {error}</p>
+          <p className="text-red-400 mb-4">Error: {error.message || String(error)}</p>
           <button
-            onClick={fetchData}
+            onClick={() => window.location.reload()}
             className="w-full btn-accent py-2 px-4 rounded-lg"
           >
             Retry
@@ -345,11 +327,11 @@ export default function CollectionsDashboard() {
                 </button>
               )}
               <button
-                onClick={fetchData}
-                disabled={loading}
+                onClick={() => mutate()}
+                disabled={isValidating}
                 className="text-xs text-slate-500 hover:text-accent transition-colors"
               >
-                {loading ? '...' : '\u21BB'}
+                {isValidating ? '...' : '\u21BB'}
               </button>
             </div>
           </div>

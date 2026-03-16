@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import useSWR from 'swr';
 import Chart from 'chart.js/auto';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import Link from 'next/link';
@@ -10,13 +11,9 @@ import TimeSeriesChart from './TimeSeriesChart';
 import TopPropertiesChart from './TopPropertiesChart';
 import { DARK_CHART_DEFAULTS, STAGE_COLORS, CHART_PALETTE } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
+import { fetcher } from '../lib/swr';
 
 export default function Dashboard() {
-  const [inquiries, setInquiries] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [funnelData, setFunnelData] = useState(null);
-  const [properties, setProperties] = useState([]);
-  const [statuses, setStatuses] = useState([]);
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [dateRange, setDateRange] = useState('last_month');
@@ -32,11 +29,7 @@ export default function Dashboard() {
     nextWeek.setDate(today.getDate() + 7);
     return nextWeek.toISOString().split('T')[0];
   });
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [selectedStages, setSelectedStages] = useState(['inquiries']);
-  const [stageStats, setStageStats] = useState(null);
   const [granularity, setGranularity] = useState('weekly');
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerHovered, setHeaderHovered] = useState(false);
@@ -139,43 +132,61 @@ export default function Dashboard() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Fetch data
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [selectedProperty, selectedStatus, startDate, endDate]);
+  // Build SWR cache keys from current filters
+  const buildFilterParams = () => {
+    const params = new URLSearchParams();
+    if (selectedProperty.startsWith('region_')) {
+      params.append('region', selectedProperty);
+    } else if (selectedProperty !== 'all') {
+      params.append('property', selectedProperty);
+    }
+    if (selectedStatus !== 'all') params.append('status', selectedStatus);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return params;
+  };
 
-  // Fetch stage-specific data when stages are selected or filters change
-  useEffect(() => {
-    const fetchStageData = async () => {
-      if (selectedStages.length === 0) {
-        setStageStats(null);
-        return;
-      }
+  const filterParams = buildFilterParams();
 
-      try {
-        const params = new URLSearchParams();
-        params.append('stages', selectedStages.join(','));
-        if (selectedProperty.startsWith('region_')) {
-          params.append('region', selectedProperty);
-        } else if (selectedProperty !== 'all') {
-          params.append('property', selectedProperty);
-        }
-        if (startDate) params.append('startDate', startDate);
-        if (endDate) params.append('endDate', endDate);
-        params.append('granularity', granularity);
+  // SWR data fetching — cached across navigations, deduped, background revalidation
+  const { data: inquiriesData, error: inquiriesError, isLoading: inquiriesLoading } = useSWR(
+    `/api/inquiries?${filterParams}`, fetcher, { revalidateOnMount: true, refreshInterval: 5 * 60 * 1000 }
+  );
+  const { data: statsData, isLoading: statsLoading } = useSWR(
+    `/api/stats?${filterParams}`, fetcher, { revalidateOnMount: true, refreshInterval: 5 * 60 * 1000 }
+  );
+  const { data: funnelDataRes, isLoading: funnelLoading } = useSWR(
+    `/api/funnel?${filterParams}`, fetcher, { revalidateOnMount: true, refreshInterval: 5 * 60 * 1000 }
+  );
+  const { data: propertiesData } = useSWR('/api/inquiries/properties', fetcher, { revalidateOnMount: true });
+  const { data: statusesData } = useSWR('/api/inquiries/statuses', fetcher, { revalidateOnMount: true });
 
-        const res = await fetch(`/api/stage-stats?${params}`);
-        const data = await res.json();
-        setStageStats(data);
-      } catch (err) {
-        console.error('Error fetching stage data:', err);
-      }
-    };
+  // Derive values from SWR data (replacing old setState calls)
+  const inquiries = inquiriesData?.inquiries || [];
+  const stats = statsData || null;
+  const funnelData = funnelDataRes || null;
+  const properties = propertiesData || [];
+  const statuses = statusesData || [];
+  const loading = inquiriesLoading || statsLoading || funnelLoading;
+  const error = inquiriesError;
+  const lastUpdated = stats?.lastDataInsert ? new Date(stats.lastDataInsert) : null;
 
-    fetchStageData();
-  }, [selectedStages, selectedProperty, startDate, endDate, granularity]);
+  // Stage-specific data
+  const buildStageKey = () => {
+    if (selectedStages.length === 0) return null;
+    const params = new URLSearchParams();
+    params.append('stages', selectedStages.join(','));
+    if (selectedProperty.startsWith('region_')) {
+      params.append('region', selectedProperty);
+    } else if (selectedProperty !== 'all') {
+      params.append('property', selectedProperty);
+    }
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    params.append('granularity', granularity);
+    return `/api/stage-stats?${params}`;
+  };
+  const { data: stageStats } = useSWR(buildStageKey(), fetcher, { revalidateOnMount: true });
 
   const handleStageClick = (stageName) => {
     const stageMap = {
@@ -207,54 +218,6 @@ export default function Dashboard() {
     };
     return selectedStages.map(s => nameMap[s]).filter(Boolean).join(', ');
   }, [selectedStages]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-
-      const params = new URLSearchParams();
-      if (selectedProperty.startsWith('region_')) {
-        params.append('region', selectedProperty);
-      } else if (selectedProperty !== 'all') {
-        params.append('property', selectedProperty);
-      }
-      if (selectedStatus !== 'all') params.append('status', selectedStatus);
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-
-      const inquiriesRes = await fetch(`/api/inquiries?${params}`);
-      const inquiriesData = await inquiriesRes.json();
-      setInquiries(inquiriesData.inquiries || []);
-
-      const statsRes = await fetch(`/api/stats?${params}`);
-      const statsData = await statsRes.json();
-      setStats(statsData);
-
-      const funnelRes = await fetch(`/api/funnel?${params}`);
-      const funnelDataRes = await funnelRes.json();
-      setFunnelData(funnelDataRes);
-
-      const propertiesRes = await fetch('/api/inquiries/properties');
-      const propertiesData = await propertiesRes.json();
-      setProperties(propertiesData || []);
-
-      const statusesRes = await fetch('/api/inquiries/statuses');
-      const statusesData = await statusesRes.json();
-      setStatuses(statusesData || []);
-
-      if (statsData.lastDataInsert) {
-        setLastUpdated(new Date(statsData.lastDataInsert));
-      } else {
-        setLastUpdated(new Date());
-      }
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError('Failed to load data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Conversion rate chart (uses ref — always mounted, clears when no data)
   useEffect(() => {
@@ -456,9 +419,9 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
         <div className="glass-card p-8 max-w-md">
-          <p className="text-red-400 mb-4">{error}</p>
+          <p className="text-red-400 mb-4">{error.message || String(error)}</p>
           <button
-            onClick={fetchData}
+            onClick={() => window.location.reload()}
             className="w-full btn-accent py-2 px-4"
           >
             Retry
@@ -553,7 +516,6 @@ export default function Dashboard() {
                     setDateRange('last_month');
                     setGranularity('weekly');
                     setSelectedStages([]);
-                    setStageStats(null);
                   }}
                   disabled={loading}
                   className="text-xs text-slate-500 hover:text-accent transition whitespace-nowrap"

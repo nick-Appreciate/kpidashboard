@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from './Sidebar';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import { SWRProvider } from '../lib/swr';
 
 const Particles = dynamic(() => import('./reactbits/Particles'), { ssr: false });
 
@@ -87,7 +88,9 @@ function LayoutContent({ children }) {
 export default function AppLayout({ children }) {
   return (
     <AuthProvider>
-      <LayoutContent>{children}</LayoutContent>
+      <SWRProvider>
+        <LayoutContent>{children}</LayoutContent>
+      </SWRProvider>
     </AuthProvider>
   );
 }
