@@ -409,8 +409,16 @@ export async function scrapeUsageData(
       };
     }
 
-    // Wait for Data tab content to load
-    await page.waitForTimeout(5000);
+    // Wait for Data tab content to load — wait for the download icon to appear
+    console.log('[scrape] Waiting for Data tab toolbar to load...');
+    try {
+      await page.waitForSelector('.icon-Download, span.icon-Download', { state: 'visible', timeout: 20000 });
+      console.log('[scrape] Data tab toolbar loaded.');
+    } catch {
+      // Fallback: just wait a fixed time
+      console.log('[scrape] Download icon not found within 20s, waiting extra...');
+      await page.waitForTimeout(10000);
+    }
     await takeScreenshot(page, 'after-data-click');
 
     // Step 3: Click the "download" icon in the toolbar
@@ -486,72 +494,124 @@ export async function scrapeUsageData(
       };
     }
 
-    // Wait for download modal/dialog to appear
+    // Wait for download form to appear
     await page.waitForTimeout(3000);
-    await takeScreenshot(page, 'after-download-click');
 
-    // Step 4: Set date range
-    // The inputs are HTML5 date inputs: #DownloadStartDate and #DownloadEndDate
-    // They accept YYYY-MM-DD format
-    console.log(`[scrape] Setting date range: ${start} to ${end}...`);
+    // Step 4: Configure download form - change service type to Water (CCF data)
+    console.log('[scrape] Configuring download form...');
 
-    // Fill start date
-    const startInput = await page.$('#DownloadStartDate');
-    if (startInput) {
-      await startInput.fill(start); // YYYY-MM-DD format
-      console.log(`[scrape] Set start date: ${start}`);
+    // 4a: Change Service Type to Water (CCF data) if not already set
+    const serviceTypeChanged = await page.evaluate(() => {
+      const sel = document.getElementById('SelectedServiceType') as HTMLSelectElement;
+      if (!sel) return { changed: false, reason: 'No #SelectedServiceType dropdown found' };
+      const waterOpt = Array.from(sel.options).find(o => o.text.toLowerCase().includes('water'));
+      if (!waterOpt) return { changed: false, reason: 'No Water option found' };
+      if (sel.value === waterOpt.value) return { changed: false, reason: 'Already set to Water' };
+      return { changed: true, value: waterOpt.value };
+    });
+
+    if (serviceTypeChanged.changed) {
+      console.log('[scrape] Changing service type to Water...');
+      await page.selectOption('#SelectedServiceType', serviceTypeChanged.value!);
+      await page.waitForTimeout(5000); // Wait for form to reload with Water columns/meters
+      console.log('[scrape] Service type changed to Water.');
     } else {
-      console.warn('[scrape] Start date input #DownloadStartDate not found');
+      console.log(`[scrape] Service type: ${serviceTypeChanged.reason}`);
     }
 
-    // Fill end date
-    const endInput = await page.$('#DownloadEndDate');
-    if (endInput) {
-      await endInput.fill(end); // YYYY-MM-DD format
-      console.log(`[scrape] Set end date: ${end}`);
-    } else {
-      console.warn('[scrape] End date input #DownloadEndDate not found');
+    // 4c: Check ALL column checkboxes using Playwright's check() method
+    const columnCheckboxes = await page.$$('.columnSelection, input[id^="ColumnOptions"][id$="__Checked"]');
+    let newlyChecked = 0;
+    for (const cb of columnCheckboxes) {
+      const isChecked = await cb.isChecked().catch(() => true);
+      if (!isChecked) {
+        await cb.check().catch(() => {});
+        newlyChecked++;
+      }
     }
-
+    console.log(`[scrape] Columns: ${columnCheckboxes.length} total, ${newlyChecked} newly checked.`);
     await page.waitForTimeout(1000);
-    await takeScreenshot(page, 'after-date-set');
 
-    // Step 5: Click the "Download" button at the bottom of the form
-    // Look for it by text — it's a button with text "Download" in the form (below y=400)
-    console.log('[scrape] Looking for Download button...');
-
-    const submitBtn = await page.evaluateHandle(() => {
-      const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a.btn'));
-      for (const btn of buttons) {
-        const text = btn.textContent?.trim() || '';
-        if (
-          text === 'Download' &&
-          btn instanceof HTMLElement &&
-          btn.offsetParent !== null &&
-          btn.getBoundingClientRect().y > 400
-        ) {
-          return btn;
+    // 4d: Set interval to Daily
+    const intervalSelects = await page.evaluate(() => {
+      const selects = Array.from(document.querySelectorAll('select'));
+      for (const sel of selects) {
+        const dailyOpt = Array.from(sel.options).find(o => o.text.toLowerCase().includes('daily'));
+        if (dailyOpt) {
+          return { selector: sel.id ? `#${sel.id}` : '', value: dailyOpt.value, currentValue: sel.value };
         }
       }
       return null;
     });
+    if (intervalSelects?.selector && intervalSelects.value !== intervalSelects.currentValue) {
+      console.log(`[scrape] Setting interval to Daily...`);
+      await page.selectOption(intervalSelects.selector, intervalSelects.value);
+      await page.waitForTimeout(2000);
+    }
 
-    const submitElement = submitBtn.asElement();
-    if (!submitElement) {
+    // 4e: Set date range using Playwright fill (re-queries DOM each time)
+    console.log(`[scrape] Setting date range: ${start} to ${end}...`);
+    try {
+      await page.waitForSelector('#DownloadStartDate', { state: 'visible', timeout: 5000 });
+      await page.fill('#DownloadStartDate', start);
+      console.log(`[scrape] Set start date: ${start}`);
+    } catch {
+      console.warn('[scrape] #DownloadStartDate not found, trying label-based approach...');
+      // Try to find and fill by evaluating in page context
+      await page.evaluate((val: string) => {
+        const labels = Array.from(document.querySelectorAll('*'));
+        for (const el of labels) {
+          if (el.textContent?.trim() === 'Start Date' && el.nextElementSibling?.tagName === 'INPUT') {
+            const input = el.nextElementSibling as HTMLInputElement;
+            input.value = val;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            break;
+          }
+        }
+      }, start);
+    }
+    try {
+      await page.waitForSelector('#DownloadEndDate', { state: 'visible', timeout: 5000 });
+      await page.fill('#DownloadEndDate', end);
+      console.log(`[scrape] Set end date: ${end}`);
+    } catch {
+      console.warn('[scrape] #DownloadEndDate not found, trying label-based approach...');
+      await page.evaluate((val: string) => {
+        const labels = Array.from(document.querySelectorAll('*'));
+        for (const el of labels) {
+          if (el.textContent?.trim() === 'End Date' && el.nextElementSibling?.tagName === 'INPUT') {
+            const input = el.nextElementSibling as HTMLInputElement;
+            input.value = val;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            break;
+          }
+        }
+      }, end);
+    }
+
+    await page.waitForTimeout(1000);
+    await takeScreenshot(page, 'after-form-config');
+
+    // Step 5: Click the "Download" submit button (#downloadSubmit)
+    console.log('[scrape] Looking for Download button...');
+
+    // Use Playwright's click with selector (re-queries DOM, avoids stale handles)
+    const downloadBtn = await page.$('#downloadSubmit');
+    if (!downloadBtn) {
       await takeScreenshot(page, 'no-submit-button');
       await page.close();
       return {
         success: false,
         records: [],
-        error: 'Download submit button not found on download page.',
+        error: 'Download submit button #downloadSubmit not found.',
       };
     }
 
-    console.log('[scrape] Found Download button, clicking...');
+    console.log('[scrape] Found #downloadSubmit, clicking...');
 
     // Set up download handler BEFORE clicking
     const downloadPromise = page.waitForEvent('download', { timeout: 90000 });
-    await submitElement.click();
+    await page.click('#downloadSubmit');
     console.log('[scrape] Clicked Download button, waiting for file...');
 
     let download: Download;
@@ -576,6 +636,7 @@ export async function scrapeUsageData(
 
     // Step 8: Parse CSV
     console.log('[scrape] Parsing CSV...');
+
     const records = parseUsageCsv(downloadPath);
     console.log(`[scrape] Parsed ${records.length} records.`);
 
