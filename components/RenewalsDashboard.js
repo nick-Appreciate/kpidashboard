@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import useSWR from 'swr';
 import Chart from 'chart.js/auto';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
+import { fetcher } from '../lib/swr';
 
 // Color palette for multi-property charts
 const propertyColors = [
@@ -73,9 +75,6 @@ const IssueBadge = ({ type }) => {
 };
 
 export default function RenewalsDashboard() {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState('portfolio');
   const [dateRange, setDateRange] = useState('all_time');
   const [startDate, setStartDate] = useState('');
@@ -139,37 +138,25 @@ export default function RenewalsDashboard() {
     }
   }, [dateRange]);
 
-  useEffect(() => {
-    fetchStats();
-  }, [selectedProperty, startDate, endDate]);
-
-  const fetchStats = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-        if (selectedProperty.startsWith('region_')) {
-          params.append('region', selectedProperty);
-        } else {
-          params.append('property', selectedProperty);
-        }
+  // Build SWR cache key from current filters
+  const buildStatsKey = () => {
+    const params = new URLSearchParams();
+    if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
+      if (selectedProperty.startsWith('region_')) {
+        params.append('region', selectedProperty);
+      } else {
+        params.append('property', selectedProperty);
       }
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-
-      const res = await fetch(`/api/rent-roll/stats?${params}`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setStats(data);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching renewal stats:', err);
-      setError(err.message || 'Failed to load data');
-    } finally {
-      setLoading(false);
     }
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return `/api/rent-roll/stats?${params}`;
   };
+
+  // SWR data fetching — cached across navigations, deduped, background revalidation
+  const { data: stats, error, isLoading: loading, isValidating } = useSWR(buildStatsKey(), fetcher, {
+    revalidateOnMount: true,
+  });
 
   // --- Build unified lease list with issue types ---
   const allLeases = useMemo(() => {
@@ -644,12 +631,12 @@ export default function RenewalsDashboard() {
     );
   }
 
-  if (error) {
+  if (error && !stats) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-400 mb-2">Error loading data</p>
-          <p className="text-sm text-slate-500">{error}</p>
+          <p className="text-sm text-slate-500">{error.message || String(error)}</p>
         </div>
       </div>
     );
