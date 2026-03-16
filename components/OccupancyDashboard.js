@@ -3,8 +3,31 @@
 import { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import Link from 'next/link';
-import { DARK_CHART_DEFAULTS, DARK_DOUGHNUT_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
+import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
+
+// Helper: aggregate daily data points into weekly (one per week, using last value in each week)
+const aggregateWeekly = (dataPoints, dateKey = 'date', valueKey = 'occupancyRate') => {
+  if (!dataPoints || dataPoints.length === 0) return [];
+  const weekMap = {};
+  dataPoints.forEach(d => {
+    const date = new Date(d[dateKey] + 'T00:00:00');
+    const day = date.getDay();
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(date);
+    monday.setDate(diff);
+    const weekKey = monday.toISOString().split('T')[0];
+    if (!weekMap[weekKey] || d[dateKey] >= weekMap[weekKey][dateKey]) {
+      weekMap[weekKey] = { ...d, _weekKey: weekKey };
+    }
+  });
+  return Object.values(weekMap).sort((a, b) => a._weekKey.localeCompare(b._weekKey));
+};
+
+const formatWeekLabel = (dateStr) => {
+  const [year, month, day] = dateStr.split('-');
+  return `${month}/${day}`;
+};
 
 export default function OccupancyDashboard() {
   const [stats, setStats] = useState(null);
@@ -59,10 +82,11 @@ export default function OccupancyDashboard() {
   
   const occupancyChartRef = useRef(null);
   const projectionChartRef = useRef(null);
-  const statusChartRef = useRef(null);
-  const delinquencyChartRef = useRef(null);
   const leaseChartRef = useRef(null);
   const evictionChartRef = useRef(null);
+  const healthyLeaseCanvasRef = useRef(null);
+  const healthyLeaseChartRef = useRef(null);
+  const healthyLeaseRenderedRef = useRef(null);
   const headerRef = useRef(null);
   
   // Update dates when preset changes
@@ -419,35 +443,10 @@ export default function OccupancyDashboard() {
   
   // Color palette for multi-property charts
   const propertyColors = [
-    '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', 
+    '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
     '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
     '#14b8a6', '#a855f7', '#eab308', '#22c55e', '#0ea5e9'
   ];
-  
-  // Helper: aggregate daily data points into weekly (one per week, using last value in each week)
-  const aggregateWeekly = (dataPoints, dateKey = 'date', valueKey = 'occupancyRate') => {
-    if (!dataPoints || dataPoints.length === 0) return [];
-    const weekMap = {};
-    dataPoints.forEach(d => {
-      const date = new Date(d[dateKey] + 'T00:00:00');
-      // Get the Monday of the week
-      const day = date.getDay();
-      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-      const monday = new Date(date);
-      monday.setDate(diff);
-      const weekKey = monday.toISOString().split('T')[0];
-      // Keep the last (most recent) entry per week
-      if (!weekMap[weekKey] || d[dateKey] >= weekMap[weekKey][dateKey]) {
-        weekMap[weekKey] = { ...d, _weekKey: weekKey };
-      }
-    });
-    return Object.values(weekMap).sort((a, b) => a._weekKey.localeCompare(b._weekKey));
-  };
-
-  const formatWeekLabel = (dateStr) => {
-    const [year, month, day] = dateStr.split('-');
-    return `${month}/${day}`;
-  };
 
   const updateCharts = () => {
     // Occupancy Trend Chart
@@ -562,40 +561,6 @@ export default function OccupancyDashboard() {
       });
     }
     
-    // Status Distribution Chart
-    if (statusChartRef.current && stats.statusDistribution?.length > 0) {
-      const ctx = statusChartRef.current.getContext('2d');
-      if (statusChartRef.current.chart) statusChartRef.current.chart.destroy();
-      
-      const colors = {
-        'Current': '#10b981',
-        'Vacant-Unrented': '#ef4444',
-        'Vacant-Rented': '#f59e0b',
-        'Notice-Unrented': '#f97316',
-        'Notice-Rented': '#eab308',
-        'Evict': '#dc2626'
-      };
-      
-      statusChartRef.current.chart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: stats.statusDistribution.map(s => s.status),
-          datasets: [{
-            data: stats.statusDistribution.map(s => s.count),
-            backgroundColor: stats.statusDistribution.map(s => colors[s.status] || '#6b7280')
-          }]
-        },
-        options: {
-          ...DARK_DOUGHNUT_DEFAULTS,
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: {
-            legend: { position: 'right' }
-          }
-        }
-      });
-    }
-    
     // Lease Expiration Chart
     if (leaseChartRef.current && stats.leaseExpirations) {
       const ctx = leaseChartRef.current.getContext('2d');
@@ -614,9 +579,9 @@ export default function OccupancyDashboard() {
         },
         options: {
           responsive: true,
-          maintainAspectRatio: true,
+          maintainAspectRatio: false,
           plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+          scales: { y: { beginAtZero: true, ticks: { color: '#64748b' } }, x: { ticks: { color: '#64748b' } } },
           onClick: (event, elements) => {
             if (elements.length > 0) {
               const rangeKeys = ['expired', '0-30', '31-60', '61-90', '90+', 'noEnd'];
@@ -697,41 +662,78 @@ export default function OccupancyDashboard() {
       }
     }
 
-    // Delinquency Chart
-    if (delinquencyChartRef.current && stats.delinquencyStats?.length > 0) {
-      const ctx = delinquencyChartRef.current.getContext('2d');
-      if (delinquencyChartRef.current.chart) delinquencyChartRef.current.chart.destroy();
-      
-      const topDelinquent = stats.delinquencyStats.slice(0, 10);
-      
-      delinquencyChartRef.current.chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: topDelinquent.map(d => d.property.length > 20 ? d.property.substring(0, 20) + '...' : d.property),
-          datasets: [{
-            label: 'Past Due Amount ($)',
-            data: topDelinquent.map(d => d.amount),
-            backgroundColor: '#ef4444'
-          }]
-        },
-        options: {
-          ...DARK_CHART_DEFAULTS,
-          responsive: true,
-          maintainAspectRatio: true,
-          indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              beginAtZero: true,
-              ticks: { callback: v => '$' + v.toLocaleString() }
+  };
+
+  // --- Healthy Lease Rate Trend Chart ---
+  useEffect(() => {
+    if (healthyLeaseChartRef.current) {
+      healthyLeaseChartRef.current.destroy();
+      healthyLeaseChartRef.current = null;
+    }
+    if (!healthyLeaseCanvasRef.current || !stats) return;
+
+    const weeklyHealthy = aggregateWeekly(stats.healthyLeaseTrend || [], 'date', 'healthyLeaseRate');
+    if (weeklyHealthy.length === 0) return;
+
+    const healthyChartData = {
+      labels: weeklyHealthy.map(d => formatWeekLabel(d.date)),
+      datasets: [{
+        label: 'Healthy Lease Rate (%)',
+        data: weeklyHealthy.map(d => parseFloat(d.healthyLeaseRate)),
+        borderColor: '#10b981',
+        backgroundColor: '#10b98120',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        borderWidth: 2
+      }]
+    };
+
+    const dataKey = JSON.stringify(healthyChartData.datasets.map(ds => ds.data));
+    if (healthyLeaseRenderedRef.current === dataKey) return;
+    healthyLeaseRenderedRef.current = dataKey;
+
+    healthyLeaseChartRef.current = new Chart(healthyLeaseCanvasRef.current.getContext('2d'), {
+      type: 'line',
+      data: healthyChartData,
+      options: {
+        ...DARK_CHART_DEFAULTS,
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.parsed.y}%`
             }
           }
+        },
+        scales: {
+          y: {
+            min: Math.max(0, Math.floor(Math.min(...weeklyHealthy.map(d => parseFloat(d.healthyLeaseRate))) / 5) * 5 - 5),
+            max: 100,
+            ticks: { callback: v => v + '%', color: '#64748b', font: { size: 10 } },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+          },
+          x: {
+            ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 8 },
+            grid: { display: false }
+          }
         }
-      });
-    }
-    
-  };
-  
+      }
+    });
+
+    return () => {
+      if (healthyLeaseChartRef.current) {
+        healthyLeaseChartRef.current.destroy();
+        healthyLeaseChartRef.current = null;
+      }
+      healthyLeaseRenderedRef.current = null;
+    };
+  }, [stats]);
+
   if (loading && !stats) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -965,18 +967,20 @@ export default function OccupancyDashboard() {
             )}
             
             {/* Lease Expirations + Healthy Rate */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-              <div className="glass-card p-6 lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="glass-card p-6">
                 <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Lease Expirations</h2>
-                <canvas ref={leaseChartRef}></canvas>
+                <div className="h-64">
+                  <canvas ref={leaseChartRef}></canvas>
+                </div>
               </div>
-              <div className="glass-card p-6 flex flex-col items-center justify-center">
-                <h2 className="text-lg font-semibold text-slate-100 mb-2">Healthy Lease Rate</h2>
-                <p className="text-xs text-slate-400 mb-4 text-center">
-                  Units with leases not expiring within 60 days and not evicting
-                </p>
-                <div className="text-4xl font-bold text-emerald-400">
-                  {summary.healthyLeaseRate || 0}%
+              <div className="glass-card p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-semibold text-slate-100">Healthy Lease Rate</h2>
+                  <span className="text-2xl font-bold text-emerald-400">{summary.healthyLeaseRate || 0}%</span>
+                </div>
+                <div className="flex-1">
+                  <canvas ref={healthyLeaseCanvasRef}></canvas>
                 </div>
               </div>
             </div>
@@ -1150,18 +1154,6 @@ export default function OccupancyDashboard() {
               </div>
             </div>
 
-            {/* Other Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <div className="glass-card p-6">
-                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Unit Status Distribution</h2>
-                <canvas ref={statusChartRef}></canvas>
-              </div>
-
-              <div className="glass-card p-6">
-                <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Delinquency by Property</h2>
-                <canvas ref={delinquencyChartRef}></canvas>
-              </div>
-            </div>
             
             {/* Property Stats Table */}
             <div className="glass-card p-6 mb-6">
@@ -1183,7 +1175,7 @@ export default function OccupancyDashboard() {
                         <td className="text-right py-3 px-2">{prop.totalUnits}</td>
                         <td className="text-right py-3 px-2">{prop.occupiedUnits}</td>
                         <td className="text-right py-3 px-2">
-                          <span className={`px-2 py-1 rounded ${parseFloat(prop.occupancyRate) >= 90 ? 'bg-emerald-500/15 text-green-800' : parseFloat(prop.occupancyRate) >= 80 ? 'bg-amber-500/15 text-yellow-800' : 'bg-rose-500/15 text-red-800'}`}>
+                          <span className={`px-2 py-1 rounded font-medium ${parseFloat(prop.occupancyRate) >= 95 ? 'bg-emerald-500/20 text-emerald-400' : parseFloat(prop.occupancyRate) >= 90 ? 'bg-emerald-500/15 text-emerald-300' : parseFloat(prop.occupancyRate) >= 80 ? 'bg-amber-500/20 text-amber-300' : parseFloat(prop.occupancyRate) >= 70 ? 'bg-orange-500/20 text-orange-300' : 'bg-rose-500/20 text-rose-400'}`}>
                             {prop.occupancyRate}%
                           </span>
                         </td>
