@@ -177,6 +177,108 @@ app.post('/api/scrape', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/scrape-async
+ * Fire-and-forget version of /api/scrape.
+ * Returns immediately with {triggered: true}, runs scrape + upload in background.
+ * Designed for edge function callers that have short timeouts.
+ */
+app.post('/api/scrape-async', async (req, res) => {
+  try {
+    const loginStatus = await isLoggedIn();
+    if (!loginStatus.loggedIn) {
+      return res.status(400).json({
+        triggered: false,
+        error: 'Not logged in. Run `npm run login` or POST /api/login first.',
+      });
+    }
+
+    const { start_date, end_date, dry_run } = req.body || {};
+
+    // Return immediately — run scrape in background
+    res.json({ triggered: true, start_date, end_date });
+
+    // Background work
+    (async () => {
+      try {
+        console.log(`[async-scrape] BPU: Starting background scrape (${start_date} to ${end_date})...`);
+        const scrapeResult = await scrapeUsageData(start_date, end_date);
+
+        if (!scrapeResult.success) {
+          console.error('[async-scrape] BPU scrape failed:', scrapeResult.error);
+          return;
+        }
+
+        const records = scrapeResult.records;
+        console.log(`[async-scrape] BPU: Parsed ${records.length} records.`);
+
+        if (dry_run || !supabase || records.length === 0) {
+          console.log(`[async-scrape] BPU: ${dry_run ? 'Dry run' : !supabase ? 'No Supabase' : 'No records'} — skipping upload.`);
+          return;
+        }
+
+        const uploaded = await uploadToSupabase(records);
+        console.log(`[async-scrape] BPU: ✅ Uploaded ${uploaded} records to Supabase.`);
+      } catch (err: any) {
+        console.error('[async-scrape] BPU background error:', err.message);
+      }
+    })();
+  } catch (err: any) {
+    console.error('[api] scrape-async error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/como/scrape-async
+ * Fire-and-forget version of /api/como/scrape.
+ */
+app.post('/api/como/scrape-async', async (req, res) => {
+  try {
+    const comoStatus = await isComoLoggedIn();
+    if (!comoStatus.loggedIn) {
+      return res.status(400).json({
+        triggered: false,
+        error: 'COMO not logged in. POST /api/como/login first.',
+      });
+    }
+
+    const { start_date, end_date, dry_run } = req.body || {};
+
+    // Return immediately
+    res.json({ triggered: true, start_date, end_date });
+
+    // Background work
+    (async () => {
+      try {
+        console.log(`[async-scrape] COMO: Starting background scrape (${start_date} to ${end_date})...`);
+        const scrapeResult = await scrapeComoData(start_date, end_date);
+
+        if (!scrapeResult.success) {
+          console.error('[async-scrape] COMO scrape failed:', scrapeResult.error);
+          return;
+        }
+
+        const records = scrapeResult.records;
+        console.log(`[async-scrape] COMO: Parsed ${records.length} records from ${scrapeResult.properties_scraped} properties.`);
+
+        if (dry_run || !supabase || records.length === 0) {
+          console.log(`[async-scrape] COMO: ${dry_run ? 'Dry run' : !supabase ? 'No Supabase' : 'No records'} — skipping upload.`);
+          return;
+        }
+
+        const uploaded = await uploadComoToSupabase(records);
+        console.log(`[async-scrape] COMO: ✅ Uploaded ${uploaded} records to Supabase.`);
+      } catch (err: any) {
+        console.error('[async-scrape] COMO background error:', err.message);
+      }
+    })();
+  } catch (err: any) {
+    console.error('[api] como/scrape-async error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── COMO Routes ─────────────────────────────────────────────────────────
 
 /**
