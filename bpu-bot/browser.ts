@@ -494,8 +494,16 @@ export async function scrapeUsageData(
       };
     }
 
-    // Wait for download form to appear
-    await page.waitForTimeout(3000);
+    // Wait for download form to fully render (including service type dropdown)
+    console.log('[scrape] Waiting for download form to load...');
+    try {
+      await page.waitForSelector('#SelectedServiceType', { state: 'visible', timeout: 15000 });
+      console.log('[scrape] Download form loaded.');
+    } catch {
+      // Form didn't show service type selector — wait extra and retry
+      console.log('[scrape] Service type dropdown not found, waiting extra...');
+      await page.waitForTimeout(5000);
+    }
 
     // Step 4: Configure download form - change service type to Water (CCF data)
     console.log('[scrape] Configuring download form...');
