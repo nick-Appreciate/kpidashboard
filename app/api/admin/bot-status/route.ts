@@ -47,7 +47,7 @@ async function fetchBotHealth(bot: BotConfig): Promise<BotHealth> {
   try {
     const res = await fetch(`${bot.url}/api/health`, {
       headers: { Authorization: `Bearer ${bot.secret}` },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
     const data = await res.json();
     return { name: bot.name, label: bot.label, port: bot.port, ok: data.ok, logged_in: data.logged_in, current_url: data.current_url || '', reachable: true };
