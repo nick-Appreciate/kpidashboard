@@ -4,14 +4,14 @@
  * Workflow:
  * 1. Query front_messages table for messages with attachments not yet parsed
  * 2. Check for duplicates in bills by front_message_id
- * 3. Download PDF from Front API
+ * 3. Download PDF from Front API (tries each attachment until one succeeds)
  * 4. Send PDF to Claude for intelligent invoice parsing
  * 5. Store PDF in Supabase Storage
  * 6. Insert parsed data into bills table (unified)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
-import { Anthropic } from 'https://esm.sh/@anthropic-ai/sdk@0.24.0';
+import { Anthropic } from 'https://esm.sh/@anthropic-ai/sdk@0.27.0';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -44,8 +44,14 @@ interface ParsedInvoice {
   payment_status: string | null;
 }
 
-// Fetch a PDF from Front API
-async function downloadPdfFromFront(attachmentId: string): Promise<Uint8Array> {
+interface DownloadResult {
+  buffer: Uint8Array;
+  attachmentId: string;
+  contentType: string;
+}
+
+// Fetch a PDF from Front API — returns buffer + content type
+async function downloadPdfFromFront(attachmentId: string): Promise<DownloadResult> {
   const url = `https://api2.frontapp.com/download/${attachmentId}`;
   const response = await fetch(url, {
     headers: {
@@ -54,10 +60,34 @@ async function downloadPdfFromFront(attachmentId: string): Promise<Uint8Array> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to download PDF (${response.status}): ${response.statusText}`);
+    throw new Error(`Failed to download attachment ${attachmentId} (${response.status}): ${response.statusText}`);
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  const contentType = response.headers.get('content-type') || '';
+  const buffer = new Uint8Array(await response.arrayBuffer());
+
+  // Validate it's actually a PDF by magic bytes (%PDF)
+  if (buffer.length < 4 || buffer[0] !== 0x25 || buffer[1] !== 0x50 || buffer[2] !== 0x44 || buffer[3] !== 0x46) {
+    throw new Error(`Attachment ${attachmentId} is not a PDF (content-type: ${contentType}, size: ${buffer.length} bytes)`);
+  }
+
+  return { buffer, attachmentId, contentType };
+}
+
+// Try each attachment in order until we get a valid PDF
+async function downloadFirstValidPdf(attachmentIds: string[]): Promise<DownloadResult> {
+  const errors: string[] = [];
+  for (const id of attachmentIds) {
+    try {
+      const result = await downloadPdfFromFront(id);
+      console.log(`  Successfully downloaded PDF from attachment ${id} (${result.buffer.length} bytes)`);
+      return result;
+    } catch (err: any) {
+      console.warn(`  Attachment ${id} failed: ${err.message}`);
+      errors.push(`${id}: ${err.message}`);
+    }
+  }
+  throw new Error(`No valid PDF found among ${attachmentIds.length} attachment(s). Errors: ${errors.join('; ')}`);
 }
 
 // Convert PDF to base64 for Claude
@@ -262,7 +292,7 @@ async function parseInvoiceWithClaude(
   senderName: string
 ): Promise<ParsedInvoice> {
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-5',
     max_tokens: 1024,
     messages: [
       {
@@ -434,13 +464,13 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        const attachmentId = msg.attachment_ids[0];
-        console.log(`Processing message ${msg.front_id}, attachment ${attachmentId}...`);
+        console.log(`Processing message ${msg.front_id} (${msg.attachment_ids.length} attachments)...`);
 
-        const pdfBuffer = await downloadPdfFromFront(attachmentId);
+        // Try all attachments until a valid PDF is found
+        const download = await downloadFirstValidPdf(msg.attachment_ids);
 
         const invoice = await parseInvoiceWithClaude(
-          bufferToBase64(pdfBuffer),
+          bufferToBase64(download.buffer),
           msg.subject || '',
           msg.body_text || '',
           msg.sender_name || 'Unknown'
@@ -462,13 +492,13 @@ Deno.serve(async (req: Request) => {
               invoice_amount: invoice.invoice_amount,
               invoice_date: invoice.invoice_date,
               due_date: invoice.due_date,
-              ap_notes: 'Incomplete parse — missing required fields',
+              ap_notes: 'Incomplete parse — missing required fields (vendor, amount, or date)',
             })
             .eq('front_id', msg.front_id);
 
           results.push({
             frontMessageId: msg.front_id,
-            attachmentId,
+            attachmentId: download.attachmentId,
             status: 'incomplete',
             invoice,
             reason: 'Missing required fields (vendor_name, amount, or invoice_date)',
@@ -476,7 +506,7 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        const pdfUrl = await uploadPdfToStorage(pdfBuffer, msg.conversation_id, attachmentId);
+        const pdfUrl = await uploadPdfToStorage(download.buffer, msg.conversation_id, download.attachmentId);
 
         const suggestions = await suggestBillDefaults(
           invoice.vendor_name!,
@@ -491,7 +521,7 @@ Deno.serve(async (req: Request) => {
           ? `⚠️ CREDIT/REFUND — Manual entry required. ${invoice.description || ''}`
           : invoice.description;
 
-        const attachmentsJson = [{ filename: `${attachmentId}.pdf`, url: pdfUrl }];
+        const attachmentsJson = [{ filename: `${download.attachmentId}.pdf`, url: pdfUrl }];
 
         // Insert into unified bills table (primary)
         billInserts.push({
@@ -529,7 +559,7 @@ Deno.serve(async (req: Request) => {
 
         results.push({
           frontMessageId: msg.front_id,
-          attachmentId,
+          attachmentId: download.attachmentId,
           status: 'success',
           invoice,
           pdfUrl,
@@ -538,12 +568,23 @@ Deno.serve(async (req: Request) => {
 
         console.log(`Parsed ${invoice.vendor_name}: $${invoice.invoice_amount}${isCredit ? ' (CREDIT — flagged for manual entry)' : ''}`);
       } catch (error) {
-        console.error(`Error processing message ${msg.front_id}:`, error);
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`Error processing message ${msg.front_id}:`, errMsg);
+
+        // Mark as extracted with error note so it doesn't retry endlessly
+        await supabase
+          .from('front_messages')
+          .update({
+            ap_extracted: true,
+            ap_notes: `Parse error: ${errMsg.slice(0, 500)}`,
+          })
+          .eq('front_id', msg.front_id);
+
         results.push({
           frontMessageId: msg.front_id,
           attachmentId: msg.attachment_ids?.[0],
           status: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errMsg,
         });
       }
     }

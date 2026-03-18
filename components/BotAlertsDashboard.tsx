@@ -122,13 +122,13 @@ export default function BotAlertsDashboard() {
   }
 
   async function handle2FASetup() {
-    if (!loginFlow || !phone) return;
+    if (!loginFlow) return;
     setLoginFlow((f) => f && { ...f, loading: true });
     try {
       const res = await fetch('/api/admin/bot-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bot: 'appfolio', action: '2fa-setup', phone }),
+        body: JSON.stringify({ bot: 'appfolio', action: '2fa-setup', phone: phone || 'skip' }),
       });
       const result = await res.json();
       setLoginFlow({
@@ -324,18 +324,11 @@ export default function BotAlertsDashboard() {
 
               {loginFlow.step === '2fa_required' && !loginFlow.loading && (
                 <div className="flex gap-2">
-                  <input
-                    type="tel"
-                    placeholder="Phone number"
-                    className="dark-input flex-1 text-sm"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
                   <button
                     onClick={handle2FASetup}
                     className="px-4 py-2 text-xs font-medium bg-accent/15 text-accent rounded-md hover:bg-accent/25 transition-colors"
                   >
-                    Send Code
+                    Send Verification Code via SMS
                   </button>
                 </div>
               )}
@@ -345,14 +338,21 @@ export default function BotAlertsDashboard() {
                   <input
                     type="text"
                     placeholder="6-digit code"
-                    className="dark-input flex-1 text-sm"
+                    className="dark-input flex-1 text-sm tracking-widest font-mono"
                     value={code}
-                    onChange={(e) => setCode(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setCode(val);
+                      if (val.length === 6) setTimeout(handle2FAVerify, 100);
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && handle2FAVerify()}
                     maxLength={6}
+                    autoFocus
                   />
                   <button
                     onClick={handle2FAVerify}
-                    className="px-4 py-2 text-xs font-medium bg-accent/15 text-accent rounded-md hover:bg-accent/25 transition-colors"
+                    disabled={code.length !== 6}
+                    className="px-4 py-2 text-xs font-medium bg-accent/15 text-accent rounded-md hover:bg-accent/25 transition-colors disabled:opacity-40"
                   >
                     Verify
                   </button>
