@@ -27,6 +27,7 @@ interface SystemAlert {
 interface BotStatusResponse {
   bots: BotHealth[];
   lastScrape: string | null;
+  lastDataByBot: Record<string, string | null>;
   alerts: SystemAlert[];
   alertCount: number;
 }
@@ -353,11 +354,11 @@ export default function BotAlertsDashboard() {
                       <span className="text-rose-400 truncate max-w-[200px]">{bot.error}</span>
                     </div>
                   )}
-                  {bot.name === 'bpu' && data?.lastScrape && (
+                  {data?.lastDataByBot?.[bot.name] && (
                     <div className="flex justify-between">
                       <span>Last Data</span>
                       <span className="text-slate-400">
-                        {new Date(data.lastScrape).toLocaleDateString()}
+                        {new Date(data.lastDataByBot[bot.name]!).toLocaleDateString()}
                       </span>
                     </div>
                   )}

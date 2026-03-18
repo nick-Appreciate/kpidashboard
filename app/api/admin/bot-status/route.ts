@@ -38,7 +38,7 @@ async function getBotConfigs(): Promise<BotConfig[]> {
   const { data, error } = await supabaseAdmin
     .from('bot_config')
     .select('name, label, port, url, secret')
-    .neq('is_bot', false);
+    .neq('name', 'supervisor');
   if (error || !data) return [];
   return data;
 }
@@ -65,6 +65,19 @@ async function fetchLastScrapeTimestamp(): Promise<string | null> {
   return data?.[0]?.reading_timestamp || null;
 }
 
+async function fetchLastDataTimestamps(): Promise<Record<string, string | null>> {
+  const [bpu, simmons, appfolio] = await Promise.all([
+    supabase.from('bpu_meter_readings').select('reading_timestamp').order('reading_timestamp', { ascending: false }).limit(1),
+    supabase.from('simmons_scrape_log').select('completed_at').in('status', ['completed', 'partial']).order('completed_at', { ascending: false }).limit(1),
+    supabase.from('bills').select('appfolio_synced_at').order('appfolio_synced_at', { ascending: false }).limit(1),
+  ]);
+  return {
+    bpu: bpu.data?.[0]?.reading_timestamp || null,
+    simmons: simmons.data?.[0]?.completed_at || null,
+    appfolio: appfolio.data?.[0]?.appfolio_synced_at || null,
+  };
+}
+
 function deriveAlerts(bots: BotHealth[], lastScrape: string | null): SystemAlert[] {
   const alerts: SystemAlert[] = [];
   for (const bot of bots) {
@@ -89,12 +102,13 @@ export async function GET() {
   try {
     const configs = await getBotConfigs();
     const healthPromises = configs.map((bot) => fetchBotHealth(bot));
-    const [bots, lastScrape] = await Promise.all([
+    const [bots, lastScrape, lastDataByBot] = await Promise.all([
       Promise.all(healthPromises),
       fetchLastScrapeTimestamp(),
+      fetchLastDataTimestamps(),
     ]);
     const alerts = deriveAlerts(bots, lastScrape);
-    return NextResponse.json({ bots, lastScrape, alerts, alertCount: alerts.length });
+    return NextResponse.json({ bots, lastScrape, lastDataByBot, alerts, alertCount: alerts.length });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 });
   }
