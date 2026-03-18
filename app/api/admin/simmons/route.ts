@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
       .select('deposit_id')
       .or(`payer_name.ilike.%${search}%,money_order_number.ilike.%${search}%,check_number.ilike.%${search}%,memo.ilike.%${search}%`)
       .limit(200);
-    if (matches) matchingDepositIds = [...new Set(matches.map(m => m.deposit_id))];
+    if (matches) matchingDepositIds = Array.from(new Set(matches.map(m => m.deposit_id)));
   }
 
   let query = supabaseAdmin
@@ -89,8 +89,8 @@ export async function GET(req: NextRequest) {
   const deposits = (data || []).map((dep: any) => {
     const checks = dep.simmons_check_images || [];
     const extracted = checks.filter((c: any) => c.extracted_at && c.check_type);
-    const payers = [...new Set(extracted.map((c: any) => c.payer_name).filter(Boolean))];
-    const types  = [...new Set(extracted.map((c: any) => c.check_type).filter(Boolean))];
+    const payers = Array.from(new Set(extracted.map((c: any) => c.payer_name).filter(Boolean)));
+    const types  = Array.from(new Set(extracted.map((c: any) => c.check_type).filter(Boolean)));
     return {
       id: dep.id,
       account_suffix: dep.account_suffix,
