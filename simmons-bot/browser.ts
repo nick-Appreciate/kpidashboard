@@ -166,48 +166,58 @@ export async function login(
   const p = await ensureBrowser();
 
   try {
-    console.log('[login] Step 1: Navigate to simmonsbank.com');
-    await p.goto('https://www.simmonsbank.com', {
+    // Go directly to Banno login page (skip www.simmonsbank.com marketing site)
+    console.log('[login] Step 1: Navigate to Banno login page');
+    await p.goto('https://login.simmonsbank.com/login', {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
-    await p.waitForTimeout(2000);
+    await p.waitForTimeout(5000); // Banno SPA needs time to render shadow DOM
 
-    // Click Business tab — must find the VISIBLE one (page has multiple duplicates)
-    console.log('[login] Step 2: Click Business tab');
-    const tabs = await p.$$('[role="tab"]');
-    for (const tab of tabs) {
-      const text = await tab.textContent();
-      if (text?.trim() === 'Business' && await tab.isVisible()) {
-        await tab.click();
-        break;
-      }
-    }
-    await p.waitForTimeout(1000);
-
-    // Enter username in User ID field — field name is "id", need the visible one
-    console.log('[login] Step 3: Enter username');
-    const userInputs = await p.$$('input[name="id"]');
-    let userInput = null;
-    for (const input of userInputs) {
-      if (await input.isVisible()) {
-        userInput = input;
-        break;
-      }
-    }
-    if (!userInput) throw new Error('Could not find visible User ID input');
-    await userInput.click();
-    await p.waitForTimeout(200);
-    await p.keyboard.type(username, { delay: 80 });
+    // Step 2: Enter username (Banno renders inputs inside shadow DOM)
+    console.log('[login] Step 2: Enter username');
+    const usernameInput = p.getByLabel('Username').first();
+    await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+    // Use fill() which handles shadow DOM + React state updates properly
+    await usernameInput.fill(username);
+    console.log(`[login] Filled username: ${username}`);
     await p.waitForTimeout(500);
 
-    // Click the visible "Go" submit button
-    const goButtons = await p.$$('button.btn-login-js, button:has-text("Go")');
-    for (const btn of goButtons) {
-      if (await btn.isVisible()) {
-        await btn.click();
-        break;
+    // Submit username — try multiple approaches for shadow DOM button
+    console.log('[login] Step 3: Submit username');
+    let submitted = false;
+
+    // Approach 1: Find jha-button with text "Continue" or "Sign in", click its shadow <button>
+    try {
+      const jhaButtons = await p.$$('jha-button');
+      for (const jha of jhaButtons) {
+        const text = await jha.textContent().catch(() => '');
+        if (text && /Continue|Sign in/i.test(text.trim())) {
+          // Must click the inner <button> inside the shadow root
+          const innerBtn = await jha.$('button');
+          if (innerBtn) {
+            await innerBtn.click();
+            submitted = true;
+            console.log(`[login] Clicked inner button of jha-button: "${text.trim()}"`);
+          } else {
+            // Fallback: click the jha-button itself
+            await jha.click();
+            submitted = true;
+            console.log(`[login] Clicked jha-button directly: "${text.trim()}"`);
+          }
+          break;
+        }
       }
+    } catch (e: any) {
+      console.log('[login] jha-button approach failed:', e.message);
+    }
+
+    // Approach 2: Tab to the button and press Enter
+    if (!submitted) {
+      console.log('[login] Trying Tab+Enter fallback');
+      await p.keyboard.press('Tab');
+      await p.waitForTimeout(200);
+      await p.keyboard.press('Enter');
     }
     await p.waitForTimeout(8000);
 
@@ -230,18 +240,8 @@ export async function login(
     }
     await p.waitForTimeout(500);
 
-    // Click Sign In — use locator with text matching (pierces shadow DOM)
-    const signInBtn = p.getByRole('button', { name: /Sign [iI]n/ }).first();
-    try {
-      await signInBtn.click({ timeout: 5000 });
-    } catch {
-      // Fallback: try jha-button inner button
-      const jhaSignIn = p.locator('jha-button:has-text("Sign in") >> button').first();
-      await jhaSignIn.click({ timeout: 5000 }).catch(() => {
-        // Last resort: press Enter
-        return p.keyboard.press('Enter');
-      });
-    }
+    // Submit password — Enter key (Banno shadow DOM buttons are hard to target)
+    await p.keyboard.press('Enter');
     await p.waitForTimeout(8000);
 
     // Step 5: TOTP page (also shadow DOM)
@@ -252,24 +252,23 @@ export async function login(
     // Find TOTP input via Playwright selectors (shadow-piercing)
     try {
       const totpInput = p.locator('input[inputmode="numeric"]').first();
-      await totpInput.waitFor({ state: 'visible', timeout: 10000 });
+      await totpInput.waitFor({ state: 'visible', timeout: 15000 });
       await totpInput.click();
     } catch {
-      const totpInput2 = p.locator('input[type="tel"]').first();
-      await totpInput2.click({ timeout: 5000 });
+      try {
+        const totpInput2 = p.locator('input[type="tel"]').first();
+        await totpInput2.click({ timeout: 5000 });
+      } catch {
+        // Last fallback: just Tab to the input
+        await p.keyboard.press('Tab');
+      }
     }
     await p.waitForTimeout(300);
     await p.keyboard.type(totpCode, { delay: 75 });
     await p.waitForTimeout(500);
 
-    // Click Verify/Submit/Continue
-    const verifyBtn = p.getByRole('button', { name: /Verify|Submit|Continue/ }).first();
-    try {
-      await verifyBtn.click({ timeout: 5000 });
-    } catch {
-      const jhaVerify = p.locator('jha-button:has-text("Verify") >> button').first();
-      await jhaVerify.click({ timeout: 5000 }).catch(() => p.keyboard.press('Enter'));
-    }
+    // Submit TOTP
+    await p.keyboard.press('Enter');
     await p.waitForTimeout(8000);
 
     // Step 6: Accept User Agreement if shown (also shadow DOM)
@@ -279,13 +278,7 @@ export async function login(
       console.log('[login] Step 6: Accepting user agreement');
       await checkbox.check();
       await p.waitForTimeout(500);
-      const acceptBtn = p.getByRole('button', { name: /Accept|Continue|Agree/ }).first();
-      try {
-        await acceptBtn.click({ timeout: 5000 });
-      } catch {
-        const jhaAccept = p.locator('jha-button:has-text("Accept") >> button').first();
-        await jhaAccept.click({ timeout: 5000 }).catch(() => p.keyboard.press('Enter'));
-      }
+      await p.keyboard.press('Enter');
       await p.waitForTimeout(3000);
     }
 
