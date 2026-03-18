@@ -38,7 +38,7 @@ async function getBotConfigs(): Promise<BotConfig[]> {
   const { data, error } = await supabaseAdmin
     .from('bot_config')
     .select('name, label, port, url, secret')
-    .neq('name', 'supervisor');
+    .neq('is_bot', false);
   if (error || !data) return [];
   return data;
 }
