@@ -32,6 +32,8 @@
     "node_modules",
     "supabase/functions/**/*",
     "appfolio-bot/**/*",
-    "bpu-bot/**/*"
+    "bpu-bot/**/*",
+    "simmons-bot/**/*",
+    "vps-supervisor/**/*"
   ]
 }
