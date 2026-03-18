@@ -1,0 +1,24 @@
+{
+  "name": "simmons-bot",
+  "version": "1.0.0",
+  "description": "Persistent Playwright server for Simmons Bank check image scraping and Claude API extraction",
+  "scripts": {
+    "start": "node dist/server.js",
+    "dev": "tsx watch server.ts",
+    "build": "tsc",
+    "login": "tsx login-helper.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@supabase/supabase-js": "^2.49.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.0",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -56,6 +56,9 @@ export default function BotAlertsDashboard() {
   const [loginFlow, setLoginFlow] = useState<LoginFlow | null>(null);
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && appUser?.role !== 'admin') {
@@ -114,7 +117,10 @@ export default function BotAlertsDashboard() {
           message: result.message || 'Credentials filled. CAPTCHA must be solved on the VPS.',
           loading: false,
         });
-        if (result.success) fetchStatus();
+        if (result.success) {
+          fetchStatus();
+          handleSync(botName);
+        }
       }
     } catch (err: any) {
       setLoginFlow({ bot: botName, step: 'error', message: err.message, loading: false });
@@ -156,6 +162,7 @@ export default function BotAlertsDashboard() {
       if (result.success) {
         setLoginFlow({ bot: 'appfolio', step: 'success', message: 'Login successful!', loading: false });
         fetchStatus();
+        handleSync('appfolio');
       } else {
         setLoginFlow({
           bot: 'appfolio',
@@ -178,6 +185,60 @@ export default function BotAlertsDashboard() {
       setLoginFlow({ bot: 'bpu', step: 'success', message: 'BPU session is now active!', loading: false });
     } else {
       setLoginFlow((f) => f && { ...f, message: 'Still not logged in. Solve the CAPTCHA on the VPS.', loading: false });
+    }
+  }
+
+  // ─── Sync handler ──────────────────────────────────────────────────
+
+  async function handleSync(botName: string) {
+    setSyncing(botName);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/admin/bot-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bot: botName, action: 'sync' }),
+      });
+      const result = await res.json();
+      if (result.triggered) {
+        setSyncMessage(`${botName} sync triggered`);
+      } else {
+        setSyncMessage(result.error || result.reason || 'Sync failed');
+      }
+    } catch (err: any) {
+      setSyncMessage(`Sync error: ${err.message}`);
+    } finally {
+      setSyncing(null);
+      setTimeout(() => setSyncMessage(null), 5000);
+      setTimeout(fetchStatus, 5000);
+    }
+  }
+
+  // ─── Restart handler (via VPS supervisor) ───────────────────────────
+
+  async function handleRestart(botName: string) {
+    setRestarting(botName);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/admin/bot-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bot: botName, action: 'restart' }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setSyncMessage(`${botName} restart triggered — checking status...`);
+        // Poll for reconnection after restart
+        setTimeout(fetchStatus, 5000);
+        setTimeout(fetchStatus, 10000);
+        setTimeout(fetchStatus, 20000);
+      } else {
+        setSyncMessage(result.error || 'Restart failed');
+      }
+    } catch (err: any) {
+      setSyncMessage(`Restart error: ${err.message}`);
+    } finally {
+      setRestarting(null);
     }
   }
 
@@ -260,15 +321,26 @@ export default function BotAlertsDashboard() {
                       </div>
                     </div>
                   </div>
-                  {bot.reachable && !bot.logged_in && (
-                    <button
-                      onClick={() => handleLogin(bot.name)}
-                      disabled={loginFlow?.loading}
-                      className="px-3 py-1.5 text-xs font-medium bg-accent/15 text-accent rounded-md hover:bg-accent/25 transition-colors disabled:opacity-50"
-                    >
-                      Re-Login
-                    </button>
-                  )}
+                  <div className="flex gap-2">
+                    {bot.reachable && bot.logged_in && (
+                      <button
+                        onClick={() => handleSync(bot.name)}
+                        disabled={syncing === bot.name}
+                        className="px-3 py-1.5 text-xs font-medium bg-blue-500/15 text-blue-400 rounded-md hover:bg-blue-500/25 transition-colors disabled:opacity-50"
+                      >
+                        {syncing === bot.name ? 'Syncing...' : 'Sync Now'}
+                      </button>
+                    )}
+                    {bot.reachable && !bot.logged_in && (
+                      <button
+                        onClick={() => handleLogin(bot.name)}
+                        disabled={loginFlow?.loading}
+                        className="px-3 py-1.5 text-xs font-medium bg-accent/15 text-accent rounded-md hover:bg-accent/25 transition-colors disabled:opacity-50"
+                      >
+                        Re-Login
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1 text-xs text-slate-500">
                   <div className="flex justify-between">
@@ -290,6 +362,30 @@ export default function BotAlertsDashboard() {
                     </div>
                   )}
                 </div>
+
+                {/* Unreachable state — actionable recovery panel */}
+                {!bot.reachable && (
+                  <div className="mt-3 p-3 bg-rose-500/5 border border-rose-500/20 rounded-lg space-y-2">
+                    <p className="text-xs text-rose-300">
+                      Bot process may have crashed or VPS is down.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRestart(bot.name)}
+                        disabled={restarting === bot.name}
+                        className="px-3 py-1.5 text-xs font-medium bg-rose-500/15 text-rose-400 rounded-md hover:bg-rose-500/25 transition-colors disabled:opacity-50"
+                      >
+                        {restarting === bot.name ? 'Restarting...' : 'Restart Bot'}
+                      </button>
+                      <button
+                        onClick={fetchStatus}
+                        className="px-3 py-1.5 text-xs font-medium bg-white/5 text-slate-300 rounded-md hover:bg-white/10 transition-colors"
+                      >
+                        Retry Connection
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -410,6 +506,19 @@ export default function BotAlertsDashboard() {
           <span className="text-sm text-emerald-400">{loginFlow.message}</span>
           <button
             onClick={() => setLoginFlow(null)}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Sync Message */}
+      {syncMessage && (
+        <div className="glass-card p-3 flex items-center justify-between">
+          <span className="text-sm text-blue-400">{syncMessage}</span>
+          <button
+            onClick={() => setSyncMessage(null)}
             className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
           >
             Dismiss

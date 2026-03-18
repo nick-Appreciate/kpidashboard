@@ -99,12 +99,52 @@ export async function GET() {
   }
 }
 
-// ─── POST: Proxy login actions to bots ───────────────────────────────────
+// ─── Supervisor config (for remote PM2 restart) ─────────────────────────
+
+async function getSupervisorConfig(): Promise<{ url: string; secret: string } | null> {
+  const { data, error } = await supabaseAdmin
+    .from('bot_config')
+    .select('url, secret')
+    .eq('name', 'supervisor')
+    .single();
+  if (error || !data) return null;
+  return data;
+}
+
+// Bot name → PM2 process name mapping
+const PM2_PROCESS_NAMES: Record<string, string> = {
+  bpu: 'bpu-bot',
+  simmons: 'simmons-bot',
+};
+
+// ─── POST: Proxy login/sync/restart actions to bots ─────────────────────
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { bot, action, ...params } = body;
+
+    // Handle restart action via supervisor (separate service)
+    if (action === 'restart') {
+      const pm2Name = PM2_PROCESS_NAMES[bot];
+      if (!pm2Name) {
+        return NextResponse.json({ error: `No PM2 process for bot: ${bot}` }, { status: 400 });
+      }
+
+      const supervisor = await getSupervisorConfig();
+      if (!supervisor) {
+        return NextResponse.json({ error: 'Supervisor not configured in bot_config table' }, { status: 500 });
+      }
+
+      const res = await fetch(`${supervisor.url}/restart/${pm2Name}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${supervisor.secret}` },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const data = await res.json();
+      return NextResponse.json(data, { status: res.status });
+    }
 
     const configs = await getBotConfigs();
     const botConfig = configs.find((b) => b.name === bot);
@@ -117,6 +157,8 @@ export async function POST(request: Request) {
       '2fa-setup': '/api/login/2fa-setup',
       '2fa-verify': '/api/login/2fa-verify',
       screenshot: '/api/login/screenshot',
+      sync: '/api/scrape-async',
+      'sync-como': '/api/como/scrape-async',
     };
 
     const endpoint = endpoints[action];
@@ -124,10 +166,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 });
     }
 
+    // For sync actions, inject default 14-day date range if not provided
+    let forwardParams = params;
+    if (action === 'sync' || action === 'sync-como') {
+      const now = new Date();
+      const start = new Date(now);
+      start.setDate(start.getDate() - 14);
+      forwardParams = {
+        start_date: start.toISOString().split('T')[0],
+        end_date: now.toISOString().split('T')[0],
+        ...params,
+      };
+    }
+
     const res = await fetch(`${botConfig.url}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${botConfig.secret}` },
-      body: JSON.stringify(params),
+      body: JSON.stringify(forwardParams),
       signal: AbortSignal.timeout(30000),
     });
 

@@ -486,6 +486,34 @@ app.listen(PORT, async () => {
   console.log(`   BPU:  ${bpuStatus.loggedIn ? '✅ Session active' : '⚠️  Not logged in → POST /api/login'}`);
   console.log(`   COMO: ${comoStatus.loggedIn ? '✅ Session active' : '⚠️  Not logged in → POST /api/como/login'}`);
   console.log('');
+
+  // ─── Session Watchdog ──────────────────────────────────────────────
+  // Checks BPU + COMO sessions every 15 minutes for early detection.
+  // BPU cannot auto-relogin (CAPTCHA required), but fast detection
+  // reduces stale data windows.
+  const WATCHDOG_INTERVAL = 15 * 60 * 1000; // 15 minutes
+  setInterval(async () => {
+    try {
+      const [bpu, como] = await Promise.all([
+        isLoggedIn().catch((err: any) => ({ loggedIn: false, url: `error: ${err.message}` })),
+        isComoLoggedIn().catch((err: any) => ({ loggedIn: false, url: `error: ${err.message}` })),
+      ]);
+
+      const bpuOk = bpu.loggedIn ? '✓' : '✗ EXPIRED';
+      const comoOk = como.loggedIn ? '✓' : '✗ EXPIRED';
+      console.log(`[watchdog] BPU: ${bpuOk} | COMO: ${comoOk}`);
+
+      if (!bpu.loggedIn) {
+        console.warn('[watchdog] ⚠️  BPU session expired — manual re-login required (CAPTCHA)');
+      }
+      if (!como.loggedIn) {
+        console.warn('[watchdog] ⚠️  COMO session expired — manual re-login required');
+      }
+    } catch (err: any) {
+      console.error('[watchdog] Error:', err.message);
+    }
+  }, WATCHDOG_INTERVAL);
+  console.log(`   Watchdog: ✓ session check every ${WATCHDOG_INTERVAL / 60000} min`);
 });
 
 export default app;
