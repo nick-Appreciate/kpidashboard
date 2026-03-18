@@ -1,4 +1,4 @@
-import { supabase } from '../../../../lib/supabase';
+import { requireAuth } from '../../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 // Helper to get current date in Central Time
@@ -10,6 +10,10 @@ function getCentralTimeDate() {
 
 // GET - Fetch historical rehab snapshots
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '30', 10);
@@ -50,6 +54,10 @@ export async function GET(request) {
 
 // POST - Save daily snapshot (called by cron or manually)
 export async function POST(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const today = getCentralTimeDate();
     

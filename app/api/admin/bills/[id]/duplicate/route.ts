@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from '../../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../../lib/auth';
 
 /**
  * POST /api/admin/bills/[id]/duplicate
@@ -18,6 +18,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
     const { id } = await params;
     const billId = parseInt(id);
     if (isNaN(billId)) {
@@ -55,7 +59,7 @@ export async function POST(
       };
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('bills')
       .update(updates)
       .eq('id', billId)

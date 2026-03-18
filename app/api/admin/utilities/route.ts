@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, supabaseAdmin } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -62,6 +62,10 @@ interface MeterSummary {
 
 export async function GET(request: Request) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
     const { searchParams } = new URL(request.url);
     const daysParam = searchParams.get('days') || '30';
     const meterParam = searchParams.get('meter');
@@ -92,7 +96,7 @@ export async function GET(request: Request) {
     if (days > 90) {
       // Use SQL aggregation for large ranges to avoid fetching 600K+ rows
       // RPC returns a single JSON array (bypasses PostgREST row limits)
-      const { data: aggResult, error: aggError } = await supabaseAdmin
+      const { data: aggResult, error: aggError } = await supabase
         .rpc('get_daily_meter_usage', {
           start_date: fetchStartDateStr || null,
           end_date: null,
@@ -157,7 +161,7 @@ export async function GET(request: Request) {
     // COMO has ~500 rows total (monthly billing reads), no pagination needed.
     // We fetch from 90 days before startDate to capture the preceding billing
     // read needed for spreading monthly reads into daily values.
-    let comoQuery = supabaseAdmin
+    let comoQuery = supabase
       .from('como_meter_readings')
       .select('reading_timestamp, account_number, name, meter, location, address, ccf')
       .order('reading_timestamp', { ascending: true });
@@ -193,7 +197,7 @@ export async function GET(request: Request) {
     const meters = computeMeterSummaries(profiles, startDateStr);
 
     // ─── Occupied metered units ───────────────────────────────────────────
-    const occupiedMetered = await computeOccupiedMeteredUnits(profiles, startDateStr, days);
+    const occupiedMetered = await computeOccupiedMeteredUnits(supabase, profiles, startDateStr, days);
 
     return NextResponse.json({
       stats: { ...stats, alertCount: alerts.length },
@@ -863,6 +867,7 @@ interface PropertyUtility {
 }
 
 async function computeOccupiedMeteredUnits(
+  supabase: any,
   profiles: Map<string, MeterProfile>,
   startDateStr: string | null,
   days: number,
@@ -911,7 +916,7 @@ async function computeOccupiedMeteredUnits(
   if (propMap.size === 0) return [];
 
   // 2. Query rent roll for occupancy at metered properties
-  const { data: latestSnap } = await supabaseAdmin
+  const { data: latestSnap } = await supabase
     .from('rent_roll_snapshots')
     .select('snapshot_date')
     .order('snapshot_date', { ascending: false })
@@ -921,7 +926,7 @@ async function computeOccupiedMeteredUnits(
   if (!latestSnap) return [];
 
   const meteredProperties = Array.from(propMap.keys());
-  const { data: rentRoll } = await supabaseAdmin
+  const { data: rentRoll } = await supabase
     .from('rent_roll_snapshots')
     .select('property, unit, status, tenant_name, total_rent')
     .eq('snapshot_date', latestSnap.snapshot_date)

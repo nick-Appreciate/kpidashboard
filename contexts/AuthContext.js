@@ -6,6 +6,18 @@ import { supabaseBrowser } from '../lib/supabase-browser';
 
 const AuthContext = createContext(null);
 
+// Set/clear a same-origin cookie with the Supabase access token.
+// This ensures API routes can read the token from the cookie header
+// even when the SWR fetcher's async getSession() hasn't resolved yet.
+function syncAccessTokenCookie(session) {
+  if (session?.access_token) {
+    const maxAge = session.expires_in || 3600;
+    document.cookie = `sb-access-token=${session.access_token}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  } else {
+    document.cookie = 'sb-access-token=; path=/; max-age=0; SameSite=Lax';
+  }
+}
+
 // Helper to fetch/create app_user - wrapped in try-catch to never block auth
 async function getOrCreateAppUser(session) {
   if (!session?.user) return null;
@@ -58,7 +70,7 @@ async function getOrCreateAppUser(session) {
   }
 }
 
-const DEV_BYPASS_AUTH = process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === 'true';
+const DEV_BYPASS_AUTH = process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === 'true';
 const DEV_USER = {
   id: 'dev-user',
   email: 'dev@appreciate.io',
@@ -107,6 +119,7 @@ export function AuthProvider({ children }) {
         // Fetch app_user in background - don't block
         const { data: { session } } = await supabaseBrowser.auth.getSession();
         if (session) {
+          syncAccessTokenCookie(session);
           getOrCreateAppUser(session).then(appUserData => {
             setAppUser(appUserData);
           }).catch(err => {
@@ -124,6 +137,7 @@ export function AuthProvider({ children }) {
     // Listen for auth changes
     const { data: { subscription } } = supabaseBrowser.auth.onAuthStateChange(
       (event, session) => {
+        syncAccessTokenCookie(session);
         if (session?.user) {
           setUser(session.user);
           setLoading(false);
@@ -165,6 +179,7 @@ export function AuthProvider({ children }) {
 
   const signOut = () => {
     console.log('Signing out...');
+    syncAccessTokenCookie(null);
     setUser(null);
     setAppUser(null);
     

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAdmin } from '../../../../../lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     if (!supabaseUrl) {
       return NextResponse.json(
@@ -16,7 +20,7 @@ export async function POST(request: NextRequest) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
         },
       }
     );

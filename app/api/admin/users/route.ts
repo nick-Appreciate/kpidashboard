@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabase";
+import { requireAdmin } from "../../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -7,9 +7,12 @@ export const dynamic = "force-dynamic";
  * GET /api/admin/users
  * Returns all users from app_users ordered by name.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
-    const { data: users, error } = await supabaseAdmin
+    const { data: users, error } = await supabase
       .from("app_users")
       .select("id, email, name, role, is_active, auth_user_id, created_at, updated_at")
       .order("name", { ascending: true });
@@ -34,6 +37,9 @@ export async function GET() {
  * Body: { email: string, name: string, role?: string }
  */
 export async function POST(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const { email, name, role } = body;
@@ -46,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     // Check for duplicate email
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await supabase
       .from("app_users")
       .select("id")
       .eq("email", email.toLowerCase().trim())
@@ -59,7 +65,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: user, error } = await supabaseAdmin
+    const { data: user, error } = await supabase
       .from("app_users")
       .insert({
         email: email.toLowerCase().trim(),
@@ -90,6 +96,9 @@ export async function POST(request: Request) {
  * Body: { id: string, name?: string, role?: string, is_active?: boolean }
  */
 export async function PATCH(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const { id, ...updates } = body;
@@ -105,7 +114,7 @@ export async function PATCH(request: Request) {
     if (updates.is_active !== undefined) allowed.is_active = updates.is_active;
     allowed.updated_at = new Date().toISOString();
 
-    const { data: user, error } = await supabaseAdmin
+    const { data: user, error } = await supabase
       .from("app_users")
       .update(allowed)
       .eq("id", id)

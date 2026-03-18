@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from '../../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../../lib/auth';
 
 /**
  * POST /api/admin/bills/[id]/approve
@@ -27,6 +27,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
     const { id } = await params;
     const billId = parseInt(id);
     if (isNaN(billId)) {
@@ -58,7 +62,7 @@ export async function POST(
       }
     }
 
-    const { data: bill, error: updateErr } = await supabaseAdmin
+    const { data: bill, error: updateErr } = await supabase
       .from('bills')
       .update(updates)
       .eq('id', billId)
@@ -126,7 +130,7 @@ export async function POST(
       syncUpdate.status = 'entered';
     }
 
-    await supabaseAdmin
+    await supabase
       .from('bills')
       .update(syncUpdate)
       .eq('id', billId);
@@ -150,7 +154,7 @@ export async function POST(
       if (thisResult?.af_bill_id) {
         brexUpdate.appfolio_bill_id = parseInt(thisResult.af_bill_id);
       }
-      await supabaseAdmin
+      await supabase
         .from('brex_expenses')
         .update(brexUpdate)
         .eq('id', bill.brex_expense_id);

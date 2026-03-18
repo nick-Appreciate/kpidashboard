@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase, supabaseAdmin } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -34,8 +34,8 @@ interface SystemAlert {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-async function getBotConfigs(): Promise<BotConfig[]> {
-  const { data, error } = await supabaseAdmin
+async function getBotConfigs(supabase: any): Promise<BotConfig[]> {
+  const { data, error } = await supabase
     .from('bot_config')
     .select('name, label, port, url, secret')
     .neq('name', 'supervisor');
@@ -56,7 +56,7 @@ async function fetchBotHealth(bot: BotConfig): Promise<BotHealth> {
   }
 }
 
-async function fetchLastScrapeTimestamp(): Promise<string | null> {
+async function fetchLastScrapeTimestamp(supabase: any): Promise<string | null> {
   const { data } = await supabase
     .from('bpu_meter_readings')
     .select('reading_timestamp')
@@ -65,7 +65,7 @@ async function fetchLastScrapeTimestamp(): Promise<string | null> {
   return data?.[0]?.reading_timestamp || null;
 }
 
-async function fetchLastDataTimestamps(): Promise<Record<string, string | null>> {
+async function fetchLastDataTimestamps(supabase: any): Promise<Record<string, string | null>> {
   const [bpu, simmons, appfolio] = await Promise.all([
     supabase.from('bpu_meter_readings').select('reading_timestamp').order('reading_timestamp', { ascending: false }).limit(1),
     supabase.from('simmons_scrape_log').select('completed_at').in('status', ['completed', 'partial']).order('completed_at', { ascending: false }).limit(1),
@@ -98,14 +98,18 @@ function deriveAlerts(bots: BotHealth[], lastScrape: string | null): SystemAlert
 
 // ─── GET: Fetch bot health + alerts ──────────────────────────────────────
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const configs = await getBotConfigs();
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
+    const configs = await getBotConfigs(supabase);
     const healthPromises = configs.map((bot) => fetchBotHealth(bot));
     const [bots, lastScrape, lastDataByBot] = await Promise.all([
       Promise.all(healthPromises),
-      fetchLastScrapeTimestamp(),
-      fetchLastDataTimestamps(),
+      fetchLastScrapeTimestamp(supabase),
+      fetchLastDataTimestamps(supabase),
     ]);
     const alerts = deriveAlerts(bots, lastScrape);
     return NextResponse.json({ bots, lastScrape, lastDataByBot, alerts, alertCount: alerts.length });
@@ -116,8 +120,8 @@ export async function GET() {
 
 // ─── Supervisor config (for remote PM2 restart) ─────────────────────────
 
-async function getSupervisorConfig(): Promise<{ url: string; secret: string } | null> {
-  const { data, error } = await supabaseAdmin
+async function getSupervisorConfig(supabase: any): Promise<{ url: string; secret: string } | null> {
+  const { data, error } = await supabase
     .from('bot_config')
     .select('url, secret')
     .eq('name', 'supervisor')
@@ -136,6 +140,10 @@ const PM2_PROCESS_NAMES: Record<string, string> = {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
     const body = await request.json();
     const { bot, action, ...params } = body;
 
@@ -146,7 +154,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `No PM2 process for bot: ${bot}` }, { status: 400 });
       }
 
-      const supervisor = await getSupervisorConfig();
+      const supervisor = await getSupervisorConfig(supabase);
       if (!supervisor) {
         return NextResponse.json({ error: 'Supervisor not configured in bot_config table' }, { status: 500 });
       }
@@ -161,7 +169,7 @@ export async function POST(request: Request) {
       return NextResponse.json(data, { status: res.status });
     }
 
-    const configs = await getBotConfigs();
+    const configs = await getBotConfigs(supabase);
     const botConfig = configs.find((b) => b.name === bot);
     if (!botConfig) {
       return NextResponse.json({ error: `Unknown bot: ${bot}` }, { status: 400 });

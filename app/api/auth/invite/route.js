@@ -1,9 +1,13 @@
-import { supabaseAdmin } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { email, name } = await request.json();
     
@@ -12,7 +16,7 @@ export async function POST(request) {
     }
     
     // Check if user exists in app_users and is active
-    const { data: appUser, error: appUserError } = await supabaseAdmin
+    const { data: appUser, error: appUserError } = await supabase
       .from('app_users')
       .select('*')
       .eq('email', email.toLowerCase().trim())
@@ -24,7 +28,7 @@ export async function POST(request) {
     }
     
     // Invite user via Supabase Auth
-    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+    const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
       data: {
         name: name || appUser.name,
         role: appUser.role
@@ -39,7 +43,7 @@ export async function POST(request) {
     
     // Update app_users with the auth user id
     if (data?.user?.id) {
-      await supabaseAdmin
+      await supabase
         .from('app_users')
         .update({ auth_user_id: data.user.id })
         .eq('email', email.toLowerCase().trim());

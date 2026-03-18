@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from '../../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../../lib/auth';
 
 /**
  * POST /api/admin/bills/[id]/verify-upload
@@ -13,6 +13,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
     const { id } = await params;
     const billId = parseInt(id);
     if (isNaN(billId)) {
@@ -21,13 +25,13 @@ export async function POST(
 
     // 1. Run matching function to pick up any newly synced AF data
     //    (the background sync-appfolio should have completed by now)
-    const { error: matchErr } = await supabaseAdmin.rpc('match_bills_to_appfolio');
+    const { error: matchErr } = await supabase.rpc('match_bills_to_appfolio');
     if (matchErr) {
       console.error("Error running match_bills_to_appfolio:", matchErr);
     }
 
     // 2. Re-check the bill
-    const { data: bill, error } = await supabaseAdmin
+    const { data: bill, error } = await supabase
       .from('bills')
       .select('id, status, appfolio_bill_id, appfolio_synced_at')
       .eq('id', billId)
@@ -43,7 +47,7 @@ export async function POST(
     }
 
     // 3. Not matched — clear appfolio_synced_at so it shows "Needs Entered" for retry
-    await supabaseAdmin
+    await supabase
       .from('bills')
       .update({
         appfolio_synced_at: null,

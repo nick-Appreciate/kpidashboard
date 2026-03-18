@@ -1,6 +1,10 @@
-import { supabaseAdmin } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 
 export async function POST(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const body = await request.json();
     const { records, metadata } = body;
@@ -14,7 +18,7 @@ export async function POST(request) {
       source_file: metadata?.filename
     }));
 
-    const { data: upsertedData, error: upsertError } = await supabaseAdmin
+    const { data: upsertedData, error: upsertError } = await supabase
       .from('property_reports')
       .upsert(recordsWithMetadata, {
         onConflict: 'property,unit,lease_from,lease_to'

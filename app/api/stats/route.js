@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 
 // Region definitions - matches occupancy dashboard
 const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
@@ -24,6 +24,10 @@ function toCentralDate(dateStr) {
 }
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
@@ -33,7 +37,7 @@ export async function GET(request) {
     const endDate = searchParams.get('endDate');
 
     // Build base query
-    let baseQuery = supabase.from('leasing_reports').select('*');
+    let baseQuery = supabase.from('leasing_reports').select('property, status, lead_type, inquiry_received, source, bed_bath_preference');
 
     if (property) baseQuery = baseQuery.eq('property', property);
     if (status) baseQuery = baseQuery.eq('status', status);
@@ -227,6 +231,8 @@ export async function GET(request) {
       sourceDistribution,
       unitTypeDistribution,
       lastDataInsert
+    }, {
+      headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=60' }
     });
     
   } catch (error) {

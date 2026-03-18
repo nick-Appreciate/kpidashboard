@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase, supabaseAdmin } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 
 /**
  * GET /api/admin/bills
@@ -11,6 +11,9 @@ import { supabase, supabaseAdmin } from '../../../../lib/supabase';
  *   source=brex|front      – filter by source
  */
 export async function GET(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const { searchParams } = new URL(request.url);
     const includeHidden = searchParams.get('include_hidden') === 'true';
@@ -53,6 +56,9 @@ export async function GET(request: Request) {
  * }
  */
 export async function POST(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const {
@@ -77,7 +83,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: bill, error } = await supabaseAdmin
+    const { data: bill, error } = await supabase
       .from('bills')
       .insert({
         source,
@@ -112,7 +118,7 @@ export async function POST(request: Request) {
 
     if (dupes && dupes.length > 0) {
       // Mark as potential duplicate
-      await supabaseAdmin
+      await supabase
         .from('bills')
         .update({ is_duplicate: true, duplicate_of_id: dupes[0].id })
         .eq('id', bill.id);

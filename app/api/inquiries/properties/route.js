@@ -1,6 +1,10 @@
-import { supabase } from '../../../../lib/supabase';
+import { requireAuth } from '../../../../lib/auth';
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { data, error } = await supabase
       .from('leasing_reports')
@@ -14,8 +18,8 @@ export async function GET(request) {
     // Get unique properties
     const properties = [...new Set(data.map(item => item.property))];
     
-    return Response.json(properties);
-    
+    return Response.json(properties, { headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' } });
+
   } catch (error) {
     console.error('Error fetching properties:', error);
     return Response.json({ error: 'Internal server error' }, { status: 500 });

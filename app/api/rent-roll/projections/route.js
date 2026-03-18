@@ -1,4 +1,4 @@
-import { supabase } from '../../../../lib/supabase';
+import { requireAuth } from '../../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 // Region definitions - exact property name matches (case-insensitive)
@@ -8,11 +8,15 @@ const REGION_PROPERTIES = {
 };
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
     const region = searchParams.get('region');
-    
+
     // Get current occupancy from rent_roll_snapshots (source of truth)
     const { data: latestSnapshot } = await supabase
       .from('rent_roll_snapshots')
@@ -598,8 +602,8 @@ export async function GET(request) {
       trailingSummary,
       upcomingMoveIns: upcomingMoveIns.slice(0, 20),
       upcomingMoveOuts: upcomingMoveOuts.slice(0, 20)
-    });
-    
+    }, { headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=120' } });
+
   } catch (error) {
     console.error('Error fetching projections:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

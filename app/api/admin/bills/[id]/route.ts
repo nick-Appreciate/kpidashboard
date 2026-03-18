@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from '../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../lib/auth';
 
 /**
  * PATCH /api/admin/bills/[id]
@@ -16,6 +16,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+    const supabase = auth.supabase;
+
     const { id } = await params;
     const billId = parseInt(id);
     if (isNaN(billId)) {
@@ -62,7 +66,7 @@ export async function PATCH(
       updates.status = 'pending';
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('bills')
       .update(updates)
       .eq('id', billId)
@@ -90,7 +94,7 @@ export async function PATCH(
         brexUpdate.corporate_at = null;
         brexUpdate.corporate_note = null;
       }
-      await supabaseAdmin
+      await supabase
         .from('brex_expenses')
         .update(brexUpdate)
         .eq('id', data.brex_expense_id);

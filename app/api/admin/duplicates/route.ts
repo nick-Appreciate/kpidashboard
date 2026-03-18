@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 
 function normalize(name: string): string {
   if (!name) return '';
@@ -41,6 +41,9 @@ interface DupeGroup {
 }
 
 export async function GET(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const url = new URL(request.url);
     const showResolved = url.searchParams.get('show_resolved') === 'true';
@@ -227,6 +230,9 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const { group_id, resolved_note, resolved_by, unresolve } = body;

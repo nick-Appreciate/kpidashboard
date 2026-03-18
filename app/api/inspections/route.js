@@ -1,7 +1,11 @@
-import { supabase } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const includeArchived = searchParams.get('includeArchived') === 'true';
@@ -36,6 +40,10 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const body = await request.json();
     const {
@@ -80,6 +88,10 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const body = await request.json();
     const { id, ...updates } = body;
@@ -109,6 +121,10 @@ export async function PATCH(request) {
 }
 
 export async function DELETE(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

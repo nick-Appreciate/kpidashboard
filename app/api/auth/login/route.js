@@ -6,12 +6,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(request) {
   try {
     const { email } = await request.json();
-    
+
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
-    
-    // Check if user exists and is active
+
+    // Check if user exists and is active (anon policy allows reading active users)
     const { data: user, error } = await supabase
       .from('app_users')
       .select('*')

@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -76,6 +76,10 @@ function filterByRegion(records, region) {
 }
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const stagesParam = searchParams.get('stages'); // comma-separated list for multi-select
@@ -197,6 +201,8 @@ export async function GET(request) {
       }
 
       // Build query based on stage
+      // Use select('*') here because this query runs against different tables
+      // (leasing_reports, showings, rental_applications) with different schemas
       let query = supabase.from(tableName).select('*');
 
       // Apply date filters
@@ -285,7 +291,7 @@ export async function GET(request) {
     const result = processStageDataByStage(allRecords, selectedStages, dailyInquiryCounts, weeklyInquiryCounts, effectiveStartDate, effectiveEndDate, [...stagesToFetch], granularity);
     result.hasFutureData = hasFutureData;
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=60' } });
   } catch (error) {
     console.error('Error fetching stage stats:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

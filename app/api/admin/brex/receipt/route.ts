@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from '../../../../../lib/auth';
 
 /**
  * GET /api/admin/brex/receipt?receipt_id=xxx
@@ -8,6 +9,9 @@ import { NextResponse } from "next/server";
  */
 export async function GET(request: Request) {
   try {
+    const auth = await requireAdmin(request);
+    if ('error' in auth) return auth.error;
+
     const { searchParams } = new URL(request.url);
     const receiptId = searchParams.get('receipt_id');
 

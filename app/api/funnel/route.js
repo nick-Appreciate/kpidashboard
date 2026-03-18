@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 // Region definitions - matches occupancy dashboard
@@ -17,6 +17,10 @@ function filterByRegion(records, region) {
 }
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
@@ -206,7 +210,7 @@ export async function GET(request) {
       }
     };
 
-    return NextResponse.json(funnel);
+    return NextResponse.json(funnel, { headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=60' } });
   } catch (error) {
     console.error('Error fetching funnel data:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

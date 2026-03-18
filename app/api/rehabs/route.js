@@ -1,8 +1,12 @@
-import { supabase } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 // GET - Fetch all active rehabs and vacancies that need rehab tracking
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const includeCompleted = searchParams.get('includeCompleted') === 'true';
@@ -325,6 +329,10 @@ export async function GET(request) {
 
 // POST - Create a new rehab record (onboarding)
 export async function POST(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const body = await request.json();
     const {
@@ -420,6 +428,10 @@ export async function POST(request) {
 
 // PATCH - Update a rehab record (checklist items, status, etc.)
 export async function PATCH(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const body = await request.json();
     const { id, ...updates } = body;
@@ -514,6 +526,10 @@ export async function PATCH(request) {
 
 // DELETE - Archive a rehab record
 export async function DELETE(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

@@ -1,12 +1,16 @@
-import { supabaseAdmin } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     // Get all active users from app_users
-    const { data: users, error: usersError } = await supabaseAdmin
+    const { data: users, error: usersError } = await supabase
       .from('app_users')
       .select('*')
       .eq('is_active', true);
@@ -21,7 +25,7 @@ export async function POST(request) {
     for (const user of users) {
       try {
         // Check if user already exists in auth
-        const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+        const { data: existingUsers } = await supabase.auth.admin.listUsers();
         const existingUser = existingUsers?.users?.find(u => u.email === user.email);
         
         if (existingUser) {
@@ -34,7 +38,7 @@ export async function POST(request) {
         }
         
         // Invite user
-        const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(user.email, {
+        const { data, error } = await supabase.auth.admin.inviteUserByEmail(user.email, {
           data: {
             name: user.name,
             role: user.role
@@ -51,7 +55,7 @@ export async function POST(request) {
         } else {
           // Update app_users with auth user id
           if (data?.user?.id) {
-            await supabaseAdmin
+            await supabase
               .from('app_users')
               .update({ auth_user_id: data.user.id })
               .eq('email', user.email);

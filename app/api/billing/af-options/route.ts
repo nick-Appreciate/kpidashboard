@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../lib/supabase';
+import { requireAuth } from '../../../../lib/auth';
 
 /**
  * GET /api/billing/af-options
  * Returns available vendors, GL accounts, properties, and units-by-property
  * for dropdown selection in the bill entry form.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     // Fetch distinct GL accounts from af_bill_detail
     // NOTE: .limit(10000) prevents Supabase default 1000-row truncation

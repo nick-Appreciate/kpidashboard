@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../lib/auth';
 import { normalizeMerchant, normalizeAfVendor, matchScore } from '../../../../../lib/vendor-matching';
 
 /**
@@ -15,6 +15,9 @@ import { normalizeMerchant, normalizeAfVendor, matchScore } from '../../../../..
 const MIN_MATCH_SCORE = 0.5;
 
 export async function POST(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     // Accept both 'vendors' and 'merchants' for backward compat

@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../lib/auth';
 
 export async function GET(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const { searchParams } = new URL(request.url);
     const daysParam = searchParams.get('days') || '30';
@@ -54,7 +57,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ balances: data || [], today });
+    return NextResponse.json({ balances: data || [], today }, { headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' } });
   } catch (error) {
     console.error('Error fetching Mercury balances:', error);
     return NextResponse.json(

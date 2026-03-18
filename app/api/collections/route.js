@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabase';
+import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -14,16 +14,20 @@ const isKCProperty = (prop) =>
   REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));
 
 export async function GET(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
     const occupancyId = searchParams.get('occupancy_id');
-    
+
     // If requesting specific occupancy details (for modal)
     if (occupancyId) {
       const propertyName = searchParams.get('property_name');
       const unit = searchParams.get('unit');
-      return await getOccupancyDetails(occupancyId, propertyName, unit);
+      return await getOccupancyDetails(supabase, occupancyId, propertyName, unit);
     }
     
     // Get the latest snapshot date first
@@ -38,7 +42,7 @@ export async function GET(request) {
     // Query only the latest snapshot for all items (including current/paid)
     let query = supabase
       .from('af_delinquency')
-      .select('*')
+      .select('occupancy_id, property_name, unit, name, amount_receivable, rent, phone_numbers, primary_tenant_email, days_0_to_30, days_30_to_60, days_60_to_90, days_90_plus, snapshot_date')
       .order('amount_receivable', { ascending: false });
     
     if (latestDate) {
@@ -159,10 +163,9 @@ export async function GET(request) {
       delinquencyKeys.add(`${item.property_name}|${item.unit}`);
     });
     
-    // Auto-move logic helpers
+    // Stage computation helpers (read-only — writes happen via POST /api/admin/collections/auto-stage)
     const now = new Date();
     const todayDate = now.getDate();
-    const autoMoveUpdates = [];
 
     const daysBetween = (dateStr) => {
       if (!dateStr) return 0;
@@ -170,7 +173,7 @@ export async function GET(request) {
       return Math.floor(diff / (1000 * 60 * 60 * 24));
     };
 
-    // Merge delinquency data with stages
+    // Merge delinquency data with stages (compute display stage without writing)
     const items = (data || []).map(item => {
       const stageData = stagesMap[item.occupancy_id];
       let stage = stageData?.stage || 'needs_contacted';
@@ -191,13 +194,7 @@ export async function GET(request) {
       const balance = parseFloat(item.amount_receivable || 0);
       const monthlyRent = parseFloat(item.rent || 0);
 
-      // AUTO-STAGE PRIORITY:
-      // 1. Eviction (rent_roll status=Evict) - locked
-      // 2. Current (balance <= 0) - locked
-      // 3. Notice → Reservation of Rights (after 3/10 days)
-      // 4. Needs Contacted → Balance Letter or Notice (on/after 9th of month)
-      // 5. Otherwise: use stored stage
-
+      // Compute display stage based on current data
       if (afEviction) {
         stage = 'eviction';
       } else if (balance <= 0) {
@@ -205,55 +202,22 @@ export async function GET(request) {
       } else if (stage === 'eviction' && !afEviction) {
         stage = 'needs_contacted';
       } else if (stage === 'notice' && stageData?.notice_entered_at) {
-        // Check if notice period has elapsed → move to reservation_of_rights
         const daysInNotice = daysBetween(stageData.notice_entered_at);
         const requiredDays = stageData.notice_type === '3-day' ? 3 : 10;
         if (daysInNotice >= requiredDays) {
           stage = 'reservation_of_rights';
-          autoMoveUpdates.push({
-            occupancy_id: item.occupancy_id,
-            property_name: item.property_name || '',
-            unit: item.unit || '',
-            tenant_name: item.name || '',
-            stage: 'reservation_of_rights',
-            stage_updated_at: now.toISOString(),
-            reservation_of_rights_entered_at: now.toISOString()
-          });
         }
       } else if (stage === 'needs_contacted' && monthlyRent > 0 && balance > 0) {
-        const noticeType = isKCProperty(item.property_name) ? '3-day' : '10-day';
         if (balance > monthlyRent) {
-          // Balance over one month's rent → notice immediately
           stage = 'notice';
-          autoMoveUpdates.push({
-            occupancy_id: item.occupancy_id,
-            property_name: item.property_name || '',
-            unit: item.unit || '',
-            tenant_name: item.name || '',
-            stage: 'notice',
-            stage_updated_at: now.toISOString(),
-            notice_type: noticeType,
-            notice_entered_at: now.toISOString()
-          });
         } else if (todayDate >= 9) {
-          // Balance <= rent, on/after 9th → balance letter
           stage = 'balance_letter';
-          autoMoveUpdates.push({
-            occupancy_id: item.occupancy_id,
-            property_name: item.property_name || '',
-            unit: item.unit || '',
-            tenant_name: item.name || '',
-            stage: 'balance_letter',
-            stage_updated_at: now.toISOString(),
-            balance_letter_entered_at: now.toISOString()
-          });
         }
       }
 
       // Enrich stage_data with notice_type for frontend display
       const enrichedStageData = stageData ? { ...stageData } : null;
       if (stage === 'notice' && !enrichedStageData?.notice_type) {
-        // For freshly auto-moved items, inject notice_type
         const noticeType = isKCProperty(item.property_name) ? '3-day' : '10-day';
         if (enrichedStageData) {
           enrichedStageData.notice_type = noticeType;
@@ -269,15 +233,6 @@ export async function GET(request) {
         balance_over_rent: monthlyRent > 0 ? (balance / monthlyRent).toFixed(1) : 0
       };
     });
-
-    // Persist auto-move stage changes to DB
-    if (autoMoveUpdates.length > 0) {
-      await Promise.all(autoMoveUpdates.map(update =>
-        supabase
-          .from('collection_stages')
-          .upsert(update, { onConflict: 'occupancy_id' })
-      ));
-    }
     
     // Add eviction units that aren't in delinquency data
     // These are units with status='Evict' in rent_roll but not in af_delinquency
@@ -371,8 +326,8 @@ export async function GET(request) {
       summary,
       properties,
       stages: STAGES
-    });
-    
+    }, { headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=60' } });
+
   } catch (error) {
     console.error('Error fetching collections:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -380,7 +335,7 @@ export async function GET(request) {
 }
 
 // Get detailed info for a specific occupancy (payment history, etc.)
-async function getOccupancyDetails(occupancyId, propertyName, unit) {
+async function getOccupancyDetails(supabase, occupancyId, propertyName, unit) {
   try {
     // Get delinquency info
     const { data: delinquency } = await supabase
@@ -494,6 +449,10 @@ async function getOccupancyDetails(occupancyId, propertyName, unit) {
 
 // Update collection stage
 export async function PATCH(request) {
+  const auth = await requireAuth(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   try {
     const body = await request.json();
     const { occupancy_id, stage, notes, ...otherFields } = body;

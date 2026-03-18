@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../lib/auth';
 
 /**
  * GET /api/admin/brex/corporate-merchants
  *
  * Returns all unique Brex merchants with expense counts and corporate rule status.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     // Get all distinct merchants with counts
     const { data: merchantStats, error: statsError } = await supabase
@@ -82,6 +85,9 @@ export async function GET() {
  * Body: { merchant_name_normalized: string, display_name: string, created_by?: string }
  */
 export async function POST(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const { merchant_name_normalized, display_name, created_by } = body;
@@ -146,6 +152,9 @@ export async function POST(request: Request) {
  * Body: { merchant_name_normalized: string }
  */
 export async function DELETE(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const { merchant_name_normalized } = body;

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { supabase } from '../../../../../lib/supabase';
+import { requireAdmin } from '../../../../../lib/auth';
 
 export async function PATCH(request: Request) {
+  const auth = await requireAdmin(request);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
   try {
     const body = await request.json();
     const { id, is_corporate, note } = body;

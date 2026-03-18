@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
   const { searchParams } = new URL(req.url);
   const mode = searchParams.get('mode') || 'deposits';
   const search = searchParams.get('search') || '';
@@ -14,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   // ── Return check images + signed URLs for a specific deposit ──────────────
   if (depositId) {
-    const { data: images, error } = await supabaseAdmin
+    const { data: images, error } = await supabase
       .from('simmons_check_images')
       .select('id, image_index, image_type, amount, check_type, payer_name, payer_address, issuer, money_order_number, check_number, check_date, memo, routing_number, front_image_path, back_image_path, extracted_at')
       .eq('deposit_id', depositId)
@@ -26,11 +30,11 @@ export async function GET(req: NextRequest) {
     const imagesWithUrls = await Promise.all((images || []).map(async (img) => {
       let front_url = null, back_url = null;
       if (img.front_image_path) {
-        const { data } = await supabaseAdmin.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
+        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
         front_url = data?.signedUrl || null;
       }
       if (img.back_image_path) {
-        const { data } = await supabaseAdmin.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
+        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
         back_url = data?.signedUrl || null;
       }
       return { ...img, front_url, back_url };
@@ -43,7 +47,7 @@ export async function GET(req: NextRequest) {
   if (mode === 'reconcile') {
     // Fetch all rows from view — client handles date filtering so nulls on either
     // side (simmons_only / af_only) are included correctly
-    const { data: raw, error } = await supabaseAdmin
+    const { data: raw, error } = await supabase
       .from('v_simmons_reconcile')
       .select('*')
       .order('deposit_date', { ascending: false, nullsFirst: false })
@@ -57,7 +61,7 @@ export async function GET(req: NextRequest) {
   // ── Deposits list mode (original) ─────────────────────────────────────────
   let matchingDepositIds: string[] | null = null;
   if (search && search.length >= 2) {
-    const { data: matches } = await supabaseAdmin
+    const { data: matches } = await supabase
       .from('simmons_check_images')
       .select('deposit_id')
       .or(`payer_name.ilike.%${search}%,money_order_number.ilike.%${search}%,check_number.ilike.%${search}%,memo.ilike.%${search}%`)
@@ -65,7 +69,7 @@ export async function GET(req: NextRequest) {
     if (matches) matchingDepositIds = Array.from(new Set(matches.map(m => m.deposit_id)));
   }
 
-  let query = supabaseAdmin
+  let query = supabase
     .from('simmons_deposits')
     .select(`
       id, account_suffix, deposit_date, amount, image_count, transaction_id,
@@ -119,16 +123,16 @@ function buildSummary(rows: any[]) {
   };
 }
 
-async function attachSignedUrls(rows: any[]) {
+async function attachSignedUrls(supabase: any, rows: any[]) {
   return Promise.all(rows.map(async (row) => {
     if (!row.front_image_path && !row.back_image_path) return row;
     let front_url = null, back_url = null;
     if (row.front_image_path) {
-      const { data } = await supabaseAdmin.storage.from('simmons-checks').createSignedUrl(row.front_image_path, 3600);
+      const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(row.front_image_path, 3600);
       front_url = data?.signedUrl || null;
     }
     if (row.back_image_path) {
-      const { data } = await supabaseAdmin.storage.from('simmons-checks').createSignedUrl(row.back_image_path, 3600);
+      const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(row.back_image_path, 3600);
       back_url = data?.signedUrl || null;
     }
     return { ...row, front_url, back_url };
