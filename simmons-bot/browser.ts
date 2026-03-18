@@ -211,64 +211,37 @@ export async function login(
     }
     await p.waitForTimeout(8000);
 
-    // Step 4: Password page (Banno shadow DOM — elements inside web components)
-    // Helper: inject a shadow DOM query helper into the page to avoid tsx __name issues
+    // Step 4: Password page (Banno shadow DOM — use Playwright's built-in
+    // shadow-piercing selectors to avoid CSP eval restrictions)
     console.log('[login] Step 4: Enter password');
-    await p.waitForFunction(
-      `(() => {
-        const find = (root, sel, d) => {
-          if (d > 10) return null;
-          const el = root.querySelector(sel);
-          if (el) return el;
-          for (const c of root.querySelectorAll('*')) {
-            if (c.shadowRoot) { const f = find(c.shadowRoot, sel, d+1); if (f) return f; }
-          }
-          return null;
-        };
-        return find(document, 'input[type="password"]', 0) !== null;
-      })()`,
-      { timeout: 15000 }
-    );
-
-    // Focus password input in shadow DOM, then type via Playwright keyboard
-    await p.evaluate(`(() => {
-      const find = (root, sel, d) => {
-        if (d > 10) return null;
-        const el = root.querySelector(sel);
-        if (el) return el;
-        for (const c of root.querySelectorAll('*')) {
-          if (c.shadowRoot) { const f = find(c.shadowRoot, sel, d+1); if (f) return f; }
-        }
-        return null;
-      };
-      const input = find(document, 'input[type="password"]', 0);
-      if (input) { input.focus(); input.click(); }
-    })()`);
-    await p.waitForTimeout(300);
-    await p.keyboard.type(password, { delay: 75 });
+    try {
+      // Playwright's css= engine pierces shadow DOM by default
+      await p.waitForSelector('input[type="password"]', { state: 'visible', timeout: 15000 });
+      await p.click('input[type="password"]');
+      await p.waitForTimeout(300);
+      await p.keyboard.type(password, { delay: 75 });
+    } catch {
+      // Fallback: try locator which also pierces shadow DOM
+      const pwInput = p.locator('input[type="password"]').first();
+      await pwInput.waitFor({ state: 'visible', timeout: 10000 });
+      await pwInput.click();
+      await p.waitForTimeout(300);
+      await p.keyboard.type(password, { delay: 75 });
+    }
     await p.waitForTimeout(500);
 
-    // Click Sign In — exact match, drill into jha-button shadow root
-    await p.evaluate(`(() => {
-      const exactBtn = (root, label, d) => {
-        if (d > 10) return false;
-        for (const el of root.querySelectorAll('jha-button, button')) {
-          if (el.textContent?.trim() === label) {
-            if (el.tagName.toLowerCase() === 'jha-button' && el.shadowRoot) {
-              const inner = el.shadowRoot.querySelector('button');
-              if (inner) { inner.click(); return true; }
-            }
-            el.click();
-            return true;
-          }
-        }
-        for (const c of root.querySelectorAll('*')) {
-          if (c.shadowRoot && exactBtn(c.shadowRoot, label, d+1)) return true;
-        }
-        return false;
-      };
-      exactBtn(document, 'Sign in', 0) || exactBtn(document, 'Sign In', 0);
-    })()`);
+    // Click Sign In — use locator with text matching (pierces shadow DOM)
+    const signInBtn = p.getByRole('button', { name: /Sign [iI]n/ }).first();
+    try {
+      await signInBtn.click({ timeout: 5000 });
+    } catch {
+      // Fallback: try jha-button inner button
+      const jhaSignIn = p.locator('jha-button:has-text("Sign in") >> button').first();
+      await jhaSignIn.click({ timeout: 5000 }).catch(() => {
+        // Last resort: press Enter
+        return p.keyboard.press('Enter');
+      });
+    }
     await p.waitForTimeout(8000);
 
     // Step 5: TOTP page (also shadow DOM)
@@ -276,92 +249,43 @@ export async function login(
     const totpCode = generateTOTP(totpSecret);
     console.log(`[login] Generated TOTP: ${totpCode}`);
 
-    // Focus TOTP input in shadow DOM, then type via Playwright keyboard
-    await p.evaluate(`(() => {
-      const find = (root, sel, d) => {
-        if (d > 10) return null;
-        const el = root.querySelector(sel);
-        if (el) return el;
-        for (const c of root.querySelectorAll('*')) {
-          if (c.shadowRoot) { const f = find(c.shadowRoot, sel, d+1); if (f) return f; }
-        }
-        return null;
-      };
-      const input = find(document, 'input[inputmode="numeric"]', 0)
-        || find(document, 'input[type="tel"]', 0);
-      if (input) { input.focus(); input.click(); }
-    })()`);
+    // Find TOTP input via Playwright selectors (shadow-piercing)
+    try {
+      const totpInput = p.locator('input[inputmode="numeric"]').first();
+      await totpInput.waitFor({ state: 'visible', timeout: 10000 });
+      await totpInput.click();
+    } catch {
+      const totpInput2 = p.locator('input[type="tel"]').first();
+      await totpInput2.click({ timeout: 5000 });
+    }
     await p.waitForTimeout(300);
     await p.keyboard.type(totpCode, { delay: 75 });
     await p.waitForTimeout(500);
 
-    // Click Verify — drill into jha-button shadow root
-    await p.evaluate(`(() => {
-      const clickBtn = (root, labels, d) => {
-        if (d > 10) return false;
-        for (const el of root.querySelectorAll('jha-button, button')) {
-          const t = el.textContent?.trim();
-          if (t && labels.some(l => t.includes(l))) {
-            if (el.tagName.toLowerCase() === 'jha-button' && el.shadowRoot) {
-              const inner = el.shadowRoot.querySelector('button');
-              if (inner) { inner.click(); return true; }
-            }
-            el.click();
-            return true;
-          }
-        }
-        for (const c of root.querySelectorAll('*')) {
-          if (c.shadowRoot && clickBtn(c.shadowRoot, labels, d+1)) return true;
-        }
-        return false;
-      };
-      clickBtn(document, ['Verify', 'Submit', 'Continue'], 0);
-    })()`);
+    // Click Verify/Submit/Continue
+    const verifyBtn = p.getByRole('button', { name: /Verify|Submit|Continue/ }).first();
+    try {
+      await verifyBtn.click({ timeout: 5000 });
+    } catch {
+      const jhaVerify = p.locator('jha-button:has-text("Verify") >> button').first();
+      await jhaVerify.click({ timeout: 5000 }).catch(() => p.keyboard.press('Enter'));
+    }
     await p.waitForTimeout(8000);
 
     // Step 6: Accept User Agreement if shown (also shadow DOM)
-    const hasAgreement = await p.evaluate(
-      `(() => {
-        const find = (root, sel, d) => {
-          if (d > 10) return null;
-          const el = root.querySelector(sel);
-          if (el) return el;
-          for (const c of root.querySelectorAll('*')) {
-            if (c.shadowRoot) { const f = find(c.shadowRoot, sel, d+1); if (f) return f; }
-          }
-          return null;
-        };
-        const cb = find(document, 'input[type="checkbox"]', 0);
-        if (cb) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); return true; }
-        return false;
-      })()`
-    );
+    const checkbox = p.locator('input[type="checkbox"]').first();
+    const hasAgreement = await checkbox.isVisible().catch(() => false);
     if (hasAgreement) {
       console.log('[login] Step 6: Accepting user agreement');
+      await checkbox.check();
       await p.waitForTimeout(500);
-      await p.evaluate(
-        `(() => {
-          const clickBtn = (root, labels, d) => {
-            if (d > 10) return false;
-            for (const el of root.querySelectorAll('jha-button, button')) {
-              const t = el.textContent?.trim();
-              if (t && labels.some(l => t.includes(l))) {
-                if (el.tagName.toLowerCase() === 'jha-button' && el.shadowRoot) {
-                  const inner = el.shadowRoot.querySelector('button');
-                  if (inner) { inner.click(); return true; }
-                }
-                el.click();
-                return true;
-              }
-            }
-            for (const c of root.querySelectorAll('*')) {
-              if (c.shadowRoot && clickBtn(c.shadowRoot, labels, d+1)) return true;
-            }
-            return false;
-          };
-          clickBtn(document, ['Accept', 'Continue', 'Agree'], 0);
-        })()`
-      );
+      const acceptBtn = p.getByRole('button', { name: /Accept|Continue|Agree/ }).first();
+      try {
+        await acceptBtn.click({ timeout: 5000 });
+      } catch {
+        const jhaAccept = p.locator('jha-button:has-text("Accept") >> button').first();
+        await jhaAccept.click({ timeout: 5000 }).catch(() => p.keyboard.press('Enter'));
+      }
       await p.waitForTimeout(3000);
     }
 
