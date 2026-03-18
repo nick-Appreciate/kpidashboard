@@ -744,6 +744,93 @@ async function syncTenantDirectory(): Promise<SyncResult> {
   }
 }
 
+async function syncWorkOrders(): Promise<SyncResult> {
+  try {
+    const data = await fetchAppFolioReport('work_order', {
+      work_order_statuses: 'all'
+    });
+
+    const records = data.map((row: any) => ({
+      work_order_id: row.work_order_id,
+      work_order_number: row.work_order_number,
+      service_request_id: row.service_request_id,
+      service_request_number: row.service_request_number ? String(row.service_request_number) : null,
+      service_request_description: row.service_request_description,
+      job_description: row.job_description,
+      instructions: row.instructions,
+      status: row.status,
+      priority: row.priority,
+      work_order_type: row.work_order_type,
+      work_order_issue: row.work_order_issue,
+      property_name: row.property_name,
+      property_id: row.property_id,
+      unit_name: row.unit_name,
+      unit_id: row.unit_id,
+      occupancy_id: row.occupancy_id,
+      primary_tenant: row.primary_tenant,
+      primary_tenant_email: row.primary_tenant_email,
+      primary_tenant_phone: row.primary_tenant_phone_number,
+      requesting_tenant: row.requesting_tenant,
+      submitted_by_tenant: row.submitted_by_tenant === 'Yes',
+      vendor: row.vendor,
+      vendor_id: row.vendor_id,
+      vendor_trade: row.vendor_trade,
+      created_at: row.created_at || null,
+      created_by: row.created_by,
+      assigned_user: row.assigned_user,
+      scheduled_start: row.scheduled_start || null,
+      scheduled_end: row.scheduled_end || null,
+      work_completed_on: row.work_completed_on || null,
+      completed_on: row.completed_on || null,
+      canceled_on: row.canceled_on || null,
+      follow_up_on: row.follow_up_on || null,
+      estimate_req_on: row.estimate_req_on || null,
+      estimated_on: row.estimated_on || null,
+      estimate_amount: row.estimate_amount ? parseFloat(row.estimate_amount) : null,
+      estimate_approval_status: row.estimate_approval_status,
+      estimate_approved_on: row.estimate_approved_on || null,
+      amount: row.amount ? parseFloat(row.amount) : null,
+      invoice: row.invoice,
+      vendor_bill_id: row.vendor_bill_id ? String(row.vendor_bill_id) : null,
+      vendor_bill_amount: row.vendor_bill_amount ? parseFloat(row.vendor_bill_amount) : null,
+      vendor_charge_id: row.vendor_charge_id ? String(row.vendor_charge_id) : null,
+      vendor_charge_amount: row.vendor_charge_amount ? parseFloat(row.vendor_charge_amount) : null,
+      tenant_total_charge_amount: row.tenant_total_charge_amount ? parseFloat(row.tenant_total_charge_amount) : null,
+      tenant_charge_ids: row.tenant_charge_ids,
+      corporate_charge_id: row.corporate_charge_id ? String(row.corporate_charge_id) : null,
+      corporate_charge_amount: row.corporate_charge_amount ? parseFloat(row.corporate_charge_amount) : null,
+      discount_amount: row.discount_amount ? parseFloat(row.discount_amount) : null,
+      discount_bill_id: row.discount_bill_id ? String(row.discount_bill_id) : null,
+      markup_amount: row.markup_amount ? parseFloat(row.markup_amount) : null,
+      markup_bill_id: row.markup_bill_id ? String(row.markup_bill_id) : null,
+      last_billed_on: row.last_billed_on || null,
+      recurring: row.recurring === 'Yes',
+      maintenance_limit: row.maintenance_limit ? parseFloat(row.maintenance_limit) : null,
+      status_notes: row.status_notes,
+      unit_turn_id: row.unit_turn_id,
+      unit_turn_category: row.unit_turn_category,
+      inspection_id: row.inspection_id,
+      inspection_date: row.inspection_date || null,
+      survey_id: row.survey_id,
+      vendor_portal_invoices: row.vendor_portal_invoices,
+      synced_at: new Date().toISOString()
+    }));
+
+    await supabase.rpc('truncate_af_work_orders');
+
+    const batchSize = 100;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+      const { error } = await supabase.from('af_work_orders').insert(batch);
+      if (error) throw new Error(JSON.stringify(error));
+    }
+
+    return { report: 'work_order', success: true, rowsProcessed: records.length };
+  } catch (error: any) {
+    return { report: 'work_order', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 // Helper function for Central Time
 function getTodayDate(): string {
   const now = new Date();
@@ -786,8 +873,9 @@ Deno.serve(async (req: Request) => {
       results.push(await syncBillDetail()); await delay();
       results.push(await syncTrialBalance()); await delay();
       results.push(await syncProspectSourceTracking()); await delay();
-      results.push(await syncTenantDirectory());
-      
+      results.push(await syncTenantDirectory()); await delay();
+      results.push(await syncWorkOrders());
+
     } else if (reportParam === 'core') {
       // Just the core reports for faster sync
       results.push(await syncRentRoll()); await delay();
@@ -829,7 +917,8 @@ Deno.serve(async (req: Request) => {
         'bill_detail': syncBillDetail,
         'trial_balance': syncTrialBalance,
         'prospect_source_tracking': syncProspectSourceTracking,
-        'tenant_directory': syncTenantDirectory
+        'tenant_directory': syncTenantDirectory,
+        'work_order': syncWorkOrders
       };
       
       const syncFn = syncFunctions[reportParam];
