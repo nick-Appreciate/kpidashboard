@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { LogoLoader } from './Logo';
 import JustCallDialer, { useJustCall } from './JustCallDialer';
 import DarkSelect from './DarkSelect';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, ReferenceLine } from 'recharts';
 
 const PhoneIcon = ({ className = "h-3 w-3" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -21,19 +22,20 @@ const LockIcon = ({ className = "h-3 w-3" }) => (
 // teal columns: teal header + teal-tinted bg, dark cards
 // dark columns: dark header + dark bg, teal-tinted cards
 const STAGE_CONFIG = {
-  needs_contacted: { label: 'Needs Contacted', variant: 'teal' },
-  balance_letter:  { label: 'Balance Letter',  variant: 'dark' },
-  notice:          { label: 'Notice',          variant: 'teal' },
-  reservation_of_rights: { label: 'Reservation of Rights', variant: 'dark' },
-  eviction:        { label: 'Eviction',        variant: 'teal' },
-  current:         { label: 'Current',         variant: 'dark' },
+  needs_contacted: { label: 'Needs Contacted', variant: 'teal', tooltip: 'New delinquent tenants with a balance ≤ 1x monthly rent and before the 9th of the month.' },
+  balance_letter:  { label: 'Balance Letter',  variant: 'dark', tooltip: 'Tenants with a balance ≤ 1x monthly rent after the 9th of the month. A balance letter should be sent.' },
+  notice:          { label: 'Notice',          variant: 'teal', tooltip: 'Tenants with a balance > 1x monthly rent. A 3-day (KC) or 10-day notice is required before further action.' },
+  reservation_of_rights: { label: 'Reservation of Rights', variant: 'dark', tooltip: 'Tenants whose notice period has expired and balance is still > 1x monthly rent. Moves to Paid if balance drops below 1x rent.' },
+  eviction:        { label: 'Eviction',        variant: 'teal', tooltip: 'Tenants with an active eviction status in AppFolio. Automatically locked to this stage while eviction is active.' },
+  current:         { label: 'Paid',             variant: 'dark', tooltip: 'Previously delinquent tenants who have paid their balance down to $0 or below, or dropped below 1x monthly rent from Notice/Reservation.' },
+  file_for_collections: { label: 'File for Collections', variant: 'teal', tooltip: 'Moved-out tenants (Notice-Unrented or similar status) who still have an outstanding balance.' },
 };
 
-const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'current'];
+const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current', 'file_for_collections'];
 
 // Locked stages that users cannot drag cards in/out of
 // - 'current': Only units with balance <= 0
-const LOCKED_STAGES = ['current'];
+const LOCKED_STAGES = ['current', 'file_for_collections'];
 
 // Region definitions - matches rent-roll stats config
 const REGION_PROPERTIES = {
@@ -74,10 +76,113 @@ function ContactButton({ number, date, notes, onClick, formatDate }) {
   );
 }
 
+// Phone picker modal for units with multiple phone numbers
+function PhonePickerModal({ item, phones, onCall, onClose, formatPhoneForJustCall }) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="glass-card w-full max-w-sm p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-semibold text-slate-100 mb-1">
+          Call {item.name || 'Tenant'}
+        </h3>
+        <p className="text-sm text-slate-400 mb-3">
+          {item.property_name} · Unit {item.unit}
+        </p>
+        <div className="space-y-2">
+          {phones.map((entry, idx) => (
+            <button
+              key={idx}
+              onClick={() => {
+                const formatted = formatPhoneForJustCall(entry.phone);
+                if (formatted) {
+                  onCall(formatted, entry.name);
+                  onClose();
+                }
+              }}
+              className="w-full flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-[var(--glass-border)] hover:border-green-500/50 hover:bg-green-500/10 transition-colors group"
+            >
+              <div className="text-left">
+                <div className="text-sm font-medium text-slate-200 group-hover:text-green-300">
+                  {entry.name}
+                </div>
+                <div className="text-xs text-slate-400">{entry.phone}</div>
+              </div>
+              <PhoneIcon className="h-4 w-4 text-green-400" />
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-3 px-3 py-1.5 text-sm border border-[var(--glass-border)] rounded-lg text-slate-400 hover:bg-white/5"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Interpolate sparse data: for each day, fill missing values from nearest known points
+function interpolateMonthData(points, allDays, valueKey) {
+  if (points.length === 0) return {};
+  const known = {};
+  points.forEach(p => { known[p.day] = p[valueKey]; });
+  const knownDays = points.map(p => p.day).sort((a, b) => a - b);
+  const result = {};
+  allDays.forEach(day => {
+    if (known[day] !== undefined) {
+      result[day] = known[day];
+      return;
+    }
+    // Find nearest lower and upper known points
+    let lower = null, upper = null;
+    for (const kd of knownDays) {
+      if (kd <= day) lower = kd;
+      if (kd >= day && upper === null) upper = kd;
+    }
+    if (lower !== null && upper !== null && lower !== upper) {
+      // Linear interpolation between two known points
+      const ratio = (day - lower) / (upper - lower);
+      result[day] = Math.round(known[lower] + ratio * (known[upper] - known[lower]));
+    }
+    // Do NOT extrapolate before first or after last known data point
+  });
+  return result;
+}
+
+// Info tooltip for column headers
+function StageTooltip({ text, variant }) {
+  const [show, setShow] = useState(false);
+  const isTeal = variant === 'teal';
+  return (
+    <span className="relative inline-block ml-1">
+      <span
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className={`inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold cursor-help ${
+          isTeal ? 'bg-white/25 text-surface-base' : 'bg-accent/20 text-accent'
+        }`}
+      >
+        ?
+      </span>
+      {show && (
+        <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1.5 w-52 bg-slate-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg leading-relaxed">
+          {text}
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 -mb-px border-4 border-transparent border-b-slate-800"></div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 // Compact card component for Kanban
-function CollectionCard({ item, variant, onDragStart, onDragEnd, onClick, onCall, onContactClick, getAgingBadge, formatCurrency, formatDate, isDragging }) {
+function CollectionCard({ item, variant, onClick, onCall, onContactClick, getAgingBadge, formatCurrency, formatDate }) {
   const aging = getAgingBadge(item);
-  const isLocked = item.af_eviction || LOCKED_STAGES.includes(item.stage);
 
   // Card colors: dark cards in teal columns, teal-tinted cards in dark columns
   const cardBase = variant === 'dark'
@@ -95,15 +200,8 @@ function CollectionCard({ item, variant, onDragStart, onDragEnd, onClick, onCall
 
   return (
     <div
-      draggable={!isLocked}
-      onDragStart={(e) => !isLocked && onDragStart(e, item)}
-      onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`rounded border p-2 transition-all duration-200 mb-1 ${
-        isLocked
-          ? `${cardBase} cursor-not-allowed opacity-80`
-          : `${cardBase} cursor-grab ${cardHover} hover:-translate-y-0.5`
-      } ${isDragging ? 'opacity-50 ring-2 ring-accent' : ''}`}
+      className={`rounded border p-2 transition-all duration-200 mb-1 ${cardBase} cursor-pointer ${cardHover} hover:-translate-y-0.5`}
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex-1 min-w-0">
@@ -155,8 +253,8 @@ function CollectionCard({ item, variant, onDragStart, onDragEnd, onClick, onCall
             Tenant
           </a>
         )}
-        {/* Contact buttons for needs_contacted, balance_letter, and notice cards */}
-        {['needs_contacted', 'balance_letter', 'notice'].includes(item.stage) && onContactClick && (
+        {/* Contact buttons for all non-paid stages */}
+        {item.stage !== 'current' && onContactClick && (
           <div className="flex items-center gap-0.5 ml-auto">
             {[1, 2, 3].map(n => (
               <ContactButton
@@ -169,11 +267,6 @@ function CollectionCard({ item, variant, onDragStart, onDragEnd, onClick, onCall
               />
             ))}
           </div>
-        )}
-        {isLocked && (
-          <span className={`text-xs ml-auto ${item.stage === 'current' ? 'text-green-400' : 'text-purple-400'}`}>
-            <LockIcon />
-          </span>
         )}
       </div>
     </div>
@@ -189,17 +282,26 @@ export default function CollectionsKanban() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [itemDetails, setItemDetails] = useState(null);
   const [noteInput, setNoteInput] = useState('');
-  const [draggedItem, setDraggedItem] = useState(null);
   const [sortByBalance, setSortByBalance] = useState(false);
   const [agingFilter, setAgingFilter] = useState('all'); // 'all', '0-30', '60-90', '90+'
+  const [chartStatusFilter, setChartStatusFilter] = useState('all'); // 'all', 'current', 'evict'
   const [contactPrompt, setContactPrompt] = useState(null); // { item, contactNumber }
   const [contactNoteInput, setContactNoteInput] = useState('');
-  const [dragOverStage, setDragOverStage] = useState(null);
+  const [phonePicker, setPhonePicker] = useState(null); // { item, phones }
+  const [chartData, setChartData] = useState(null);
+  const [chartsExpanded, setChartsExpanded] = useState(false);
+  const [dailyChartData, setDailyChartData] = useState(null);
+  const [todayDay, setTodayDay] = useState(null);
+  const [statusChartData, setStatusChartData] = useState(null);
+  const [statusTypes, setStatusTypes] = useState([]);
   const { makeCall } = useJustCall();
 
   useEffect(() => {
     fetchData();
-  }, [selectedFilter]);
+    fetchChartData();
+    fetchDailyChartData();
+    fetchStatusChartData();
+  }, [selectedFilter, chartStatusFilter]);
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -233,6 +335,57 @@ export default function CollectionsKanban() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchChartData = async () => {
+    try {
+      const params = new URLSearchParams({ chart: 'true' });
+      if (selectedFilter !== 'all' && !selectedFilter.startsWith('region_')) {
+        params.append('property', selectedFilter);
+      }
+      if (chartStatusFilter !== 'all') params.append('status_filter', chartStatusFilter);
+      const res = await fetch(`/api/collections?${params}`);
+      const result = await res.json();
+      if (result.chartData) setChartData(result.chartData);
+    } catch (err) {
+      console.error('Error fetching chart data:', err);
+    }
+  };
+
+  const fetchDailyChartData = async () => {
+    try {
+      const params = new URLSearchParams({ daily_chart: 'true' });
+      if (selectedFilter !== 'all' && !selectedFilter.startsWith('region_')) {
+        params.append('property', selectedFilter);
+      }
+      if (chartStatusFilter !== 'all') params.append('status_filter', chartStatusFilter);
+      const res = await fetch(`/api/collections?${params}`);
+      const result = await res.json();
+      if (result.dailyChart) {
+        setDailyChartData(result.dailyChart);
+        setTodayDay(result.todayDay);
+      }
+    } catch (err) {
+      console.error('Error fetching daily chart data:', err);
+    }
+  };
+
+  const fetchStatusChartData = async () => {
+    try {
+      const params = new URLSearchParams({ status_chart: 'true' });
+      if (selectedFilter !== 'all' && !selectedFilter.startsWith('region_')) {
+        params.append('property', selectedFilter);
+      }
+      const res = await fetch(`/api/collections?${params}`);
+      const result = await res.json();
+      if (result.statusChart) {
+        setStatusChartData(result.statusChart);
+        setStatusTypes(result.statuses || []);
+        if (result.todayDay) setTodayDay(result.todayDay);
+      }
+    } catch (err) {
+      console.error('Error fetching status chart data:', err);
     }
   };
 
@@ -309,12 +462,25 @@ export default function CollectionsKanban() {
   };
 
   const handleCall = (item) => {
-    const phone = formatPhoneForJustCall(item.phone_numbers);
-    if (!phone) {
-      alert('No phone number available');
+    const phones = item.tenant_phones || [];
+    if (phones.length === 0) {
+      // Fallback to legacy single phone_numbers field
+      const phone = formatPhoneForJustCall(item.phone_numbers);
+      if (!phone) {
+        alert('No phone number available');
+        return;
+      }
+      makeCall(phone, item.name || 'Unknown');
       return;
     }
-    makeCall(phone, item.name || 'Unknown');
+    if (phones.length === 1) {
+      // Single number — call directly
+      const phone = formatPhoneForJustCall(phones[0].phone);
+      if (phone) makeCall(phone, phones[0].name || item.name || 'Unknown');
+      return;
+    }
+    // Multiple numbers — show picker
+    setPhonePicker({ item, phones });
   };
 
   const handleContactClick = (item, contactNumber) => {
@@ -383,86 +549,6 @@ export default function CollectionsKanban() {
 
   const { items = [], summary = {}, properties = [] } = data || {};
 
-  // Drag and drop handlers
-  const handleDragStart = (e, item) => {
-    setDraggedItem(item);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e, stage) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (stage && dragOverStage !== stage) setDragOverStage(stage);
-  };
-
-  const handleDragLeave = (e, stage) => {
-    // Only clear if actually leaving the column (not entering a child)
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-      setDragOverStage(null);
-    }
-  };
-
-  const handleDrop = async (e, targetStage) => {
-    e.preventDefault();
-    setDragOverStage(null);
-
-    // Prevent dropping into locked stages
-    if (LOCKED_STAGES.includes(targetStage)) {
-      setDraggedItem(null);
-      return;
-    }
-
-    if (draggedItem && draggedItem.stage !== targetStage) {
-      const movedItem = draggedItem;
-      const previousStage = movedItem.stage;
-
-      // Optimistic update — move card instantly in local state
-      setData(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          items: prev.items.map(item =>
-            item.occupancy_id === movedItem.occupancy_id
-              ? { ...item, stage: targetStage }
-              : item
-          ),
-        };
-      });
-      setDraggedItem(null);
-
-      // Sync with backend in background
-      try {
-        const res = await fetch('/api/collections', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ occupancy_id: movedItem.occupancy_id, stage: targetStage, notes: '' })
-        });
-        if (!res.ok) throw new Error('Failed to update stage');
-      } catch (err) {
-        console.error('Error updating stage:', err);
-        // Revert on failure
-        setData(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            items: prev.items.map(item =>
-              item.occupancy_id === movedItem.occupancy_id
-                ? { ...item, stage: previousStage }
-                : item
-            ),
-          };
-        });
-      }
-      return;
-    }
-    setDraggedItem(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedItem(null);
-    setDragOverStage(null);
-  };
-
   // Filter items by region selection, then by large balances if enabled
   let filteredItems = items;
   if (selectedFilter === 'region_kansas_city') {
@@ -521,7 +607,7 @@ export default function CollectionsKanban() {
 
   return (
     <div className="h-screen p-4 flex flex-col overflow-hidden">
-      <div className="max-w-full mx-auto flex flex-col flex-1 min-h-0 w-full">
+      <div className="max-w-full mx-auto flex flex-col flex-1 min-h-0 w-full overflow-hidden">
         {/* Header */}
         <div className="bg-[rgba(10,14,26,0.92)] backdrop-blur-[16px] rounded-lg border border-[var(--glass-border)] flex-shrink-0 mb-2">
           <div className="flex items-center gap-4 h-10 px-4">
@@ -579,7 +665,7 @@ export default function CollectionsKanban() {
         </div>
 
         {/* Column Headers — pinned row */}
-        <div className="grid grid-cols-5 gap-2 flex-shrink-0">
+        <div className="grid grid-cols-7 gap-2 flex-shrink-0">
           {STAGES.map(stage => {
             const config = STAGE_CONFIG[stage];
             const stageItems = itemsByStage[stage];
@@ -596,6 +682,7 @@ export default function CollectionsKanban() {
                   <span className="font-semibold text-xs">
                     {config.label}
                     {isLockedStage && <LockIcon className="h-3 w-3 inline ml-1" />}
+                    <StageTooltip text={config.tooltip} variant={config.variant} />
                   </span>
                   <span className={`text-xs ${countBadge} px-1.5 py-0.5 rounded-full`}>
                     {stageItems.length}
@@ -611,27 +698,22 @@ export default function CollectionsKanban() {
 
         {/* Kanban Board — unified scroll for all columns */}
         <div className="flex-1 overflow-y-auto dark-scrollbar min-h-0 mt-2">
-          <div className="grid grid-cols-5 gap-2 min-h-full">
+          <div className="grid grid-cols-7 gap-2 min-h-full">
             {STAGES.map(stage => {
               const config = STAGE_CONFIG[stage];
               const stageItems = itemsByStage[stage];
               const stageProperties = getPropertiesInStage(stageItems);
-              const isLockedStage = LOCKED_STAGES.includes(stage);
               const isTeal = config.variant === 'teal';
               const colBg = isTeal ? 'bg-accent/[0.06]' : 'bg-white/[0.03]';
-              const isDragTarget = dragOverStage === stage && !isLockedStage && draggedItem?.stage !== stage;
 
               return (
                 <div
                   key={stage}
-                  className={`${colBg} rounded-lg p-1.5 space-y-1 min-w-0 transition-colors ${isLockedStage ? 'opacity-90' : ''} ${isDragTarget ? 'ring-2 ring-accent/50 bg-accent/[0.12]' : ''}`}
-                  onDragOver={isLockedStage ? undefined : (e) => handleDragOver(e, stage)}
-                  onDragLeave={isLockedStage ? undefined : (e) => handleDragLeave(e, stage)}
-                  onDrop={isLockedStage ? undefined : (e) => handleDrop(e, stage)}
+                  className={`${colBg} rounded-lg p-1.5 space-y-1 min-w-0`}
                 >
                   {stageItems.length === 0 ? (
-                    <div className={`text-center text-xs py-4 ${isDragTarget ? 'text-accent' : 'text-slate-500'}`}>
-                      {isLockedStage ? 'Auto-populated' : 'Drop here'}
+                    <div className="text-center text-xs py-4 text-slate-500">
+                      No accounts
                     </div>
                   ) : sortByBalance ? (
                     stageItems.map(item => (
@@ -639,15 +721,13 @@ export default function CollectionsKanban() {
                         key={item.occupancy_id}
                         item={item}
                         variant={config.variant}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
                         onClick={() => openItemDetails(item)}
                         onCall={handleCall}
                         onContactClick={handleContactClick}
                         getAgingBadge={getAgingBadge}
                         formatCurrency={formatCurrency}
                         formatDate={formatDate}
-                        isDragging={draggedItem?.occupancy_id === item.occupancy_id}
+
                       />
                     ))
                   ) : (
@@ -663,15 +743,13 @@ export default function CollectionsKanban() {
                               key={item.occupancy_id}
                               item={item}
                               variant={config.variant}
-                              onDragStart={handleDragStart}
-                              onDragEnd={handleDragEnd}
                               onClick={() => openItemDetails(item)}
                               onCall={handleCall}
                               onContactClick={handleContactClick}
                               getAgingBadge={getAgingBadge}
                               formatCurrency={formatCurrency}
                               formatDate={formatDate}
-                              isDragging={draggedItem?.occupancy_id === item.occupancy_id}
+      
                             />
                           ))}
                         </div>
@@ -683,6 +761,306 @@ export default function CollectionsKanban() {
             })}
           </div>
         </div>
+
+        {/* Collections Analytics — pinned bottom */}
+        {(chartData?.length > 0 || dailyChartData?.length > 0) && (
+          <div className="flex-shrink-0 mt-2">
+            <button
+              onClick={() => setChartsExpanded(!chartsExpanded)}
+              className="w-full flex items-center justify-between bg-[rgba(10,14,26,0.92)] backdrop-blur-[16px] rounded-lg border border-[var(--glass-border)] px-4 py-2 hover:border-[var(--glass-border-hover)] transition-colors"
+            >
+              <span className="text-sm font-semibold text-slate-100">Collections Analytics</span>
+              <span className="text-slate-400 text-xs">{chartsExpanded ? '▲ Collapse' : '▼ Expand'}</span>
+            </button>
+            {chartsExpanded && (
+              <div className="bg-[rgba(10,14,26,0.92)] backdrop-blur-[16px] rounded-b-lg border border-t-0 border-[var(--glass-border)] p-4 space-y-6 max-h-[60vh] overflow-y-auto dark-scrollbar">
+                {/* Status Filter */}
+                <div className="flex items-center justify-end">
+                  <div className="flex rounded-lg border border-[var(--glass-border)] overflow-hidden h-[26px]">
+                    {[
+                      { value: 'all', label: 'All' },
+                      { value: 'current', label: 'Current' },
+                      { value: 'evict', label: 'Evictions' },
+                    ].map((opt, idx) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setChartStatusFilter(opt.value)}
+                        className={`px-3 text-[11px] font-medium transition-colors ${
+                          chartStatusFilter === opt.value
+                            ? 'bg-accent text-surface-base'
+                            : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                        } ${idx > 0 ? 'border-l border-[var(--glass-border)]' : ''}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Monthly Trend Chart */}
+                {chartData && chartData.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wide">
+                      Monthly Trend (12 Months)
+                    </h4>
+                    <div className="h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart
+                          data={chartData}
+                          margin={{ top: 5, right: 20, bottom: 5, left: 20 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                          <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                          <YAxis
+                            yAxisId="left"
+                            tick={{ fill: '#94a3b8', fontSize: 11 }}
+                            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                          />
+                          <YAxis
+                            yAxisId="right"
+                            orientation="right"
+                            tick={{ fill: '#94a3b8', fontSize: 11 }}
+                            tickFormatter={(v) => `${v}%`}
+                          />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                            labelStyle={{ color: '#e2e8f0' }}
+                            formatter={(value, name) => {
+                              if (name === 'totalOutstanding') return [`$${value.toLocaleString()}`, 'Outstanding'];
+                              if (name === 'pctOfCharges') return [`${value}%`, '% of Rent'];
+                              return [value, name];
+                            }}
+                          />
+                          <Bar yAxisId="left" dataKey="totalOutstanding" fill="rgba(56,189,248,0.4)" stroke="rgb(56,189,248)" strokeWidth={1} radius={[4, 4, 0, 0]} />
+                          <Line yAxisId="right" type="monotone" dataKey="pctOfCharges" stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 3 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex items-center gap-4 mt-1 text-xs text-slate-400 justify-center">
+                      <span className="flex items-center gap-1"><span className="w-3 h-3 bg-sky-400/40 rounded-sm border border-sky-400"></span> Outstanding ($)</span>
+                      <span className="flex items-center gap-1"><span className="w-3 h-1.5 bg-amber-500 rounded"></span> % of Rent</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Daily Chart */}
+                {dailyChartData && dailyChartData.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wide">
+                      Daily Collections by Month
+                    </h4>
+                    {(() => {
+                      const MONTH_COLORS = [
+                        'rgb(56,189,248)', 'rgb(168,85,247)', 'rgb(251,146,60)',
+                        'rgb(52,211,153)', 'rgb(251,113,133)', 'rgb(250,204,21)',
+                        'rgb(147,51,234)', 'rgb(34,211,238)', 'rgb(244,114,182)',
+                        'rgb(163,230,53)', 'rgb(249,115,22)', 'rgb(99,102,241)',
+                      ];
+                      // Only show months that actually have data points
+                      const visibleMonths = dailyChartData.filter(m => m.points.length > 0);
+                      const allDays = new Set();
+                      visibleMonths.forEach(m => m.points.forEach(p => allDays.add(p.day)));
+                      const sortedDays = [...allDays].sort((a, b) => a - b);
+
+                      // Interpolate all months so every day has a value
+                      const interpolated = visibleMonths.map(m => interpolateMonthData(m.points, sortedDays, 'outstanding'));
+
+                      const merged = sortedDays.map(day => {
+                        const row = { day };
+                        visibleMonths.forEach((m, idx) => {
+                          if (interpolated[idx][day] !== undefined) {
+                            row[`outstanding_${idx}`] = interpolated[idx][day];
+                          }
+                        });
+                        return row;
+                      });
+
+                      // Custom tooltip sorted by most recent month first
+                      const DailyTooltip = ({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        // Sort entries by month index (0 = most recent)
+                        const sorted = [...payload].sort((a, b) => {
+                          const aIdx = parseInt(a.dataKey.split('_')[1]);
+                          const bIdx = parseInt(b.dataKey.split('_')[1]);
+                          return aIdx - bIdx;
+                        });
+                        return (
+                          <div style={{ backgroundColor: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 12px' }}>
+                            <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 4 }}>Day {label}</div>
+                            {sorted.map((entry, i) => {
+                              const idx = parseInt(entry.dataKey.split('_')[1]);
+                              return (
+                                <div key={i} style={{ color: entry.color, fontSize: 12, lineHeight: '18px' }}>
+                                  {visibleMonths[idx]?.label} Outstanding : ${entry.value?.toLocaleString()}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      };
+
+                      return (
+                        <>
+                          <div className="h-56">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={merged} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                                <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                                <YAxis
+                                  yAxisId="left"
+                                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                                />
+                                <YAxis
+                                  yAxisId="right"
+                                  orientation="right"
+                                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                                  tickFormatter={(v) => `${v}%`}
+                                />
+                                <Tooltip content={<DailyTooltip />} />
+                                {todayDay && (
+                                  <ReferenceLine yAxisId="left" x={todayDay} stroke="white" strokeWidth={1.5} strokeDasharray="4 4" label={{ value: 'Today', fill: 'white', fontSize: 10, position: 'top' }} />
+                                )}
+                                {visibleMonths.map((m, idx) => (
+                                  <Line
+                                    key={`outstanding_${idx}`}
+                                    yAxisId="left"
+                                    type="monotone"
+                                    dataKey={`outstanding_${idx}`}
+                                    stroke={MONTH_COLORS[idx]}
+                                    strokeWidth={idx === 0 ? 2.5 : 1.5}
+                                    strokeDasharray={idx === 0 ? undefined : '5 3'}
+                                    dot={idx === 0 ? { fill: MONTH_COLORS[idx], r: 2 } : false}
+                                    connectNulls
+                                  />
+                                ))}
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="flex items-center gap-4 mt-1 text-xs text-slate-400 justify-center flex-wrap">
+                            {visibleMonths.map((m, idx) => (
+                              <span key={idx} className="flex items-center gap-1">
+                                <span className="w-4 h-0.5 rounded" style={{ backgroundColor: MONTH_COLORS[idx], opacity: idx === 0 ? 1 : 0.7 }}></span>
+                                {m.label}
+                              </span>
+                            ))}
+                            {(
+                              <span className="flex items-center gap-1">
+                                <span className="w-4 h-0 border-t-2 border-dashed border-white"></span> Today
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Evictions by Day Chart */}
+                {statusChartData && statusChartData.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wide">
+                      Evictions by Day
+                    </h4>
+                    {(() => {
+                      const MONTH_COLORS = [
+                        'rgb(56,189,248)', 'rgb(168,85,247)', 'rgb(251,146,60)',
+                        'rgb(52,211,153)', 'rgb(251,113,133)', 'rgb(250,204,21)',
+                        'rgb(147,51,234)', 'rgb(34,211,238)', 'rgb(244,114,182)',
+                        'rgb(163,230,53)', 'rgb(249,115,22)', 'rgb(99,102,241)',
+                      ];
+                      const visibleMonths = statusChartData;
+                      const allDays = new Set();
+                      visibleMonths.forEach(m => m.points.forEach(p => allDays.add(p.day)));
+                      const sortedDays = [...allDays].sort((a, b) => a - b);
+
+                      // Extract eviction counts and interpolate
+                      const evictPoints = visibleMonths.map(m =>
+                        m.points.map(p => ({ day: p.day, value: p['Evict'] || 0 }))
+                      );
+                      const interpolatedEvict = evictPoints.map(pts =>
+                        interpolateMonthData(pts.map(p => ({ day: p.day, value: p.value })), sortedDays, 'value')
+                      );
+
+                      const merged = sortedDays.map(day => {
+                        const row = { day };
+                        visibleMonths.forEach((m, idx) => {
+                          if (interpolatedEvict[idx][day] !== undefined) {
+                            row[`evict_${idx}`] = interpolatedEvict[idx][day];
+                          }
+                        });
+                        return row;
+                      });
+
+                      const EvictTooltip = ({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const sorted = [...payload].sort((a, b) => {
+                          const aIdx = parseInt(a.dataKey.split('_')[1]);
+                          const bIdx = parseInt(b.dataKey.split('_')[1]);
+                          return aIdx - bIdx;
+                        });
+                        return (
+                          <div style={{ backgroundColor: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 12px' }}>
+                            <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 4 }}>Day {label}</div>
+                            {sorted.map((entry, i) => {
+                              const idx = parseInt(entry.dataKey.split('_')[1]);
+                              return (
+                                <div key={i} style={{ color: entry.color, fontSize: 12, lineHeight: '18px' }}>
+                                  {visibleMonths[idx]?.label} Evictions : {entry.value}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      };
+
+                      return (
+                        <>
+                          <div className="h-56">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={merged} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                                <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
+                                <Tooltip content={<EvictTooltip />} />
+                                {todayDay && (
+                                  <ReferenceLine x={todayDay} stroke="white" strokeWidth={1.5} strokeDasharray="4 4" label={{ value: 'Today', fill: 'white', fontSize: 10, position: 'top' }} />
+                                )}
+                                {visibleMonths.map((m, idx) => (
+                                  <Line
+                                    key={`evict_${idx}`}
+                                    type="monotone"
+                                    dataKey={`evict_${idx}`}
+                                    stroke={MONTH_COLORS[idx]}
+                                    strokeWidth={idx === 0 ? 2.5 : 1.5}
+                                    strokeDasharray={idx === 0 ? undefined : '5 3'}
+                                    dot={idx === 0 ? { fill: MONTH_COLORS[idx], r: 2 } : false}
+                                    connectNulls
+                                  />
+                                ))}
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="flex items-center gap-4 mt-1 text-xs text-slate-400 justify-center flex-wrap">
+                            {visibleMonths.map((m, idx) => (
+                              <span key={idx} className="flex items-center gap-1">
+                                <span className="w-4 h-0.5 rounded" style={{ backgroundColor: MONTH_COLORS[idx], opacity: idx === 0 ? 1 : 0.7 }}></span>
+                                {m.label}
+                              </span>
+                            ))}
+                            <span className="flex items-center gap-1">
+                              <span className="w-4 h-0 border-t-2 border-dashed border-white"></span> Today
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Detail Modal */}
@@ -844,53 +1222,95 @@ export default function CollectionsKanban() {
                     </div>
                   </div>
 
-                  {/* Stage History */}
-                  {itemDetails?.stage && (
+                  {/* Collection History — chronological, includes archived months */}
+                  {(itemDetails?.stage || itemDetails?.noteHistory?.length > 0) && (
                     <div className="bg-white/5 rounded-lg p-4 mb-4">
                       <h3 className="font-semibold text-slate-100 mb-2">Collection History</h3>
-                      <div className="space-y-2 text-sm">
-                        {[1, 2, 3].map(n => {
-                          const date = itemDetails.stage[`contact_${n}_date`];
-                          const notes = itemDetails.stage[`contact_${n}_notes`];
-                          if (!date) return null;
-                          return (
-                            <div key={n}>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400">Contact {n}:</span>
-                                <span className="text-slate-200">{formatDate(date)}</span>
+                      <div className="space-y-2 text-sm max-h-64 overflow-y-auto dark-scrollbar">
+                        {(() => {
+                          // Build a flat list of all events with dates for sorting
+                          const events = [];
+
+                          // Archived months
+                          (itemDetails?.noteHistory || []).forEach(archive => {
+                            // Add archived contacts
+                            [1, 2, 3].forEach(n => {
+                              const date = archive[`contact_${n}_date`];
+                              const notes = archive[`contact_${n}_notes`];
+                              if (date) {
+                                events.push({ date, label: `Contact ${n}`, notes, month: archive.month_year, archived: true });
+                              }
+                            });
+                            // Add archived stage notes
+                            if (archive.balance_letter_notes) {
+                              events.push({ date: archive.archived_at, label: 'Balance Letter Note', notes: archive.balance_letter_notes, month: archive.month_year, archived: true });
+                            }
+                            if (archive.notice_notes) {
+                              events.push({ date: archive.archived_at, label: 'Notice Note', notes: archive.notice_notes, month: archive.month_year, archived: true });
+                            }
+                            if (archive.reservation_of_rights_notes) {
+                              events.push({ date: archive.archived_at, label: 'Reservation Note', notes: archive.reservation_of_rights_notes, month: archive.month_year, archived: true });
+                            }
+                            if (archive.eviction_notes) {
+                              events.push({ date: archive.archived_at, label: 'Eviction Note', notes: archive.eviction_notes, month: archive.month_year, archived: true });
+                            }
+                          });
+
+                          // Current month entries from stage data
+                          const stage = itemDetails?.stage;
+                          if (stage) {
+                            [1, 2, 3].forEach(n => {
+                              const date = stage[`contact_${n}_date`];
+                              const notes = stage[`contact_${n}_notes`];
+                              if (date) {
+                                events.push({ date, label: `Contact ${n}`, notes });
+                              }
+                            });
+                            if (stage.balance_letter_entered_at) {
+                              events.push({ date: stage.balance_letter_entered_at, label: 'Balance Letter', notes: stage.balance_letter_notes });
+                            }
+                            if (stage.notice_entered_at) {
+                              events.push({ date: stage.notice_entered_at, label: `Notice (${stage.notice_type || 'N/A'})`, notes: stage.notice_notes });
+                            }
+                            if (stage.reservation_of_rights_entered_at) {
+                              events.push({ date: stage.reservation_of_rights_entered_at, label: 'Reservation of Rights', notes: stage.reservation_of_rights_notes });
+                            }
+                            if (stage.eviction_started_at) {
+                              events.push({ date: stage.eviction_started_at, label: 'Eviction Started', notes: stage.eviction_notes });
+                            }
+                          }
+
+                          // Sort chronologically — earliest first
+                          events.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                          if (events.length === 0) {
+                            return <div className="text-slate-500 text-xs">No history yet</div>;
+                          }
+
+                          // Group by month for display
+                          let lastMonth = null;
+                          return events.map((evt, idx) => {
+                            const evtMonth = evt.archived ? evt.month : new Date(evt.date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                            const showMonthHeader = evtMonth !== lastMonth;
+                            lastMonth = evtMonth;
+                            return (
+                              <div key={idx}>
+                                {showMonthHeader && (
+                                  <div className="text-xs font-semibold text-accent mt-2 mb-1 first:mt-0">
+                                    {evt.archived ? new Date(evt.month + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : evtMonth}
+                                  </div>
+                                )}
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">{evt.label}:</span>
+                                  <span className="text-slate-200">{formatDate(evt.date)}</span>
+                                </div>
+                                {evt.notes && (
+                                  <div className="text-xs text-slate-500 pl-4">{evt.notes}</div>
+                                )}
                               </div>
-                              {notes && (
-                                <div className="text-xs text-slate-500 pl-4">{notes}</div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {itemDetails.stage.balance_letter_entered_at && (
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Balance Letter:</span>
-                            <span className="text-slate-200">{formatDate(itemDetails.stage.balance_letter_entered_at)}</span>
-                          </div>
-                        )}
-                        {itemDetails.stage.notice_entered_at && (
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">
-                              Notice ({itemDetails.stage.notice_type || 'N/A'}):
-                            </span>
-                            <span className="text-slate-200">{formatDate(itemDetails.stage.notice_entered_at)}</span>
-                          </div>
-                        )}
-                        {itemDetails.stage.reservation_of_rights_entered_at && (
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Reservation of Rights:</span>
-                            <span className="text-slate-200">{formatDate(itemDetails.stage.reservation_of_rights_entered_at)}</span>
-                          </div>
-                        )}
-                        {itemDetails.stage.eviction_started_at && (
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Eviction Started:</span>
-                            <span className="text-slate-200">{formatDate(itemDetails.stage.eviction_started_at)}</span>
-                          </div>
-                        )}
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                   )}
@@ -963,6 +1383,17 @@ export default function CollectionsKanban() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Phone Picker Modal */}
+      {phonePicker && (
+        <PhonePickerModal
+          item={phonePicker.item}
+          phones={phonePicker.phones}
+          onCall={(phone, name) => makeCall(phone, name)}
+          onClose={() => setPhonePicker(null)}
+          formatPhoneForJustCall={formatPhoneForJustCall}
+        />
       )}
 
       <JustCallDialer />

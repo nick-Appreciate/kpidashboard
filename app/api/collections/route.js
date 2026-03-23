@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 // Stage definitions
-const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current'];
+const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current', 'file_for_collections'];
 
 // Region definitions for notice type determination
 const REGION_PROPERTIES = {
@@ -28,6 +28,23 @@ export async function GET(request) {
       const propertyName = searchParams.get('property_name');
       const unit = searchParams.get('unit');
       return await getOccupancyDetails(supabase, occupancyId, propertyName, unit);
+    }
+
+    const statusFilter = searchParams.get('status_filter') || null; // 'current' or 'evict'
+
+    // Chart data: 12-month trailing outstanding by same day-of-month
+    if (searchParams.get('chart') === 'true') {
+      return await getChartData(supabase, property, statusFilter);
+    }
+
+    // Daily chart: trailing 12 months day-by-day
+    if (searchParams.get('daily_chart') === 'true') {
+      return await getDailyChartData(supabase, property, statusFilter);
+    }
+
+    // Status counts chart: daily unit counts by status type
+    if (searchParams.get('status_chart') === 'true') {
+      return await getStatusChartData(supabase, property);
     }
     
     // Get the latest snapshot date first
@@ -93,14 +110,19 @@ export async function GET(request) {
     // Get tenant directory for phone numbers and contact info (primary source)
     const { data: tenantDirectory } = await supabase
       .from('af_tenant_directory')
-      .select('property_name, unit, occupancy_id, phone_numbers, email, tenant_id');
-    
+      .select('property_name, unit, occupancy_id, phone_numbers, email, tenant_id, tenant_name');
+
     const tenantLookup = {};
+    const tenantsByUnit = {}; // All tenant rows per unit for phone picker
     (tenantDirectory || []).forEach(t => {
       const key = `${t.property_name}|${t.unit}`;
       if (!tenantLookup[key]) {
         tenantLookup[key] = t;
       }
+      if (!tenantsByUnit[key]) {
+        tenantsByUnit[key] = [];
+      }
+      tenantsByUnit[key].push(t);
     });
     
     // Fallback: Get delinquency records for any missing contact info
@@ -133,28 +155,25 @@ export async function GET(request) {
       .select('property, unit, status, tenant_name, total_rent, past_due')
       .eq('snapshot_date', rentRollDate)
       .eq('status', 'Evict');
-    
-    // Get current tenants (past_due <= 0) from rent_roll_snapshots
-    // Exclude Evict and any Vacant status (Vacant-Unrented, Vacant-Rented, etc.)
-    // Include Notice tenants - they should still appear in collections
-    const { data: currentTenants } = await supabase
+
+    // Get moved-out tenants with outstanding balances (Notice-Unrented, etc.)
+    // These are tenants who vacated but still owe money — "File for Collections" candidates
+    const { data: movedOutData } = await supabase
       .from('rent_roll_snapshots')
       .select('property, unit, status, tenant_name, total_rent, past_due')
       .eq('snapshot_date', rentRollDate)
-      .lte('past_due', 0)
+      .gt('past_due', 0)
       .neq('status', 'Evict')
+      .neq('status', 'Current')
       .not('status', 'ilike', 'Vacant%');
+
+    // Note: We no longer load all current tenants. The "Paid" column only shows
+    // tenants who were previously delinquent and have paid down (balance <= 0 with a collection_stages record).
     
     // Create eviction lookup by property+unit
     const evictionMap = {};
     (evictionData || []).forEach(e => {
       evictionMap[`${e.property}|${e.unit}`] = e;
-    });
-    
-    // Create current tenants lookup by property+unit
-    const currentMap = {};
-    (currentTenants || []).forEach(c => {
-      currentMap[`${c.property}|${c.unit}`] = c;
     });
     
     // Create a set of property+unit keys from delinquency data
@@ -163,6 +182,55 @@ export async function GET(request) {
       delinquencyKeys.add(`${item.property_name}|${item.unit}`);
     });
     
+    // Helper: parse phone numbers from comma-separated string into array of individual numbers
+    const parsePhoneNumbers = (phoneStr) => {
+      if (!phoneStr) return [];
+      // Split on comma, then extract the actual phone number from each part
+      return phoneStr.split(',')
+        .map(p => p.trim())
+        .filter(Boolean)
+        .map(p => {
+          // Extract number from formats like "Phone: (913) 449-2112" or "Mobile: (407) 874-4005"
+          const match = p.match(/[\d().\-\s+]+/);
+          return match ? match[0].trim() : p;
+        })
+        .filter(p => p.length >= 7); // Filter out non-phone strings
+    };
+
+    // Helper: build tenant_phones array for a unit
+    const buildTenantPhones = (unitKey, itemName) => {
+      const tenants = tenantsByUnit[unitKey] || [];
+      const phones = [];
+      const seen = new Set();
+      tenants.forEach(t => {
+        const numbers = parsePhoneNumbers(t.phone_numbers);
+        const name = t.tenant_name || itemName || 'Unknown';
+        numbers.forEach(num => {
+          const cleaned = num.replace(/[^\d]/g, '');
+          if (!seen.has(cleaned) && cleaned.length >= 7) {
+            seen.add(cleaned);
+            phones.push({ name, phone: num });
+          }
+        });
+      });
+      // If no tenant directory data, fall back to delinquency phone_numbers
+      if (phones.length === 0) {
+        const delinquencyInfo = delinquencyLookup[unitKey];
+        const fallbackPhones = delinquencyInfo?.phone_numbers;
+        if (fallbackPhones) {
+          const numbers = parsePhoneNumbers(fallbackPhones);
+          numbers.forEach(num => {
+            const cleaned = num.replace(/[^\d]/g, '');
+            if (!seen.has(cleaned) && cleaned.length >= 7) {
+              seen.add(cleaned);
+              phones.push({ name: itemName || 'Unknown', phone: num });
+            }
+          });
+        }
+      }
+      return phones;
+    };
+
     // Stage computation helpers (read-only — writes happen via POST /api/admin/collections/auto-stage)
     const now = new Date();
     const todayDate = now.getDate();
@@ -201,11 +269,19 @@ export async function GET(request) {
         stage = 'current';
       } else if (stage === 'eviction' && !afEviction) {
         stage = 'needs_contacted';
+      } else if (stage === 'reservation_of_rights' && monthlyRent > 0 && balance > 0 && balance < monthlyRent) {
+        // Tenant paid enough to drop below 1x rent — move to Paid
+        stage = 'current';
       } else if (stage === 'notice' && stageData?.notice_entered_at) {
-        const daysInNotice = daysBetween(stageData.notice_entered_at);
-        const requiredDays = stageData.notice_type === '3-day' ? 3 : 10;
-        if (daysInNotice >= requiredDays) {
-          stage = 'reservation_of_rights';
+        if (monthlyRent > 0 && balance > 0 && balance < monthlyRent) {
+          // Balance dropped below rent while in notice — move to Paid
+          stage = 'current';
+        } else {
+          const daysInNotice = daysBetween(stageData.notice_entered_at);
+          const requiredDays = stageData.notice_type === '3-day' ? 3 : 10;
+          if (daysInNotice >= requiredDays) {
+            stage = 'reservation_of_rights';
+          }
         }
       } else if (stage === 'needs_contacted' && monthlyRent > 0 && balance > 0) {
         if (balance > monthlyRent) {
@@ -230,7 +306,8 @@ export async function GET(request) {
         stage_data: enrichedStageData,
         tenant_id: tenantId,
         af_eviction: afEviction,
-        balance_over_rent: monthlyRent > 0 ? (balance / monthlyRent).toFixed(1) : 0
+        balance_over_rent: monthlyRent > 0 ? (balance / monthlyRent).toFixed(1) : 0,
+        tenant_phones: buildTenantPhones(unitKey, item.name)
       };
     });
     
@@ -270,59 +347,65 @@ export async function GET(request) {
         });
       }
     });
-    
-    // Add current tenants from rent_roll_snapshots that aren't in delinquency data
-    // These are tenants with past_due <= 0 who never appeared in delinquency report
-    (currentTenants || []).forEach(current => {
-      const key = `${current.property}|${current.unit}`;
+
+    // Add moved-out tenants with outstanding balances as "File for Collections"
+    (movedOutData || []).forEach(movedOut => {
+      const key = `${movedOut.property}|${movedOut.unit}`;
       if (!delinquencyKeys.has(key)) {
-        // Primary: tenant directory for contact info
         const tenantInfo = tenantLookup[key];
-        // Fallback: delinquency lookup
         const delinquencyInfo = delinquencyLookup[key];
-        // Also try lease history for occupancy_id and tenant_id
         const leaseInfo = leaseByUnit[key];
         const occupancyId = tenantInfo?.occupancy_id || delinquencyInfo?.occupancy_id || leaseInfo?.occupancy_id || null;
         const tenantId = tenantInfo?.tenant_id || leaseInfo?.tenant_id || (occupancyId ? tenantIdMap[occupancyId] : null);
         const phoneNumbers = tenantInfo?.phone_numbers || delinquencyInfo?.phone_numbers || null;
-        
-        // This current tenant is not in delinquency - add it
+
         items.push({
-          property_name: current.property,
-          unit: current.unit,
-          name: current.tenant_name,
-          amount_receivable: parseFloat(current.past_due || 0),
-          rent: parseFloat(current.total_rent || 0),
-          stage: 'current',
+          property_name: movedOut.property,
+          unit: movedOut.unit,
+          name: movedOut.tenant_name,
+          amount_receivable: parseFloat(movedOut.past_due || 0),
+          rent: parseFloat(movedOut.total_rent || 0),
+          stage: 'file_for_collections',
           stage_data: null,
           tenant_id: tenantId,
           af_eviction: false,
           balance_over_rent: 0,
           occupancy_id: occupancyId,
           phone_numbers: phoneNumbers,
+          tenant_phones: buildTenantPhones(key, movedOut.tenant_name),
           days_0_to_30: 0,
           days_30_to_60: 0,
           days_60_to_90: 0,
-          days_90_plus: 0
+          days_90_plus: parseFloat(movedOut.past_due || 0) // Assume all is 90+ for moved-out
         });
       }
     });
-    
+
+    // Only keep "current" (Paid) items that have a collection_stages record
+    // (i.e., they were previously delinquent). Remove items with balance <= 0
+    // that have no collection_stages record.
+    const finalItems = items.filter(item => {
+      if (item.stage === 'current') {
+        return !!stagesMap[item.occupancy_id];
+      }
+      return true;
+    });
+
     // Calculate summary stats
     const summary = {
-      totalAccounts: items.length,
-      totalReceivable: items.reduce((sum, item) => sum + parseFloat(item.amount_receivable || 0), 0),
+      totalAccounts: finalItems.length,
+      totalReceivable: finalItems.reduce((sum, item) => sum + parseFloat(item.amount_receivable || 0), 0),
       byStage: STAGES.reduce((acc, s) => {
-        acc[s] = items.filter(i => i.stage === s).length;
+        acc[s] = finalItems.filter(i => i.stage === s).length;
         return acc;
       }, {})
     };
-    
+
     // Get unique properties for filter
     const properties = [...new Set((data || []).map(item => item.property_name))].filter(Boolean).sort();
-    
+
     return NextResponse.json({
-      items,
+      items: finalItems,
       summary,
       properties,
       stages: STAGES
@@ -435,14 +518,229 @@ async function getOccupancyDetails(supabase, occupancyId, propertyName, unit) {
       transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
     
+    // Get archived collection note history
+    const { data: noteHistory } = await supabase
+      .from('collection_note_history')
+      .select('*')
+      .eq('occupancy_id', occupancyId)
+      .order('archived_at', { ascending: true });
+
     return NextResponse.json({
       delinquency: delinquency?.[0] || null,
       stage: stageData || null,
       glBreakdown,
-      transactions
+      transactions,
+      noteHistory: noteHistory || []
     });
   } catch (error) {
     console.error('Error fetching occupancy details:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// Get 12-month trailing chart data
+async function getChartData(supabase, property, statusFilter = null) {
+  try {
+    const now = new Date();
+    const todayDay = now.getDate();
+
+    // Get ALL available daily summaries via database function (avoids row limits)
+    const earliestDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+    const startDate = earliestDate.toISOString().split('T')[0];
+
+    const propFilter = (property && property !== 'all') ? property : null;
+    const { data: allSummaries, error } = await supabase.rpc('get_rent_roll_daily_summary_030', {
+      start_date: startDate,
+      property_filter: propFilter,
+      status_filter: statusFilter
+    });
+
+    if (error) {
+      console.error('Chart RPC error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const summaryMap = {};
+    (allSummaries || []).forEach(s => {
+      summaryMap[s.snapshot_date] = s;
+    });
+    const allDates = Object.keys(summaryMap).sort();
+
+    // For each of the last 12 months, find the closest snapshot to the same day-of-month
+    const results = [];
+    for (let i = 0; i < 12; i++) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, todayDay);
+      const targetStr = targetDate.toISOString().split('T')[0];
+
+      let bestDate = null;
+      let bestDiff = Infinity;
+      for (const d of allDates) {
+        const diff = Math.abs(new Date(d) - targetDate);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestDate = d;
+        }
+      }
+
+      // Only use if within 10 days of target (wider window for sparse months)
+      if (bestDate && bestDiff <= 10 * 24 * 60 * 60 * 1000) {
+        const s = summaryMap[bestDate];
+        const totalOutstanding = parseFloat(s.total_outstanding || 0);
+        const monthlyOutstanding = parseFloat(s.monthly_outstanding || 0);
+        const totalRent = parseFloat(s.total_rent || 0);
+        const pctOfCharges = totalRent > 0 ? (totalOutstanding / totalRent) * 100 : 0;
+        const monthlyPct = totalRent > 0 ? (monthlyOutstanding / totalRent) * 100 : 0;
+
+        results.push({
+          date: bestDate,
+          label: new Date(bestDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          totalOutstanding: Math.round(totalOutstanding),
+          monthlyOutstanding: Math.round(monthlyOutstanding),
+          totalCharges: Math.round(totalRent),
+          pctOfCharges: Math.round(pctOfCharges * 10) / 10,
+          monthlyPct: Math.round(monthlyPct * 10) / 10,
+          accountCount: parseInt(s.account_count || 0)
+        });
+      }
+    }
+
+    // Reverse so oldest is first (left side of chart)
+    results.reverse();
+
+    return NextResponse.json({ chartData: results }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' }
+    });
+  } catch (error) {
+    console.error('Error fetching chart data:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// Get trailing 3 months daily chart data
+async function getDailyChartData(supabase, property, statusFilter = null) {
+  try {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const months = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      months.push({ offset: i, monthStr, label });
+    }
+
+    const twelveMonthsAgo = new Date(currentYear, currentMonth - 11, 1);
+    const startDate = twelveMonthsAgo.toISOString().split('T')[0];
+
+    // Use 0-30 function which returns both total and monthly outstanding
+    const propFilter = (property && property !== 'all') ? property : null;
+    const { data, error } = await supabase.rpc('get_rent_roll_daily_summary_030', {
+      start_date: startDate,
+      property_filter: propFilter,
+      status_filter: statusFilter
+    });
+
+    if (error) {
+      console.error('Daily chart RPC error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Build series per month, keyed by day-of-month
+    // Include both total outstanding and monthly-only (0-30) outstanding
+    const series = months.map(m => {
+      const points = [];
+      (data || []).forEach(row => {
+        if (row.snapshot_date.startsWith(m.monthStr)) {
+          const day = parseInt(row.snapshot_date.split('-')[2]);
+          const outstanding = parseFloat(row.total_outstanding || 0);
+          const monthlyOutstanding = parseFloat(row.monthly_outstanding || 0);
+          const totalRent = parseFloat(row.total_rent || 0);
+          const pct = totalRent > 0 ? (outstanding / totalRent) * 100 : 0;
+          const monthlyPct = totalRent > 0 ? (monthlyOutstanding / totalRent) * 100 : 0;
+          points.push({
+            day,
+            outstanding: Math.round(outstanding),
+            monthlyOutstanding: Math.round(monthlyOutstanding),
+            pctOfCharges: Math.round(pct * 10) / 10,
+            monthlyPct: Math.round(monthlyPct * 10) / 10
+          });
+        }
+      });
+      points.sort((a, b) => a.day - b.day);
+      return { ...m, points };
+    });
+
+    return NextResponse.json({
+      dailyChart: series,
+      todayDay: now.getDate()
+    }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' }
+    });
+  } catch (error) {
+    console.error('Error fetching daily chart data:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// Get daily status counts (unit counts by status type, trailing 12 months)
+async function getStatusChartData(supabase, property) {
+  try {
+    const now = new Date();
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    const startDate = twelveMonthsAgo.toISOString().split('T')[0];
+
+    const propFilter = (property && property !== 'all') ? property : null;
+    const { data, error } = await supabase.rpc('get_rent_roll_status_counts', {
+      start_date: startDate,
+      property_filter: propFilter
+    });
+
+    if (error) {
+      console.error('Status chart RPC error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Build month metadata
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const months = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      months.push({ offset: i, monthStr, label });
+    }
+
+    // Collect all statuses
+    const allStatuses = [...new Set((data || []).map(r => r.status))].sort();
+
+    // Build series per month with daily points, each point has count per status
+    const series = months.map(m => {
+      const dayMap = {};
+      (data || []).forEach(row => {
+        if (row.snapshot_date.startsWith(m.monthStr)) {
+          const day = parseInt(row.snapshot_date.split('-')[2]);
+          if (!dayMap[day]) dayMap[day] = {};
+          dayMap[day][row.status] = parseInt(row.unit_count);
+        }
+      });
+      const points = Object.entries(dayMap)
+        .map(([day, counts]) => ({ day: parseInt(day), ...counts }))
+        .sort((a, b) => a.day - b.day);
+      return { ...m, points };
+    });
+
+    return NextResponse.json({
+      statusChart: series.filter(m => m.points.length > 0),
+      statuses: allStatuses,
+      todayDay: now.getDate()
+    }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' }
+    });
+  } catch (error) {
+    console.error('Error fetching status chart data:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -112,11 +112,19 @@ export async function POST(request: Request) {
         if (currentStage !== 'current') newStage = 'current';
       } else if (currentStage === 'eviction' && !afEviction) {
         newStage = 'needs_contacted';
+      } else if (currentStage === 'reservation_of_rights' && monthlyRent > 0 && balance > 0 && balance < monthlyRent) {
+        // Tenant paid enough to drop below 1x rent — move to Paid
+        newStage = 'current';
       } else if (currentStage === 'notice' && stageData?.notice_entered_at) {
-        const daysInNotice = daysBetween(stageData.notice_entered_at);
-        const requiredDays = stageData.notice_type === '3-day' ? 3 : 10;
-        if (daysInNotice >= requiredDays) {
-          newStage = 'reservation_of_rights';
+        if (monthlyRent > 0 && balance > 0 && balance < monthlyRent) {
+          // Balance dropped below rent while in notice — move to Paid
+          newStage = 'current';
+        } else {
+          const daysInNotice = daysBetween(stageData.notice_entered_at);
+          const requiredDays = stageData.notice_type === '3-day' ? 3 : 10;
+          if (daysInNotice >= requiredDays) {
+            newStage = 'reservation_of_rights';
+          }
         }
       } else if (currentStage === 'needs_contacted' && monthlyRent > 0 && balance > 0) {
         if (balance > monthlyRent) {
@@ -144,6 +152,8 @@ export async function POST(request: Request) {
           update.balance_letter_entered_at = now.toISOString();
         } else if (newStage === 'reservation_of_rights') {
           update.reservation_of_rights_entered_at = now.toISOString();
+        } else if (newStage === 'current') {
+          update.current_at = now.toISOString();
         }
 
         autoMoveUpdates.push(update);
