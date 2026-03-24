@@ -23,21 +23,16 @@ interface Deposit {
 
 interface ReconcileRow {
   status: 'matched' | 'simmons_only' | 'af_only';
-  // Simmons side
   check_image_id: string | null; deposit_id: string | null;
   deposit_date: string | null; check_type: string | null;
   simmons_payer: string | null; simmons_amount: string | null;
   money_order_number: string | null; check_number: string | null;
   account_suffix: string | null; ref_norm: string | null;
   front_image_path: string | null; back_image_path: string | null;
-  // AppFolio side
   af_id: string | null; af_date: string | null; af_payer: string | null;
   af_amount: string | null; ref_raw: string | null;
   amounts_match: boolean | null;
-}
-
-interface ReconcileSummary {
-  matched: number; simmons_only: number; af_only: number; amount_diffs: number;
+  duplicate_ref: boolean | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -48,11 +43,7 @@ const CHECK_TYPE_LABELS: Record<string, string> = {
   business_check: 'Business', usps_money_order: 'USPS MO', corporate_check: 'Corp',
 };
 
-const STATUS_META = {
-  matched:      { dot: 'bg-emerald-400', label: 'Matched',    text: 'text-emerald-400' },
-  simmons_only: { dot: 'bg-amber-400',   label: 'Bank only',  text: 'text-amber-400'   },
-  af_only:      { dot: 'bg-red-400',     label: 'AF only',    text: 'text-red-400'     },
-};
+type ReconcileView = 'bank_only' | 'af_only' | 'matched' | 'duplicates';
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -60,7 +51,8 @@ export default function SimmonsDepositsDashboard() {
   const { appUser, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  const [tab, setTab] = useState<'deposits' | 'reconcile'>('reconcile');
+  const [tab, setTab] = useState<'reconcile' | 'deposits'>('reconcile');
+  const [reconcileView, setReconcileView] = useState<ReconcileView>('bank_only');
 
   // Deposits tab state
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -70,25 +62,21 @@ export default function SimmonsDepositsDashboard() {
   const [dInput, setDInput] = useState('');
   const [dLoading, setDLoading] = useState(false);
 
-  // Reconcile tab state
-  const [reconcileRows, setReconcileRows] = useState<ReconcileRow[]>([]);
-  const [reconcileSummary, setReconcileSummary] = useState<ReconcileSummary | null>(null);
+  // Reconcile data
+  const [allRows, setAllRows] = useState<ReconcileRow[]>([]);
   const [rLoading, setRLoading] = useState(false);
   const [rSearch, setRSearch] = useState('');
   const [rInput, setRInput] = useState('');
-  const [rFilter, setRFilter] = useState<'all' | 'matched' | 'simmons_only' | 'af_only'>('all');
-  const [rDateFrom, setRDateFrom] = useState('2025-10-01');
-  const [rDateTo, setRDateTo] = useState('');
 
-  // Shared expand/images/lightbox state
+  // Shared state
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandMode, setExpandMode] = useState<'check' | 'deposit'>('check');
   const [images, setImages] = useState<Record<string, CheckImage[]>>({});
   const [loadingImages, setLoadingImages] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Escape closes lightbox
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxUrl(null); };
     window.addEventListener('keydown', h);
@@ -99,7 +87,7 @@ export default function SimmonsDepositsDashboard() {
     if (!authLoading && appUser?.role !== 'admin') router.push('/');
   }, [authLoading, appUser, router]);
 
-  // ── Deposits fetch ──────────────────────────────────────────────────────────
+  // ── Fetch deposits ────────────────────────────────────────────────────────
   const fetchDeposits = useCallback(async () => {
     setDLoading(true);
     try {
@@ -112,36 +100,65 @@ export default function SimmonsDepositsDashboard() {
 
   useEffect(() => { if (tab === 'deposits') fetchDeposits(); }, [tab, fetchDeposits]);
 
-  // ── Reconcile fetch ─────────────────────────────────────────────────────────
+  // ── Fetch reconcile data (once) ───────────────────────────────────────────
   const fetchReconcile = useCallback(async () => {
     setRLoading(true);
     try {
-      const params = new URLSearchParams({ mode: 'reconcile' });
-      if (rDateFrom) params.set('date_from', rDateFrom);
-      if (rDateTo)   params.set('date_to', rDateTo);
-      const res = await fetch(`/api/admin/simmons?${params}`);
+      const res = await fetch('/api/admin/simmons?mode=reconcile');
       const data = await res.json();
-      setReconcileRows(data.rows || []);
-      setReconcileSummary(data.summary || null);
+      setAllRows(data.rows || []);
     } finally { setRLoading(false); }
-  }, [rDateFrom, rDateTo]);
+  }, []);
 
   useEffect(() => { if (tab === 'reconcile') fetchReconcile(); }, [tab, fetchReconcile]);
 
-  // ── Search debounce ─────────────────────────────────────────────────────────
+  // ── Search ────────────────────────────────────────────────────────────────
   const handleDSearch = (val: string) => {
     setDInput(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => { setDSearch(val); setDPage(1); }, 400);
   };
-
   const handleRSearch = (val: string) => {
     setRInput(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setRSearch(val), 300);
   };
 
-  // ── Toggle expand ───────────────────────────────────────────────────────────
+  // ── Expand: single check image ─────────────────────────────────────────────
+  const expandCheck = async (checkImageId: string) => {
+    if (expandedId === `check:${checkImageId}`) { setExpandedId(null); return; }
+    const key = `check:${checkImageId}`;
+    setExpandedId(key);
+    setExpandMode('check');
+    if (images[key]) return;
+    setLoadingImages(key);
+    try {
+      const res = await fetch(`/api/admin/simmons?check_image_id=${checkImageId}`);
+      if (!res.ok) { setImages(prev => ({ ...prev, [key]: [] })); return; }
+      const data = await res.json();
+      setImages(prev => ({ ...prev, [key]: data.images || [] }));
+    } catch { setImages(prev => ({ ...prev, [key]: [] })); }
+    finally { setLoadingImages(null); }
+  };
+
+  // ── Expand: full deposit ──────────────────────────────────────────────────
+  const expandDeposit = async (depositId: string) => {
+    const key = `deposit:${depositId}`;
+    if (expandedId === key) { setExpandedId(null); return; }
+    setExpandedId(key);
+    setExpandMode('deposit');
+    if (images[key]) return;
+    setLoadingImages(key);
+    try {
+      const res = await fetch(`/api/admin/simmons?deposit_id=${depositId}`);
+      if (!res.ok) { setImages(prev => ({ ...prev, [key]: [] })); return; }
+      const data = await res.json();
+      setImages(prev => ({ ...prev, [key]: data.images || [] }));
+    } catch { setImages(prev => ({ ...prev, [key]: [] })); }
+    finally { setLoadingImages(null); }
+  };
+
+  // ── Legacy expand for deposits tab ────────────────────────────────────────
   const toggleExpand = async (depositId: string) => {
     if (expandedId === depositId) { setExpandedId(null); return; }
     setExpandedId(depositId);
@@ -149,51 +166,53 @@ export default function SimmonsDepositsDashboard() {
     setLoadingImages(depositId);
     try {
       const res = await fetch(`/api/admin/simmons?deposit_id=${depositId}`);
+      if (!res.ok) { setImages(prev => ({ ...prev, [depositId]: [] })); return; }
       const data = await res.json();
       setImages(prev => ({ ...prev, [depositId]: data.images || [] }));
-    } finally { setLoadingImages(null); }
+    } catch { setImages(prev => ({ ...prev, [depositId]: [] })); }
+    finally { setLoadingImages(null); }
   };
 
-  // ── Filtered reconcile rows ─────────────────────────────────────────────────
-  const filteredRows = reconcileRows.filter(r => {
-    if (rFilter !== 'all' && r.status !== rFilter) return false;
-    if (rDateFrom) {
-      const d = r.deposit_date || r.af_date || '';
-      if (d && d < rDateFrom) return false;
-    }
-    if (rDateTo) {
-      const d = r.deposit_date || r.af_date || '';
-      if (d && d > rDateTo) return false;
-    }
-    if (rSearch) {
-      const q = rSearch.toLowerCase();
-      return (
-        (r.simmons_payer || '').toLowerCase().includes(q) ||
-        (r.af_payer     || '').toLowerCase().includes(q) ||
-        (r.ref_raw      || '').toLowerCase().includes(q) ||
-        (r.money_order_number || '').toLowerCase().includes(q) ||
-        (r.check_number || '').toLowerCase().includes(q) ||
-        (r.simmons_amount || '').includes(q) ||
-        (r.af_amount    || '').includes(q)
-      );
-    }
-    return true;
-  });
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const bankOnly = allRows.filter(r => r.status === 'simmons_only');
+  const afOnly = allRows.filter(r => r.status === 'af_only');
+  const matched = allRows.filter(r => r.status === 'matched');
+  const duplicates = allRows.filter(r => r.duplicate_ref);
+
+  const searchFilter = (r: ReconcileRow) => {
+    if (!rSearch) return true;
+    const q = rSearch.toLowerCase();
+    return (
+      (r.simmons_payer || '').toLowerCase().includes(q) ||
+      (r.af_payer || '').toLowerCase().includes(q) ||
+      (r.ref_raw || '').toLowerCase().includes(q) ||
+      (r.money_order_number || '').toLowerCase().includes(q) ||
+      (r.check_number || '').toLowerCase().includes(q) ||
+      String(r.simmons_amount || '').includes(q) ||
+      String(r.af_amount || '').includes(q)
+    );
+  };
+
+  const visibleRows = (
+    reconcileView === 'bank_only' ? bankOnly :
+    reconcileView === 'af_only' ? afOnly :
+    reconcileView === 'matched' ? matched :
+    duplicates
+  ).filter(searchFilter);
 
   if (authLoading) return null;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 max-w-6xl mx-auto">
 
-      {/* Header + tabs */}
-      <div className="flex items-center justify-between mb-3">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-base font-semibold text-white">Simmons Deposits</h1>
+          <h1 className="text-base font-semibold text-white">Simmons Check Reconciliation</h1>
           <div className="flex gap-0.5 mt-1.5">
             {(['reconcile', 'deposits'] as const).map(t => (
-              <button
-                key={t}
+              <button key={t}
                 onClick={() => { setTab(t); setExpandedId(null); }}
                 className={`px-3 py-1 text-xs rounded transition-colors ${
                   tab === t ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -204,153 +223,74 @@ export default function SimmonsDepositsDashboard() {
             ))}
           </div>
         </div>
-
-        {tab === 'deposits' ? (
-          <input
-            type="text" placeholder="Search payer, amount, date, MO#…"
-            value={dInput} onChange={e => handleDSearch(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-sm text-white placeholder:text-slate-500 w-64 focus:outline-none focus:border-white/20"
-          />
-        ) : (
-          <input
-            type="text" placeholder="Search payer, ref#, amount…"
-            value={rInput} onChange={e => handleRSearch(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-sm text-white placeholder:text-slate-500 w-64 focus:outline-none focus:border-white/20"
-          />
-        )}
+        <input
+          type="text"
+          placeholder="Search payer, ref#, amount..."
+          value={tab === 'deposits' ? dInput : rInput}
+          onChange={e => tab === 'deposits' ? handleDSearch(e.target.value) : handleRSearch(e.target.value)}
+          className="bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-sm text-white placeholder:text-slate-500 w-56 focus:outline-none focus:border-white/20"
+        />
       </div>
 
-      {/* ── Reconcile tab ─────────────────────────────────────────────────── */}
+      {/* ── Reconcile ──────────────────────────────────────────────────────── */}
       {tab === 'reconcile' && (
         <>
-          {/* Summary + filters */}
-          <div className="flex items-center gap-4 mb-3 flex-wrap">
-            {reconcileSummary && (
-              <div className="flex gap-3">
-                {[
-                  { key: 'matched',      label: `${reconcileSummary.matched} matched`,    color: 'text-emerald-400' },
-                  { key: 'simmons_only', label: `${reconcileSummary.simmons_only} bank only`, color: 'text-amber-400' },
-                  { key: 'af_only',      label: `${reconcileSummary.af_only} AF only`,    color: 'text-red-400'    },
-                ].map(({ key, label, color }) => (
+          {/* View selector tabs */}
+          {!rLoading && (
+            <div className="flex gap-2 mb-4">
+              {([
+                { key: 'bank_only' as const, label: 'Bank Only', count: bankOnly.length, color: 'amber' },
+                { key: 'af_only' as const, label: 'AF Only', count: afOnly.length, color: 'red' },
+                { key: 'matched' as const, label: 'Matched', count: matched.length, color: 'emerald' },
+                ...(duplicates.length > 0 ? [{ key: 'duplicates' as const, label: 'Dup Refs', count: duplicates.length, color: 'orange' }] : []),
+              ] as { key: ReconcileView; label: string; count: number; color: string }[]).map(v => {
+                const isActive = reconcileView === v.key;
+                const colorMap: Record<string, { activeBg: string; activeBorder: string; activeText: string }> = {
+                  amber:   { activeBg: 'bg-amber-500/10',   activeBorder: 'border-amber-500',   activeText: 'text-amber-400'   },
+                  red:     { activeBg: 'bg-red-500/10',     activeBorder: 'border-red-500',     activeText: 'text-red-400'     },
+                  emerald: { activeBg: 'bg-emerald-500/10', activeBorder: 'border-emerald-500', activeText: 'text-emerald-400' },
+                  orange:  { activeBg: 'bg-orange-500/10',  activeBorder: 'border-orange-500',  activeText: 'text-orange-400'  },
+                };
+                const cm = colorMap[v.color] || colorMap.amber;
+                return (
                   <button
-                    key={key}
-                    onClick={() => setRFilter(rFilter === key as any ? 'all' : key as any)}
-                    className={`text-xs font-medium transition-opacity ${color} ${rFilter !== 'all' && rFilter !== key ? 'opacity-30' : ''}`}
+                    key={v.key}
+                    onClick={() => { setReconcileView(v.key); setExpandedId(null); window.scrollTo({ top: 0 }); }}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                      isActive
+                        ? `${cm.activeBg} ${cm.activeBorder} ${cm.activeText}`
+                        : 'border-white/10 text-slate-500 hover:text-slate-300 hover:border-white/20'
+                    }`}
                   >
-                    {label}
+                    {v.label}
+                    <span className={`ml-2 text-xs ${isActive ? 'opacity-100' : 'opacity-50'}`}>{v.count}</span>
                   </button>
-                ))}
-                {reconcileSummary.amount_diffs > 0 && (
-                  <span className="text-xs text-orange-400">{reconcileSummary.amount_diffs} amt diff</span>
-                )}
-              </div>
-            )}
-            <div className="flex items-center gap-2 ml-auto">
-              <label className="text-xs text-slate-500">From</label>
-              <input type="date" value={rDateFrom} onChange={e => setRDateFrom(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none" />
-              <label className="text-xs text-slate-500">To</label>
-              <input type="date" value={rDateTo} onChange={e => setRDateTo(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none" />
+                );
+              })}
             </div>
-          </div>
+          )}
 
-          {/* Reconcile table */}
-          <div className="rounded-lg border border-white/10 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10">
-                <tr className="border-b border-white/10 bg-[#0f1117]">
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-400 w-6"></th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-400 w-24">Date</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-400">Payer</th>
-                  <th className="text-right px-3 py-2 text-xs font-medium text-slate-400 w-24">Bank $</th>
-                  <th className="text-right px-3 py-2 text-xs font-medium text-slate-400 w-24">AF $</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-400 w-36">Ref #</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-400 w-20">Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rLoading && (
-                  <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500 text-xs">Loading…</td></tr>
-                )}
-                {!rLoading && filteredRows.length === 0 && (
-                  <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500 text-xs">No entries found</td></tr>
-                )}
-                {!rLoading && filteredRows.map((row, i) => {
-                  const meta = STATUS_META[row.status];
-                  const expandKey = row.deposit_id || row.af_id || String(i);
-                  const isExpanded = expandedId === expandKey;
-                  const canExpand = !!row.deposit_id;
-                  const date = row.deposit_date || row.af_date || '—';
-                  const refDisplay = row.ref_raw || row.money_order_number || row.check_number || '—';
-                  const sAmt = row.simmons_amount ? `$${Math.abs(parseFloat(row.simmons_amount)).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—';
-                  const aAmt = row.af_amount ? `$${parseFloat(row.af_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—';
-                  const payer = row.simmons_payer || row.af_payer || '—';
-                  const amtMismatch = row.status === 'matched' && row.amounts_match === false;
-
-                  return (
-                    <Fragment key={expandKey}>
-                      <tr
-                        onClick={() => canExpand && toggleExpand(expandKey)}
-                        className={`border-b border-white/5 transition-colors ${canExpand ? 'cursor-pointer hover:bg-white/5' : ''} ${isExpanded ? 'bg-white/5' : ''}`}
-                      >
-                        {/* Status dot */}
-                        <td className="px-3 py-1.5">
-                          <span className={`inline-block w-2 h-2 rounded-full ${meta.dot}`} title={meta.label} />
-                        </td>
-                        <td className="px-3 py-1.5 text-slate-300 font-mono text-xs">{date}</td>
-                        <td className="px-3 py-1.5 text-xs">
-                          <span className="text-slate-200">{payer}</span>
-                          {row.status === 'matched' && row.af_payer && row.simmons_payer &&
-                            row.af_payer.toLowerCase() !== row.simmons_payer.toLowerCase() && (
-                            <span className="text-slate-600 text-[10px] ml-1">/ {row.af_payer}</span>
-                          )}
-                        </td>
-                        <td className={`px-3 py-1.5 text-right font-mono text-xs ${amtMismatch ? 'text-orange-400' : 'text-white'}`}>
-                          {sAmt}
-                        </td>
-                        <td className={`px-3 py-1.5 text-right font-mono text-xs ${amtMismatch ? 'text-orange-400' : 'text-slate-400'}`}>
-                          {aAmt}
-                        </td>
-                        <td className="px-3 py-1.5 text-xs font-mono text-slate-500 truncate max-w-[144px]" title={refDisplay}>
-                          {refDisplay}
-                        </td>
-                        <td className="px-3 py-1.5">
-                          {row.check_type && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
-                              {CHECK_TYPE_LABELS[row.check_type] || row.check_type}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-
-                      {/* Expanded check images */}
-                      {isExpanded && canExpand && (
-                        <tr className="border-b border-white/10">
-                          <td colSpan={7} className="px-4 py-3 bg-white/[0.02]">
-                            <CheckImagePanel
-                              depositId={row.deposit_id!}
-                              images={images}
-                              loadingImages={loadingImages}
-                              setLightboxUrl={setLightboxUrl}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-slate-600 mt-2">{filteredRows.length} rows · AppFolio data from {rDateFrom || 'all time'}</p>
+          {/* Table */}
+          {rLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+            </div>
+          ) : (
+            <>
+              {reconcileView === 'bank_only' && <BankOnlyTable rows={visibleRows} expandedId={expandedId} expandCheck={expandCheck} expandDeposit={expandDeposit} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />}
+              {reconcileView === 'af_only' && <AFOnlyTable rows={visibleRows} />}
+              {reconcileView === 'matched' && <MatchedTable rows={visibleRows} expandedId={expandedId} expandCheck={expandCheck} expandDeposit={expandDeposit} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />}
+              {reconcileView === 'duplicates' && <BankOnlyTable rows={visibleRows} expandedId={expandedId} expandCheck={expandCheck} expandDeposit={expandDeposit} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />}
+              <p className="text-xs text-slate-600 mt-2">{visibleRows.length} rows</p>
+            </>
+          )}
         </>
       )}
 
       {/* ── Deposits tab ──────────────────────────────────────────────────── */}
       {tab === 'deposits' && (
         <>
-          <p className="text-xs text-slate-400 mb-3">{total} deposits · check images with Claude extraction</p>
+          <p className="text-xs text-slate-400 mb-3">{total} deposits</p>
           <div className="rounded-lg border border-white/10 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
@@ -364,48 +304,35 @@ export default function SimmonsDepositsDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {dLoading && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500 text-xs">Loading…</td></tr>}
+                {dLoading && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500 text-xs">Loading...</td></tr>}
                 {!dLoading && deposits.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500 text-xs">No deposits found</td></tr>}
                 {!dLoading && deposits.map(dep => (
                   <Fragment key={dep.id}>
-                    <tr
-                      onClick={() => toggleExpand(dep.id)}
-                      className={`border-b border-white/5 cursor-pointer transition-colors hover:bg-white/5 ${expandedId === dep.id ? 'bg-white/5' : ''}`}
-                    >
+                    <tr onClick={() => toggleExpand(dep.id)}
+                      className={`border-b border-white/5 cursor-pointer transition-colors hover:bg-white/5 ${expandedId === dep.id ? 'bg-white/5' : ''}`}>
                       <td className="px-3 py-1.5 text-slate-300 font-mono text-xs">{dep.deposit_date}</td>
                       <td className="px-3 py-1.5 text-xs text-slate-400">{ACCOUNT_LABELS[dep.account_suffix] || dep.account_suffix}</td>
-                      <td className="px-3 py-1.5 text-right font-mono text-white text-xs">
-                        ${Number(dep.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-3 py-1.5 text-xs text-slate-400">
-                        {dep.total_checks > 0 ? `${dep.total_checks} check${dep.total_checks !== 1 ? 's' : ''}` : `${dep.image_count || 0} imgs`}
-                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono text-white text-xs">${Number(dep.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-400">{dep.total_checks > 0 ? `${dep.total_checks} check${dep.total_checks !== 1 ? 's' : ''}` : `${dep.image_count || 0} imgs`}</td>
                       <td className="px-3 py-1.5">
                         <div className="flex flex-wrap gap-1 items-center">
                           {dep.payers.slice(0, 3).map(p => <span key={p} className="text-xs text-slate-300">{p}</span>)}
                           {dep.payers.length > 3 && <span className="text-xs text-slate-500">+{dep.payers.length - 3}</span>}
                           {dep.types.map(t => (
-                            <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
-                              {CHECK_TYPE_LABELS[t] || t}
-                            </span>
+                            <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400">{CHECK_TYPE_LABELS[t] || t}</span>
                           ))}
                         </div>
                       </td>
                       <td className="px-3 py-1.5 text-right">
                         {dep.extracted_count > 0
                           ? <span className="text-[10px] text-emerald-400">{dep.extracted_count}/{dep.total_checks}</span>
-                          : dep.total_checks > 0 ? <span className="text-[10px] text-slate-600">—</span> : null}
+                          : dep.total_checks > 0 ? <span className="text-[10px] text-slate-600">{'\u2014'}</span> : null}
                       </td>
                     </tr>
                     {expandedId === dep.id && (
                       <tr className="border-b border-white/10">
                         <td colSpan={6} className="px-3 py-3 bg-white/[0.02]">
-                          <CheckImagePanel
-                            depositId={dep.id}
-                            images={images}
-                            loadingImages={loadingImages}
-                            setLightboxUrl={setLightboxUrl}
-                          />
+                          <CheckImagePanel cacheKey={dep.id} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />
                         </td>
                       </tr>
                     )}
@@ -419,9 +346,9 @@ export default function SimmonsDepositsDashboard() {
               <span className="text-xs text-slate-500">Page {dPage} of {Math.ceil(total / 100)}</span>
               <div className="flex gap-1">
                 <button onClick={() => setDPage(p => Math.max(1, p - 1))} disabled={dPage === 1}
-                  className="px-2 py-1 text-xs rounded border border-white/10 text-slate-400 disabled:opacity-30 hover:bg-white/5">← Prev</button>
+                  className="px-2 py-1 text-xs rounded border border-white/10 text-slate-400 disabled:opacity-30 hover:bg-white/5">{'\u2190'} Prev</button>
                 <button onClick={() => setDPage(p => Math.min(Math.ceil(total / 100), p + 1))} disabled={dPage === Math.ceil(total / 100)}
-                  className="px-2 py-1 text-xs rounded border border-white/10 text-slate-400 disabled:opacity-30 hover:bg-white/5">Next →</button>
+                  className="px-2 py-1 text-xs rounded border border-white/10 text-slate-400 disabled:opacity-30 hover:bg-white/5">Next {'\u2192'}</button>
               </div>
             </div>
           )}
@@ -432,27 +359,205 @@ export default function SimmonsDepositsDashboard() {
       {lightboxUrl && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
           <img src={lightboxUrl} alt="check" className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" onClick={e => e.stopPropagation()} />
-          <button onClick={() => setLightboxUrl(null)} className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl leading-none">✕</button>
+          <button onClick={() => setLightboxUrl(null)} className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl leading-none">{'\u2715'}</button>
         </div>
       )}
     </div>
   );
 }
 
-// ── Shared check image panel ──────────────────────────────────────────────────
+// ── Bank Only Table ─────────────────────────────────────────────────────────
 
-function CheckImagePanel({ depositId, images, loadingImages, setLightboxUrl }: {
-  depositId: string;
-  images: Record<string, CheckImage[]>;
-  loadingImages: string | null;
-  setLightboxUrl: (url: string | null) => void;
+function BankOnlyTable({ rows, expandedId, expandCheck, expandDeposit, images, loadingImages, setLightboxUrl }: {
+  rows: ReconcileRow[]; expandedId: string | null;
+  expandCheck: (id: string) => void; expandDeposit: (id: string) => void;
+  images: Record<string, CheckImage[]>; loadingImages: string | null; setLightboxUrl: (u: string | null) => void;
 }) {
-  const CHECK_TYPE_LABELS: Record<string, string> = {
-    personal_check: 'Check', money_order: 'MO', cashiers_check: "Cashier's",
-    business_check: 'Business', usps_money_order: 'USPS MO', corporate_check: 'Corp',
-  };
-  if (loadingImages === depositId) return <p className="text-xs text-slate-500">Loading images…</p>;
-  const imgs = images[depositId] || [];
+  return (
+    <div className="rounded-lg border border-amber-500/20 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 z-10">
+          <tr className="border-b border-amber-500/20 bg-amber-500/[0.03]">
+            <th className="text-left px-3 py-2 text-xs font-medium text-amber-400 w-24">Deposit Date</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-amber-400">Payer (OCR)</th>
+            <th className="text-right px-3 py-2 text-xs font-medium text-amber-400 w-24">Amount</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-amber-400 w-36">Ref #</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-amber-400 w-20">Type</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-amber-400 w-20"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500 text-sm">No unmatched bank checks</td></tr>}
+          {rows.map((row, i) => {
+            const checkKey = `check:${row.check_image_id}`;
+            const depositKey = `deposit:${row.deposit_id}`;
+            const isCheckExpanded = expandedId === checkKey;
+            const isDepositExpanded = expandedId === depositKey;
+            const isExpanded = isCheckExpanded || isDepositExpanded;
+            return (
+              <Fragment key={row.check_image_id || String(i)}>
+                <tr onClick={() => row.check_image_id && expandCheck(row.check_image_id)}
+                  className={`border-b border-white/5 ${row.check_image_id ? 'cursor-pointer hover:bg-amber-500/[0.03]' : ''} ${isExpanded ? 'bg-amber-500/[0.05]' : ''}`}>
+                  <td className="px-3 py-1.5 text-slate-300 font-mono text-xs">{row.deposit_date || '\u2014'}</td>
+                  <td className="px-3 py-1.5 text-xs text-slate-200">
+                    {row.simmons_payer || '\u2014'}
+                    {row.duplicate_ref && <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">DUP</span>}
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-mono text-white text-xs">
+                    {row.simmons_amount ? `$${Math.abs(parseFloat(row.simmons_amount)).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '\u2014'}
+                  </td>
+                  <td className="px-3 py-1.5 text-xs font-mono text-slate-500">{row.money_order_number || row.check_number || '\u2014'}</td>
+                  <td className="px-3 py-1.5">
+                    {row.check_type && <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400">{CHECK_TYPE_LABELS[row.check_type] || row.check_type}</span>}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {row.deposit_id && (
+                      <button onClick={e => { e.stopPropagation(); expandDeposit(row.deposit_id!); }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${isDepositExpanded ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-slate-500 hover:text-slate-300'}`}>
+                        All checks
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {isExpanded && (
+                  <tr className="border-b border-white/10">
+                    <td colSpan={6} className="px-4 py-3 bg-white/[0.02]">
+                      {isDepositExpanded ? (
+                        <>
+                          <p className="text-[10px] text-slate-500 mb-2">All checks in this deposit:</p>
+                          <CheckImagePanel cacheKey={depositKey} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />
+                        </>
+                      ) : (
+                        <CheckImagePanel cacheKey={checkKey} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── AF Only Table ───────────────────────────────────────────────────────────
+
+function AFOnlyTable({ rows }: { rows: ReconcileRow[] }) {
+  return (
+    <div className="rounded-lg border border-red-500/20 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 z-10">
+          <tr className="border-b border-red-500/20 bg-red-500/[0.03]">
+            <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-24">AF Date</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-red-400">Payer (AppFolio)</th>
+            <th className="text-right px-3 py-2 text-xs font-medium text-red-400 w-24">Amount</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-36">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-500 text-sm">No unmatched AF entries</td></tr>}
+          {rows.map((row, i) => (
+            <tr key={row.af_id || String(i)} className="border-b border-white/5">
+              <td className="px-3 py-1.5 text-slate-300 font-mono text-xs">{row.af_date || '\u2014'}</td>
+              <td className="px-3 py-1.5 text-xs text-slate-200">{row.af_payer || '\u2014'}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-white text-xs">
+                {row.af_amount ? `$${parseFloat(row.af_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '\u2014'}
+              </td>
+              <td className="px-3 py-1.5 text-xs font-mono text-slate-500">{row.ref_raw || '\u2014'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Matched Table ───────────────────────────────────────────────────────────
+
+function MatchedTable({ rows, expandedId, expandCheck, expandDeposit, images, loadingImages, setLightboxUrl }: {
+  rows: ReconcileRow[]; expandedId: string | null;
+  expandCheck: (id: string) => void; expandDeposit: (id: string) => void;
+  images: Record<string, CheckImage[]>; loadingImages: string | null; setLightboxUrl: (u: string | null) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-emerald-500/20 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 z-10">
+          <tr className="border-b border-emerald-500/20 bg-emerald-500/[0.03]">
+            <th className="text-left px-3 py-2 text-xs font-medium text-emerald-400 w-24">Date</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-emerald-400">Bank Payer</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-emerald-400">AF Payer</th>
+            <th className="text-right px-3 py-2 text-xs font-medium text-emerald-400 w-20">Bank $</th>
+            <th className="text-right px-3 py-2 text-xs font-medium text-emerald-400 w-20">AF $</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-emerald-400 w-32">Ref #</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-emerald-400 w-20"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500 text-sm">No matched entries</td></tr>}
+          {rows.map((row, i) => {
+            const checkKey = `check:${row.check_image_id}`;
+            const depositKey = `deposit:${row.deposit_id}`;
+            const isCheckExpanded = expandedId === checkKey;
+            const isDepositExpanded = expandedId === depositKey;
+            const isExpanded = isCheckExpanded || isDepositExpanded;
+            const amtMismatch = row.amounts_match === false;
+            return (
+              <Fragment key={row.check_image_id || row.af_id || String(i)}>
+                <tr onClick={() => row.check_image_id && expandCheck(row.check_image_id)}
+                  className={`border-b border-white/5 ${row.check_image_id ? 'cursor-pointer hover:bg-emerald-500/[0.03]' : ''} ${isExpanded ? 'bg-emerald-500/[0.05]' : ''}`}>
+                  <td className="px-3 py-1.5 text-slate-300 font-mono text-xs">{row.deposit_date || row.af_date || '\u2014'}</td>
+                  <td className="px-3 py-1.5 text-xs text-slate-200">{row.simmons_payer || '\u2014'}</td>
+                  <td className="px-3 py-1.5 text-xs text-slate-400">{row.af_payer || '\u2014'}</td>
+                  <td className={`px-3 py-1.5 text-right font-mono text-xs ${amtMismatch ? 'text-orange-400' : 'text-white'}`}>
+                    {row.simmons_amount ? `$${Math.abs(parseFloat(row.simmons_amount)).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '\u2014'}
+                  </td>
+                  <td className={`px-3 py-1.5 text-right font-mono text-xs ${amtMismatch ? 'text-orange-400' : 'text-slate-400'}`}>
+                    {row.af_amount ? `$${parseFloat(row.af_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '\u2014'}
+                  </td>
+                  <td className="px-3 py-1.5 text-xs font-mono text-slate-500">{row.ref_raw || row.money_order_number || '\u2014'}</td>
+                  <td className="px-3 py-1.5">
+                    {row.deposit_id && (
+                      <button onClick={e => { e.stopPropagation(); expandDeposit(row.deposit_id!); }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${isDepositExpanded ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-500 hover:text-slate-300'}`}>
+                        All checks
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {isExpanded && (
+                  <tr className="border-b border-white/10">
+                    <td colSpan={7} className="px-4 py-3 bg-white/[0.02]">
+                      {isDepositExpanded ? (
+                        <>
+                          <p className="text-[10px] text-slate-500 mb-2">All checks in this deposit:</p>
+                          <CheckImagePanel cacheKey={depositKey} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />
+                        </>
+                      ) : (
+                        <CheckImagePanel cacheKey={checkKey} images={images} loadingImages={loadingImages} setLightboxUrl={setLightboxUrl} />
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Check image panel ───────────────────────────────────────────────────────
+
+function CheckImagePanel({ cacheKey, images, loadingImages, setLightboxUrl }: {
+  cacheKey: string; images: Record<string, CheckImage[]>;
+  loadingImages: string | null; setLightboxUrl: (u: string | null) => void;
+}) {
+  if (loadingImages === cacheKey) return <p className="text-xs text-slate-500">Loading images...</p>;
+  const imgs = images[cacheKey] || [];
   if (imgs.length === 0) return <p className="text-xs text-slate-500">No extractable check images.</p>;
   return (
     <div className="space-y-2">

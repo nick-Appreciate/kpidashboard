@@ -11,10 +11,36 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search') || '';
   const page = parseInt(searchParams.get('page') || '1');
   const depositId = searchParams.get('deposit_id');
+  const checkImageId = searchParams.get('check_image_id');
   const dateFrom = searchParams.get('date_from') || '';
   const dateTo = searchParams.get('date_to') || '';
   const limit = 100;
   const offset = (page - 1) * limit;
+
+  // ── Return a single check image by ID ───────────────────────────────────────
+  if (checkImageId) {
+    const { data: images, error } = await supabase
+      .from('simmons_check_images')
+      .select('id, image_index, image_type, amount, check_type, payer_name, payer_address, issuer, money_order_number, check_number, check_date, memo, routing_number, front_image_path, back_image_path, extracted_at')
+      .eq('id', checkImageId);
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const imagesWithUrls = await Promise.all((images || []).map(async (img) => {
+      let front_url = null, back_url = null;
+      if (img.front_image_path) {
+        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
+        front_url = data?.signedUrl || null;
+      }
+      if (img.back_image_path) {
+        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
+        back_url = data?.signedUrl || null;
+      }
+      return { ...img, front_url, back_url };
+    }));
+
+    return NextResponse.json({ images: imagesWithUrls });
+  }
 
   // ── Return check images + signed URLs for a specific deposit ──────────────
   if (depositId) {
@@ -55,7 +81,21 @@ export async function GET(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ rows: raw || [], summary: buildSummary(raw || []) });
+    // Get earliest AF payment date so the frontend can set a sensible default
+    const { data: afMinRow } = await supabase
+      .from('af_income_register')
+      .select('receipt_date')
+      .gt('receipt_amount', 0)
+      .not('reference', 'is', null)
+      .order('receipt_date', { ascending: true })
+      .limit(1)
+      .single();
+
+    return NextResponse.json({
+      rows: raw || [],
+      summary: buildSummary(raw || []),
+      earliest_af_date: afMinRow?.receipt_date || null,
+    });
   }
 
   // ── Deposits list mode (original) ─────────────────────────────────────────
@@ -116,10 +156,11 @@ export async function GET(req: NextRequest) {
 
 function buildSummary(rows: any[]) {
   return {
-    matched:      rows.filter(r => r.status === 'matched').length,
-    simmons_only: rows.filter(r => r.status === 'simmons_only').length,
-    af_only:      rows.filter(r => r.status === 'af_only').length,
-    amount_diffs: rows.filter(r => r.status === 'matched' && r.amounts_match === false).length,
+    matched:        rows.filter(r => r.status === 'matched').length,
+    simmons_only:   rows.filter(r => r.status === 'simmons_only').length,
+    af_only:        rows.filter(r => r.status === 'af_only').length,
+    amount_diffs:   rows.filter(r => r.status === 'matched' && r.amounts_match === false).length,
+    duplicate_refs: rows.filter(r => r.duplicate_ref === true).length,
   };
 }
 

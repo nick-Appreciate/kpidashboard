@@ -387,7 +387,10 @@ async function syncPropertyDirectory(): Promise<SyncResult> {
 
 async function syncTenantLedger(): Promise<SyncResult> {
   try {
-    const data = await fetchAppFolioReport('tenant_ledger');
+    const data = await fetchAppFolioReport('tenant_ledger', {
+      from_date: '2025-10-01',
+      to_date: getTodayDate()
+    });
     
     const records = data.map((row: any) => ({
       date: row.date || null,
@@ -831,6 +834,45 @@ async function syncWorkOrders(): Promise<SyncResult> {
   }
 }
 
+async function syncIncomeRegister(): Promise<SyncResult> {
+  try {
+    const data = await fetchAppFolioReport('income_register', {
+      receipt_date_from: '2025-10-01',
+      receipt_date_to: getTodayDate()
+    });
+
+    const records = data.map((row: any) => ({
+      txn_id: row.txn_id ? String(row.txn_id) : null,
+      receipt_id: row.receipt_id ? String(row.receipt_id) : null,
+      receipt_date: row.receipt_date || null,
+      receipt_amount: row.receipt_amount ? parseFloat(row.receipt_amount) : null,
+      charge_amount: row.charge_amount ? parseFloat(row.charge_amount) : null,
+      payer: row.payer || null,
+      reference: row.reference || null,
+      description: row.description || null,
+      property_name: row.property_name || null,
+      property_id: row.property_id || null,
+      unit: row.unit || null,
+      unit_id: row.unit_id || null,
+      account_name: row.account_name || null,
+      account_number: row.account_number || null,
+    }));
+
+    await supabase.rpc('truncate_af_income_register');
+
+    const batchSize = 100;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+      const { error } = await supabase.from('af_income_register').insert(batch);
+      if (error) throw new Error(JSON.stringify(error));
+    }
+
+    return { report: 'income_register', success: true, rowsProcessed: records.length };
+  } catch (error: any) {
+    return { report: 'income_register', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 // Helper function for Central Time
 function getTodayDate(): string {
   const now = new Date();
@@ -865,6 +907,7 @@ Deno.serve(async (req: Request) => {
       results.push(await syncVendorDirectory()); await delay();
       results.push(await syncPropertyDirectory()); await delay();
       results.push(await syncTenantLedger()); await delay();
+      results.push(await syncIncomeRegister()); await delay();
       results.push(await syncLeaseHistory()); await delay();
       results.push(await syncOccupancySummary()); await delay();
       results.push(await syncChargeDetail()); await delay();
@@ -890,6 +933,7 @@ Deno.serve(async (req: Request) => {
     } else if (reportParam === 'financial') {
       // Financial reports
       results.push(await syncTenantLedger()); await delay();
+      results.push(await syncIncomeRegister()); await delay();
       results.push(await syncChargeDetail()); await delay();
       results.push(await syncGeneralLedger()); await delay();
       results.push(await syncChartOfAccounts()); await delay();
@@ -909,6 +953,7 @@ Deno.serve(async (req: Request) => {
         'vendor_directory': syncVendorDirectory,
         'property_directory': syncPropertyDirectory,
         'tenant_ledger': syncTenantLedger,
+        'income_register': syncIncomeRegister,
         'lease_history': syncLeaseHistory,
         'occupancy_summary': syncOccupancySummary,
         'charge_detail': syncChargeDetail,
