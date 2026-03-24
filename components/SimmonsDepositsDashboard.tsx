@@ -51,8 +51,32 @@ export default function SimmonsDepositsDashboard() {
   const { appUser, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  const [tab, setTab] = useState<'reconcile' | 'deposits'>('reconcile');
-  const [reconcileView, setReconcileView] = useState<ReconcileView>('bank_only');
+  // Persist view in URL hash so refresh stays on the same tab
+  const getInitialView = (): ReconcileView => {
+    if (typeof window === 'undefined') return 'bank_only';
+    const hash = window.location.hash.replace('#', '');
+    if (['bank_only', 'af_only', 'matched', 'duplicates'].includes(hash)) return hash as ReconcileView;
+    return 'bank_only';
+  };
+  const getInitialTab = (): 'reconcile' | 'deposits' => {
+    if (typeof window === 'undefined') return 'reconcile';
+    return window.location.hash === '#deposits' ? 'deposits' : 'reconcile';
+  };
+
+  const [tab, setTab] = useState<'reconcile' | 'deposits'>(getInitialTab);
+  const [reconcileView, setReconcileView] = useState<ReconcileView>(getInitialView);
+
+  const updateTab = (t: 'reconcile' | 'deposits') => {
+    setTab(t);
+    setExpandedId(null);
+    window.location.hash = t === 'deposits' ? 'deposits' : reconcileView;
+  };
+  const updateView = (v: ReconcileView) => {
+    setReconcileView(v);
+    setExpandedId(null);
+    window.scrollTo({ top: 0 });
+    window.location.hash = v;
+  };
 
   // Deposits tab state
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -84,7 +108,7 @@ export default function SimmonsDepositsDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && appUser?.role !== 'admin') router.push('/');
+    if (!authLoading && appUser && appUser.role !== 'admin') router.push('/');
   }, [authLoading, appUser, router]);
 
   // ── Fetch deposits ────────────────────────────────────────────────────────
@@ -173,11 +197,16 @@ export default function SimmonsDepositsDashboard() {
     finally { setLoadingImages(null); }
   };
 
-  // ── Derived data ──────────────────────────────────────────────────────────
-  const bankOnly = allRows.filter(r => r.status === 'simmons_only');
-  const afOnly = allRows.filter(r => r.status === 'af_only');
-  const matched = allRows.filter(r => r.status === 'matched');
-  const duplicates = allRows.filter(r => r.duplicate_ref);
+  // ── Derived data (sorted by date descending) ───────────────────────────────
+  const byDateDesc = (a: ReconcileRow, b: ReconcileRow) => {
+    const da = a.deposit_date || a.af_date || '';
+    const db = b.deposit_date || b.af_date || '';
+    return db.localeCompare(da);
+  };
+  const bankOnly = allRows.filter(r => r.status === 'simmons_only').sort(byDateDesc);
+  const afOnly = allRows.filter(r => r.status === 'af_only').sort(byDateDesc);
+  const matched = allRows.filter(r => r.status === 'matched').sort(byDateDesc);
+  const duplicates = allRows.filter(r => r.duplicate_ref).sort(byDateDesc);
 
   const searchFilter = (r: ReconcileRow) => {
     if (!rSearch) return true;
@@ -213,7 +242,7 @@ export default function SimmonsDepositsDashboard() {
           <div className="flex gap-0.5 mt-1.5">
             {(['reconcile', 'deposits'] as const).map(t => (
               <button key={t}
-                onClick={() => { setTab(t); setExpandedId(null); }}
+                onClick={() => updateTab(t)}
                 className={`px-3 py-1 text-xs rounded transition-colors ${
                   tab === t ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
@@ -255,7 +284,7 @@ export default function SimmonsDepositsDashboard() {
                 return (
                   <button
                     key={v.key}
-                    onClick={() => { setReconcileView(v.key); setExpandedId(null); window.scrollTo({ top: 0 }); }}
+                    onClick={() => updateView(v.key)}
                     className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
                       isActive
                         ? `${cm.activeBg} ${cm.activeBorder} ${cm.activeText}`

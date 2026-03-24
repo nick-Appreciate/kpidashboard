@@ -17,7 +17,7 @@ export default function MercuryDashboard() {
   const [accountCount, setAccountCount] = useState<number>(0);
 
   useEffect(() => {
-    if (!authLoading && appUser?.role !== 'admin') {
+    if (!authLoading && appUser && appUser.role !== 'admin') {
       router.push('/');
     }
   }, [authLoading, appUser, router]);

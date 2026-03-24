@@ -45,7 +45,7 @@ export default function DuplicateBillsDashboard() {
 
   // Admin guard
   useEffect(() => {
-    if (!authLoading && appUser?.role !== 'admin') {
+    if (!authLoading && appUser && appUser.role !== 'admin') {
       router.push('/');
     }
   }, [authLoading, appUser, router]);

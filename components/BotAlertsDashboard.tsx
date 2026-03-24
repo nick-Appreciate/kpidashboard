@@ -62,7 +62,7 @@ export default function BotAlertsDashboard() {
   const [restarting, setRestarting] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authLoading && appUser?.role !== 'admin') {
+    if (!authLoading && appUser && appUser.role !== 'admin') {
       router.push('/');
     }
   }, [authLoading, appUser, router]);

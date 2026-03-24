@@ -67,7 +67,7 @@ export default function BPUUtilitiesDashboard() {
   const [selectedMeter, setSelectedMeter] = useState<MeterSummary | null>(null);
 
   useEffect(() => {
-    if (!authLoading && appUser?.role !== 'admin') {
+    if (!authLoading && appUser && appUser.role !== 'admin') {
       router.push('/');
     }
   }, [authLoading, appUser, router]);
