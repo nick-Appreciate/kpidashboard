@@ -23,7 +23,7 @@ export default function AuthCallbackPage() {
         const { data: { session: existingSession } } = await supabaseBrowser.auth.getSession();
         if (existingSession && isMounted) {
           console.log('Session established:', existingSession.user?.email);
-          router.push('/');
+          window.location.href = '/';
           return;
         }
 
@@ -58,7 +58,7 @@ export default function AuthCallbackPage() {
                     return;
                   }
                   // Redirect immediately without status update
-                  router.push('/');
+                  window.location.href = '/';
                 }
                 return;
               }
@@ -79,7 +79,7 @@ export default function AuthCallbackPage() {
             }
             
             // Redirect immediately without status update
-            router.push('/');
+            window.location.href = '/';
           }
         } else if (accessToken && refreshToken) {
           // Legacy hash-based flow
@@ -119,10 +119,10 @@ export default function AuthCallbackPage() {
           if (isMounted) {
             if (type === 'invite' || type === 'recovery') {
               setStatus('Redirecting to set password...');
-              router.push('/auth/set-password');
+              window.location.href = '/auth/set-password';
             } else {
               // Redirect immediately without status update
-              router.push('/');
+              window.location.href = '/';
             }
           }
         } else if (accessToken) {
@@ -131,7 +131,7 @@ export default function AuthCallbackPage() {
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session && isMounted) {
             // Redirect immediately without status update
-            router.push('/');
+            window.location.href = '/';
           } else if (isMounted) {
             setError('Session could not be established. Please try logging in again.');
           }
@@ -139,7 +139,7 @@ export default function AuthCallbackPage() {
           // No auth params - check if already logged in
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session && isMounted) {
-            router.push('/');
+            window.location.href = '/';
           } else if (isMounted) {
             setError('No authentication data found. Please try logging in again.');
           }
@@ -151,7 +151,7 @@ export default function AuthCallbackPage() {
           // Try to check session one more time
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session) {
-            router.push('/');
+            window.location.href = '/';
             return;
           }
         }
@@ -174,30 +174,30 @@ export default function AuthCallbackPage() {
       isMounted = false;
       clearTimeout(timeout);
     };
-  }, [router, status]);
+  }, [status]);
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-8 w-full max-w-md text-center">
+    <div className="min-h-screen bg-surface-base flex items-center justify-center p-4">
+      <div className="glass-card p-8 w-full max-w-md text-center">
         <div className="flex justify-center mb-8">
           <Logo className="h-16 w-auto" />
         </div>
-        
+
         {error ? (
           <>
-            <h1 className="text-xl font-semibold text-red-600 mb-4">Authentication Error</h1>
-            <p className="text-slate-600 mb-6">{error}</p>
+            <h1 className="text-xl font-semibold text-red-400 mb-4">Authentication Error</h1>
+            <p className="text-slate-400 mb-6">{error}</p>
             <button
               onClick={() => router.push('/login')}
-              className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+              className="px-6 py-3 bg-accent text-white rounded-lg hover:bg-accent-light transition"
             >
               Back to Login
             </button>
           </>
         ) : (
           <>
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-            <p className="text-slate-600">{status}</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
+            <p className="text-slate-400">{status}</p>
           </>
         )}
       </div>

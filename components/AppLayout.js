@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from './Sidebar';
@@ -11,7 +11,6 @@ const Particles = dynamic(() => import('./reactbits/Particles'), { ssr: false })
 
 function LayoutContent({ children }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { user, appUser, loading, signOut } = useAuth();
   const [isDesktop, setIsDesktop] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
@@ -40,14 +39,6 @@ function LayoutContent({ children }) {
     const interval = setInterval(poll, 60000);
     return () => clearInterval(interval);
   }, [appUser?.role]);
-
-  // Redirect to login if not authenticated (after loading completes)
-  useEffect(() => {
-    if (!loading && !user && !isAuthPage) {
-      router.push('/login');
-    }
-  }, [loading, user, isAuthPage, router]);
-
   // Show auth pages without auth check
   if (isAuthPage) {
     return <>{children}</>;
@@ -56,7 +47,7 @@ function LayoutContent({ children }) {
   // Show loading state while checking auth OR if not authenticated (waiting for redirect)
   if (loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-surface-base">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
       </div>
     );
