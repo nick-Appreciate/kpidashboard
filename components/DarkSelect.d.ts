@@ -5,7 +5,9 @@ interface DarkSelectProps {
   onChange: Dispatch<SetStateAction<string>> | ((value: string) => void);
   options: { value: string; label: string }[];
   compact?: boolean;
+  searchable?: boolean;
   className?: string;
+  [key: string]: any;
 }
 
 export default function DarkSelect(props: DarkSelectProps): JSX.Element;
