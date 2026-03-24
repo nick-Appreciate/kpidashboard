@@ -67,7 +67,7 @@ export async function GET(request: Request) {
       .not('property_name', 'is', null)
       .order('property_name');
 
-    const distinctProperties = [...new Set((properties || []).map(p => p.property_name))];
+    const distinctProperties = Array.from(new Set((properties || []).map(p => p.property_name)));
 
     // Status counts
     const statusCounts: Record<string, number> = {};
