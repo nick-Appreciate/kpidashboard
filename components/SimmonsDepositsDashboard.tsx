@@ -36,6 +36,7 @@ interface ReconcileRow {
   af_property: string | null;
   af_unit: string | null;
   af_tenant_id: number | null;
+  af_receipt_id: string | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -492,7 +493,7 @@ function AFOnlyTable({ rows }: { rows: ReconcileRow[] }) {
             <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-16">Unit</th>
             <th className="text-right px-3 py-2 text-xs font-medium text-red-400 w-24">Amount</th>
             <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-36">Reference</th>
-            <th className="text-center px-3 py-2 text-xs font-medium text-red-400 w-20">Ledger</th>
+            <th className="text-center px-3 py-2 text-xs font-medium text-red-400 w-20">Payment</th>
           </tr>
         </thead>
         <tbody>
@@ -508,9 +509,9 @@ function AFOnlyTable({ rows }: { rows: ReconcileRow[] }) {
               </td>
               <td className="px-3 py-1.5 text-xs font-mono text-slate-500">{row.ref_raw || '\u2014'}</td>
               <td className="px-3 py-1.5 text-center">
-                {row.af_tenant_id ? (
+                {row.af_receipt_id ? (
                   <a
-                    href={`https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters%5Bparty_ids%5D=t_${row.af_tenant_id}`}
+                    href={`https://appreciateinc.appfolio.com/accounting/receivable_payments/${row.af_receipt_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-400 hover:text-blue-300 text-xs underline"
