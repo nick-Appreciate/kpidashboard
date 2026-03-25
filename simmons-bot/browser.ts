@@ -682,20 +682,23 @@ const IMG_TO_BASE64 = `const imgToBase64 = (img) => {
 /**
  * Once a deposit's Transaction Details dialog is open,
  * click into Images, iterate through each image, and extract as base64 PNG.
+ *
+ * RESTORED from working version (97dbacb) — the old approach directly clicks
+ * numbered items ("1. Deposit slip", "2. Check") from the detail dialog,
+ * which loads the image inline. The newer approach with thumbnail clicking
+ * was broken and downloaded the deposit summary instead of actual checks.
  */
 async function extractDepositImages(
   p: Page,
   entry: DepositEntry
 ): Promise<DepositInfo | null> {
-  // The detail panel already shows the image list: "1. Deposit slip", "2. Check $100.00", etc.
-  // Extract the image list with amounts and count from the detail text
+  // Extract the image list: "1. Deposit slip", "2. Check $100.00", etc.
   const imageList = await p.evaluate(`(() => {
     const results = [];
     const scan = (root, d) => {
       if (d > 10) return;
       for (const el of root.querySelectorAll('*')) {
         const text = (el.textContent || '').trim();
-        // Match "1. Deposit slip" or "2. Check" patterns
         const m = text.match(/^(\\d+)\\.\\s*(Deposit slip|Check)/);
         if (m && text.length < 50) {
           const idx = parseInt(m[1]);
@@ -712,7 +715,7 @@ async function extractDepositImages(
     return results;
   })()`) as Array<{ index: number; amount: number | null; type: string }>;
 
-  // Also get the "X of Y" count as fallback
+  // Fallback: "X of Y" counter
   const imageInfo = await p.evaluate(`(() => {
     const findText = (root, d) => {
       if (d > 10) return null;
@@ -738,144 +741,14 @@ async function extractDepositImages(
   const images: CheckImageInfo[] = [];
   let depositSlipMetadata: any = {};
 
-  // Step 1: Click into the image viewer
-  // From the detail panel, we need to click the thumbnail near "Images" text.
-  // The thumbnail is a small preview image (not the bank logo).
-  // IMPORTANT: Don't click the "Images" text itself — that opens "Add tags"!
-  let clickedImages = false;
-
-  // Strategy 1: Find small thumbnail images (20-200px) that are NOT the logo/profile
-  try {
-    clickedImages = await p.evaluate(`(() => {
-      const logoUrl = 'simmons-bank-menu-logo';
-      const profileUrl = 'profile-photo';
-      const scan = (root, d) => {
-        if (d > 15) return false;
-        for (const img of root.querySelectorAll('img')) {
-          const src = img.src || '';
-          const w = img.offsetWidth;
-          const h = img.offsetHeight;
-          // Thumbnail: small-ish image, not the logo or profile pic
-          if (w > 30 && w < 200 && h > 30 && h < 200
-              && !src.includes(logoUrl) && !src.includes(profileUrl)
-              && src.length > 0) {
-            // Click the thumbnail or its parent button/link
-            const clickTarget = img.closest('button') || img.closest('a') || img.closest('[role="button"]') || img.parentElement || img;
-            clickTarget.click();
-            return true;
-          }
-        }
-        for (const el of root.querySelectorAll('*')) {
-          if (el.shadowRoot && scan(el.shadowRoot, d + 1)) return true;
-        }
-        return false;
-      };
-      return scan(document, 0);
-    })()`) as boolean;
-    if (clickedImages) console.log('[extract] Clicked thumbnail image');
-  } catch {}
-
-  // Strategy 2: Look for a badge with the image count number and click its parent
-  if (!clickedImages) {
-    try {
-      clickedImages = await p.evaluate(`(() => {
-        const scan = (root, d) => {
-          if (d > 15) return false;
-          for (const el of root.querySelectorAll('*')) {
-            const t = (el.textContent || '').trim();
-            // Badge: small element showing just the count number
-            if (t === '${totalImages}' && el.offsetWidth < 40 && el.offsetHeight < 40) {
-              const target = el.closest('button') || el.closest('a') || el.parentElement?.closest('button') || el.parentElement;
-              if (target) { target.click(); return true; }
-            }
-            if (el.shadowRoot && scan(el.shadowRoot, d + 1)) return true;
-          }
-          return false;
-        };
-        return scan(document, 0);
-      })()`) as boolean;
-      if (clickedImages) console.log('[extract] Clicked badge element');
-    } catch {}
-  }
-
-  // Strategy 3: Use Playwright text locator for "1. Deposit slip" directly
-  if (!clickedImages) {
-    try {
-      const depositSlip = p.getByText(/1\.\s*Deposit slip/i).first();
-      await depositSlip.click({ timeout: 5000 });
-      clickedImages = true;
-      console.log('[extract] Clicked "1. Deposit slip" directly');
-    } catch {
-      console.warn('[extract] All click strategies failed');
-    }
-  }
-
-  await p.waitForTimeout(5000);
-
-  // Verify we're in the image viewer — check for various patterns:
-  // "1 of 4", "1/4", "Deposit slip", "View front", "View back", "Check"
-  const viewerCheck = await p.evaluate(`(() => {
-    const patterns = [/^\\d+\\s+of\\s+\\d+$/, /^\\d+\\/\\d+$/, /Deposit slip/i, /View front/i, /View back/i];
-    const scan = (root, d) => {
-      if (d > 15) return '';
-      for (const el of root.querySelectorAll('*')) {
-        const t = (el.textContent || '').trim();
-        for (const p of patterns) {
-          if (p.test(t) && t.length < 30) return t;
-        }
-        if (el.shadowRoot) { const r = scan(el.shadowRoot, d + 1); if (r) return r; }
-      }
-      return '';
-    };
-    return scan(document, 0);
-  })()`) as string;
-
-  const inViewer = viewerCheck.length > 0;
-
-  if (!inViewer) {
-    // Try one more time with a longer wait
-    await p.waitForTimeout(3000);
-    const retry = await p.evaluate(`(() => {
-      const scan = (root, d) => {
-        if (d > 15) return false;
-        for (const el of root.querySelectorAll('*')) {
-          const t = (el.textContent || '').trim();
-          // Check for any img that's large enough to be a check
-          if (el.tagName === 'IMG' && el.naturalWidth > 500) return true;
-          if (/\\d+\\s*(of|\\/|:)\\s*\\d+/.test(t) && t.length < 20) return true;
-          if (el.shadowRoot && scan(el.shadowRoot, d + 1)) return true;
-        }
-        return false;
-      };
-      return scan(document, 0);
-    })()`) as boolean;
-
-    if (!retry) {
-      console.warn('[extract] Image viewer did not open — skipping image extraction');
-      return {
-        deposit_date: entry.date,
-        amount: entry.amount,
-        account_suffix: 'x5218',
-        images: [],
-        deposit_slip_metadata: {},
-      };
-    }
-  }
-
-  console.log(`[extract] Image viewer confirmed open: "${viewerCheck}"`);
-
-  // Step 2: Click each image item in the list to view it, then capture
-  // The viewer shows: "1. Deposit slip", "2. Check $100", etc.
-  // We must click each item to load the actual check image
   for (let imgIdx = 1; imgIdx <= totalImages; imgIdx++) {
     try {
-      // Click the numbered item (e.g., "1. Deposit slip", "2. Check $350.00")
-      const prefix = `${imgIdx}.`;
+      // Click the image item in the list (e.g., "1. Deposit slip", "2. Check")
       await p.evaluate(`(() => {
         const idx = ${imgIdx};
         const prefix = idx + '.';
         const findAndClick = (root, d) => {
-          if (d > 15) return false;
+          if (d > 10) return false;
           for (const el of root.querySelectorAll('*')) {
             const text = (el.textContent || '').trim();
             if (text.startsWith(prefix) && (text.includes('Deposit slip') || text.includes('Check')) && text.length < 50) {
@@ -888,53 +761,18 @@ async function extractDepositImages(
         };
         findAndClick(document, 0);
       })()`);
-      // Wait for the image to load after clicking
+      // Wait for image to load
       await p.waitForTimeout(3000);
 
-      // Now look for the actual check image
+      // Extract check image at native resolution (>500px wide = actual check, not logo)
       const imageData = await p.evaluate(`(() => {
-        const logoUrl = 'simmons-bank-menu-logo';
-        const profileUrl = 'profile-photo';
-        // Find img elements, excluding known non-check images
-        const findCheckImg = (root, d) => {
-          if (d > 15) return null;
-          for (const img of root.querySelectorAll('img')) {
-            const src = img.src || '';
-            if (img.naturalWidth > 200 && img.naturalHeight > 100
-                && !src.includes(logoUrl) && !src.includes(profileUrl)) {
-              return img;
-            }
-          }
-          // Also check for canvas elements (some banks render checks on canvas)
-          for (const canvas of root.querySelectorAll('canvas')) {
-            if (canvas.width > 200 && canvas.height > 100) {
-              return canvas;
-            }
-          }
-          for (const el of root.querySelectorAll('*')) {
-            if (el.shadowRoot) { const f = findCheckImg(el.shadowRoot, d+1); if (f) return f; }
-          }
-          return null;
-        };
-        const el = findCheckImg(document, 0);
-        if (!el) return null;
-        const canvas = document.createElement('canvas');
-        if (el.tagName === 'CANVAS') {
-          return el.toDataURL('image/png');
-        }
-        canvas.width = el.naturalWidth;
-        canvas.height = el.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return null;
-        ctx.drawImage(el, 0, 0);
-        return canvas.toDataURL('image/png');
+        ${SHADOW_FIND_IMG}
+        ${IMG_TO_BASE64}
+        return imgToBase64(findImg(document, 0));
       })()`) as string | null;
 
       if (imageData) {
-        const base64 = imageData.replace(/^data:image\/png;base64,/, '');
-
-        const byteSize = Math.round(base64.length * 0.75);
-
+        const base64 = (imageData as string).replace(/^data:image\/png;base64,/, '');
         const listEntry = imageList.find((e) => e.index === imgIdx);
 
         images.push({
@@ -944,21 +782,12 @@ async function extractDepositImages(
           front_base64: base64,
         });
 
-        console.log(`[extract] Image ${imgIdx}: captured front (${byteSize}b)`);
+        console.log(`[extract] Image ${imgIdx}: captured front (${Math.round(base64.length * 0.75)}b)`);
 
-        // Extract deposit slip metadata from image viewer text
+        // Extract deposit slip metadata
         if (imgIdx === 1) {
           depositSlipMetadata = await p.evaluate(`(() => {
-            const getText = (root, d) => {
-              if (d > 15) return '';
-              let t = '';
-              for (const el of root.querySelectorAll('*')) {
-                t += ' ' + (el.textContent || '');
-                if (el.shadowRoot) t += getText(el.shadowRoot, d+1);
-              }
-              return t;
-            };
-            const text = getText(document, 0);
+            const text = document.body?.textContent || '';
             const branchMatch = text.match(/Branch Name:\\s*(.+?)(?:\\n|Teller)/);
             const tellerMatch = text.match(/Teller ID:\\s*(\\S+)/);
             const wsMatch = text.match(/Workstation:\\s*(\\S+)/);
@@ -972,48 +801,40 @@ async function extractDepositImages(
           })()`);
         }
 
-        // Try "View back"
-        const clickedBack = await p.evaluate(`(() => {
-          ${SHADOW_CLICK_TEXT}
-          return clickText(document, 'View back', 0);
+        // Try to get the back of the check
+        const hasViewBack = await p.evaluate(`(() => {
+          const find = (root, d) => {
+            if (d > 10) return false;
+            for (const el of root.querySelectorAll('*')) {
+              if (el.textContent?.includes('View back')) return true;
+              if (el.shadowRoot && find(el.shadowRoot, d+1)) return true;
+            }
+            return false;
+          };
+          return find(document, 0);
         })()`) as boolean;
 
-        if (clickedBack) {
-          await p.waitForTimeout(2000);
+        if (hasViewBack) {
+          await p.evaluate(`(() => {
+            ${SHADOW_CLICK_TEXT}
+            clickText(document, 'View back', 0);
+          })()`);
+          await p.waitForTimeout(1500);
+
           const backData = await p.evaluate(`(() => {
-            const logoUrl = 'simmons-bank-menu-logo';
-            const profileUrl = 'profile-photo';
-            const findCheckImg = (root, d) => {
-              if (d > 15) return null;
-              for (const img of root.querySelectorAll('img')) {
-                const src = img.src || '';
-                if (img.naturalWidth > 200 && img.naturalHeight > 100
-                    && !src.includes(logoUrl) && !src.includes(profileUrl)) return img;
-              }
-              for (const canvas of root.querySelectorAll('canvas')) {
-                if (canvas.width > 200 && canvas.height > 100) return canvas;
-              }
-              for (const el of root.querySelectorAll('*')) {
-                if (el.shadowRoot) { const f = findCheckImg(el.shadowRoot, d+1); if (f) return f; }
-              }
-              return null;
-            };
-            const el = findCheckImg(document, 0);
-            if (!el) return null;
-            const canvas = document.createElement('canvas');
-            if (el.tagName === 'CANVAS') return el.toDataURL('image/png');
-            canvas.width = el.naturalWidth; canvas.height = el.naturalHeight;
-            const ctx = canvas.getContext('2d'); if (!ctx) return null;
-            ctx.drawImage(el, 0, 0);
-            return canvas.toDataURL('image/png');
+            ${SHADOW_FIND_IMG}
+            ${IMG_TO_BASE64}
+            return imgToBase64(findImg(document, 0));
           })()`) as string | null;
 
           if (backData) {
-            images[images.length - 1].back_base64 = backData.replace(/^data:image\/png;base64,/, '');
+            images[images.length - 1].back_base64 = (backData as string).replace(
+              /^data:image\/png;base64,/,
+              ''
+            );
             console.log(`[extract] Image ${imgIdx}: captured back`);
           }
 
-          // Go back to front view
           await p.evaluate(`(() => {
             ${SHADOW_CLICK_TEXT}
             clickText(document, 'View front', 0);
@@ -1022,54 +843,27 @@ async function extractDepositImages(
         }
       } else {
         console.warn(`[extract] Image ${imgIdx}: no check image found on screen`);
-        // Take debug screenshot
         await p.screenshot({ path: path.join(SCREENSHOT_DIR, `img-noimg-${entry.date}-${imgIdx}.png`) }).catch(() => {});
       }
 
-      // Navigate to next image (click right arrow or "next")
-      if (imgIdx < totalImages) {
-        await p.evaluate(`(() => {
-          const scan = (root, d) => {
-            if (d > 15) return false;
-            for (const el of root.querySelectorAll('*')) {
-              const t = (el.textContent || '').trim();
-              // Look for right arrow / next button
-              if ((t === '›' || t === '>' || t === 'Next' || t === 'next' || el.getAttribute('aria-label')?.includes('next') || el.getAttribute('aria-label')?.includes('right'))
-                  && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || el.tagName === 'A')) {
-                el.click();
-                return true;
-              }
-              if (el.shadowRoot && scan(el.shadowRoot, d + 1)) return true;
-            }
-            return false;
-          };
-          scan(document, 0);
-        })()`);
-        await p.waitForTimeout(1000);
-      }
+      // Go back to image list by clicking "X of Y"
+      await p.evaluate(`(() => {
+        const findAndClick = (root, d) => {
+          if (d > 10) return false;
+          for (const el of root.querySelectorAll('*')) {
+            const t = (el.textContent || '').trim();
+            if (t.match(/\\d+\\s+of\\s+\\d+/) && el.tagName !== 'BODY') { el.click(); return true; }
+            if (el.shadowRoot && findAndClick(el.shadowRoot, d+1)) return true;
+          }
+          return false;
+        };
+        findAndClick(document, 0);
+      })()`);
+      await p.waitForTimeout(1000);
     } catch (err: any) {
       console.error(`[extract] Error extracting image ${imgIdx}: ${err.message}`);
     }
   }
-
-  // Step 3: Close image viewer / go back to dialog
-  await p.evaluate(`(() => {
-    const scan = (root, d) => {
-      if (d > 15) return false;
-      for (const el of root.querySelectorAll('*')) {
-        const t = (el.textContent || '').trim();
-        if ((t === '✕' || t === '×' || t === 'Close' || t === 'Done' || el.getAttribute('aria-label')?.includes('close') || el.getAttribute('aria-label')?.includes('back'))
-            && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button')) {
-          el.click();
-          return true;
-        }
-        if (el.shadowRoot && scan(el.shadowRoot, d + 1)) return true;
-      }
-      return false;
-    };
-    scan(document, 0);
-  })()`);
-  await p.waitForTimeout(1000);
 
   return {
     date: entry.date,
