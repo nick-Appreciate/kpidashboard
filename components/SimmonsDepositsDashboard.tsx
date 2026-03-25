@@ -33,6 +33,9 @@ interface ReconcileRow {
   af_amount: string | null; ref_raw: string | null;
   amounts_match: boolean | null;
   duplicate_ref: boolean | null;
+  af_property: string | null;
+  af_unit: string | null;
+  af_tenant_id: number | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -220,6 +223,8 @@ export default function SimmonsDepositsDashboard() {
       (r.ref_raw || '').toLowerCase().includes(q) ||
       (r.money_order_number || '').toLowerCase().includes(q) ||
       (r.check_number || '').toLowerCase().includes(q) ||
+      (r.af_property || '').toLowerCase().includes(q) ||
+      (r.af_unit || '').toLowerCase().includes(q) ||
       amounts.some(a => a.includes(q))
     );
   };
@@ -482,21 +487,40 @@ function AFOnlyTable({ rows }: { rows: ReconcileRow[] }) {
         <thead className="sticky top-0 z-10">
           <tr className="border-b border-red-500/20 bg-red-500/[0.03]">
             <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-24">AF Date</th>
-            <th className="text-left px-3 py-2 text-xs font-medium text-red-400">Payer (AppFolio)</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-red-400">Payer</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-red-400">Property</th>
+            <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-16">Unit</th>
             <th className="text-right px-3 py-2 text-xs font-medium text-red-400 w-24">Amount</th>
             <th className="text-left px-3 py-2 text-xs font-medium text-red-400 w-36">Reference</th>
+            <th className="text-center px-3 py-2 text-xs font-medium text-red-400 w-20">Ledger</th>
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-500 text-sm">No unmatched AF entries</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500 text-sm">No unmatched AF entries</td></tr>}
           {rows.map((row, i) => (
-            <tr key={row.af_id || String(i)} className="border-b border-white/5">
+            <tr key={row.af_id || String(i)} className="border-b border-white/5 hover:bg-white/[0.02]">
               <td className="px-3 py-1.5 text-slate-300 font-mono text-xs">{row.af_date || '\u2014'}</td>
               <td className="px-3 py-1.5 text-xs text-slate-200">{row.af_payer || '\u2014'}</td>
+              <td className="px-3 py-1.5 text-xs text-slate-400">{row.af_property || '\u2014'}</td>
+              <td className="px-3 py-1.5 text-xs text-slate-400">{row.af_unit || '\u2014'}</td>
               <td className="px-3 py-1.5 text-right font-mono text-white text-xs">
                 {row.af_amount ? `$${parseFloat(row.af_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '\u2014'}
               </td>
               <td className="px-3 py-1.5 text-xs font-mono text-slate-500">{row.ref_raw || '\u2014'}</td>
+              <td className="px-3 py-1.5 text-center">
+                {row.af_tenant_id ? (
+                  <a
+                    href={`https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters%5Bparty_ids%5D=t_${row.af_tenant_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300 text-xs underline"
+                  >
+                    View
+                  </a>
+                ) : (
+                  <span className="text-slate-600 text-xs">\u2014</span>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
