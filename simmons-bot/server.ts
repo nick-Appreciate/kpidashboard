@@ -225,13 +225,30 @@ app.post('/api/scrape', async (req, res) => {
       });
     }
 
-    const {
+    let {
       account_suffix,
       start_date,
       end_date,
       extract = true,
       dry_run = false,
     } = req.body || {};
+
+    // Auto-detect start_date: only scrape deposits newer than the latest in DB
+    if (!start_date && supabase) {
+      try {
+        const { data } = await supabase
+          .from('simmons_deposits')
+          .select('deposit_date')
+          .order('deposit_date', { ascending: false })
+          .limit(1);
+        if (data && data.length > 0) {
+          start_date = data[0].deposit_date;
+          console.log(`[api] Auto start_date from DB: ${start_date}`);
+        }
+      } catch (err: any) {
+        console.warn(`[api] Could not get latest deposit date: ${err.message}`);
+      }
+    }
 
     // Get accounts to scrape
     const accounts = await getAccountsToScrape(account_suffix);

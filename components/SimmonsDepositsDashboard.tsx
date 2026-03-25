@@ -210,15 +210,17 @@ export default function SimmonsDepositsDashboard() {
 
   const searchFilter = (r: ReconcileRow) => {
     if (!rSearch) return true;
-    const q = rSearch.toLowerCase();
+    // Strip $, commas from search to match raw amounts
+    const q = rSearch.toLowerCase().replace(/[$,]/g, '');
+    const fmtAmt = (n: number | null) => n != null ? [String(n), n.toFixed(2), n.toLocaleString('en-US', { minimumFractionDigits: 2 })] : [];
+    const amounts = [...fmtAmt(r.simmons_amount), ...fmtAmt(r.af_amount)];
     return (
       (r.simmons_payer || '').toLowerCase().includes(q) ||
       (r.af_payer || '').toLowerCase().includes(q) ||
       (r.ref_raw || '').toLowerCase().includes(q) ||
       (r.money_order_number || '').toLowerCase().includes(q) ||
       (r.check_number || '').toLowerCase().includes(q) ||
-      String(r.simmons_amount || '').includes(q) ||
-      String(r.af_amount || '').includes(q)
+      amounts.some(a => a.includes(q))
     );
   };
 
