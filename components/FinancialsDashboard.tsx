@@ -176,7 +176,7 @@ export default function FinancialsDashboard() {
 
   // Chart data
   const chartData = useMemo(() => {
-    const CAP_RATE = 0.07;
+    const CAP_RATE = 0.065;
     const isCapex = selectedMetric === 'capex';
     const isValue = selectedMetric === 'value';
 
