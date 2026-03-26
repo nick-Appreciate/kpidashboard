@@ -215,7 +215,7 @@ export default function FinancialsDashboard() {
 
     // CapEx values are negative (outflows) — show as positive for charting
     if (isCapex) {
-      for (const entry of byPeriod.values()) {
+      for (const entry of Array.from(byPeriod.values())) {
         for (const key of Object.keys(entry)) {
           if (key !== 'period' && typeof entry[key] === 'number') {
             entry[key] = Math.abs(entry[key]);
@@ -226,7 +226,7 @@ export default function FinancialsDashboard() {
 
     // Value = (monthly NOI * 12) / cap rate
     if (isValue) {
-      for (const entry of byPeriod.values()) {
+      for (const entry of Array.from(byPeriod.values())) {
         for (const key of Object.keys(entry)) {
           if (key !== 'period' && typeof entry[key] === 'number') {
             entry[key] = (entry[key] * 12) / CAP_RATE;
