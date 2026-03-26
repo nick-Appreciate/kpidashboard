@@ -352,10 +352,54 @@ async function syncVendorDirectory(): Promise<SyncResult> {
   }
 }
 
+async function debugReport(reportName: string, filters: Record<string, unknown> = {}): Promise<SyncResult> {
+  try {
+    const data = await fetchAppFolioReport(reportName, filters);
+    const sample = data.length > 0 ? Object.keys(data[0] as any).join(', ') : 'NO DATA';
+    const sampleRow = data.length > 0 ? JSON.stringify(data[0]).slice(0, 800) : '';
+    return { report: 'debug_' + reportName, success: true, rowsProcessed: data.length, error: `KEYS: ${sample} | SAMPLE: ${sampleRow}` };
+  } catch (error: any) {
+    return { report: 'debug_' + reportName, success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
+async function syncOwnerDirectory(): Promise<SyncResult> {
+  try {
+    const data = await fetchAppFolioReport('owner_directory');
+
+    const records = data.map((row: any) => ({
+      owner_id: row.owner_id ? Number(row.owner_id) : null,
+      name: row.name,
+      first_name: row.first_name || null,
+      last_name: row.last_name || null,
+      email: row.email || null,
+      phone_numbers: row.phone_numbers || null,
+      payment_type: row.payment_type || null,
+      properties_owned: row.properties_owned || null,
+      properties_owned_ids: row.properties_owned_i_ds || null,
+      address: row.address || null,
+      city: row.city || null,
+      state: row.state || null,
+      zip: row.zip || null,
+      tags: row.tags || null,
+      hold_payments: row.hold_payments === 'Yes' || row.hold_payments === true,
+      synced_at: new Date().toISOString()
+    }));
+
+    await supabase.rpc('truncate_af_owner_directory');
+    const { error } = await supabase.from('af_owner_directory').insert(records);
+    if (error) throw new Error(JSON.stringify(error));
+
+    return { report: 'owner_directory', success: true, rowsProcessed: records.length };
+  } catch (error: any) {
+    return { report: 'owner_directory', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 async function syncPropertyDirectory(): Promise<SyncResult> {
   try {
     const data = await fetchAppFolioReport('property_directory');
-    
+
     const records = data.map((row: any) => ({
       property_id: row.property_id,
       property_name: row.property_name,
@@ -372,7 +416,11 @@ async function syncPropertyDirectory(): Promise<SyncResult> {
       reserve: row.reserve ? parseFloat(row.reserve) : null,
       portfolio: row.portfolio,
       year_built: row.year_built ? parseInt(row.year_built) : null,
-      amenities: row.amenities
+      amenities: row.amenities,
+      owner_ids: row.owner_i_ds || null,
+      owners: row.owners || null,
+      property_group_id: row.property_group_id ? Number(row.property_group_id) : null,
+      portfolio_id: row.portfolio_id ? Number(row.portfolio_id) : null,
     }));
     
     await supabase.rpc('truncate_af_property_directory');
@@ -873,6 +921,180 @@ async function syncIncomeRegister(): Promise<SyncResult> {
   }
 }
 
+async function syncCashFlow(): Promise<SyncResult> {
+  try {
+    const today = getTodayDate();
+    const todayDate = new Date(today + 'T12:00:00Z');
+    const allRecords: any[] = [];
+
+    // Build property ID -> name map from af_property_directory
+    const { data: propDir } = await supabase
+      .from('af_property_directory')
+      .select('property_id, property_name');
+    const propMap = new Map<number, string>();
+    for (const p of (propDir || [])) {
+      propMap.set(Number(p.property_id), p.property_name);
+    }
+
+    // Build account number -> COA info map
+    const { data: coaData } = await supabase
+      .from('af_chart_of_accounts')
+      .select('number, account_name, account_type, sub_accountof');
+    const coaMap = new Map<string, { account_type: string; sub_accountof: string | null }>();
+    for (const c of (coaData || [])) {
+      if (c.number) coaMap.set(c.number, { account_type: c.account_type, sub_accountof: c.sub_accountof });
+    }
+
+    // Map AppFolio account_type to our row_type categories
+    function classifyByCoA(acctNum: string): { rowType: string; accountType: string; parentAccount: string | null } {
+      const coa = acctNum ? coaMap.get(acctNum) : null;
+      if (coa) {
+        const at = coa.account_type;
+        let rowType = 'income';
+        if (at === 'Income') rowType = 'income';
+        else if (at === 'Expense') rowType = 'expense';
+        else if (at === 'Other Income') rowType = 'other_income';
+        else if (at === 'Other Expense') rowType = 'other_expense';
+        else rowType = 'other';
+        return { rowType, accountType: at, parentAccount: coa.sub_accountof };
+      }
+      // Fallback by number range
+      if (acctNum) {
+        const num = parseFloat(acctNum);
+        if (num >= 4000 && num < 5000) return { rowType: 'income', accountType: 'Income', parentAccount: null };
+        if (num >= 5000 && num < 7000) return { rowType: 'expense', accountType: 'Expense', parentAccount: null };
+        if (num >= 7000 && num < 8000) return { rowType: 'other_income', accountType: 'Other Income', parentAccount: null };
+        if (num >= 8000) return { rowType: 'other_expense', accountType: 'Other Expense', parentAccount: null };
+      }
+      return { rowType: 'income', accountType: 'Income', parentAccount: null };
+    }
+
+    for (let m = 11; m >= 0; m--) {
+      const monthDate = new Date(todayDate);
+      monthDate.setMonth(monthDate.getMonth() - m);
+      const year = monthDate.getFullYear();
+      const month = monthDate.getMonth();
+      const periodStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const periodEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      let data: unknown[];
+      try {
+        data = await fetchAppFolioReport('cash_flow_comparison', {
+          posted_on_from: periodStart,
+          posted_on_to: periodEnd
+        });
+      } catch (err: any) {
+        console.error(`Cash flow fetch failed for ${periodStart}: ${err?.message}`);
+        continue;
+      }
+
+      if (!data || data.length === 0) continue;
+
+      // Track totals per property for computing summary rows
+      const incomeTotals = new Map<string, number>();
+      const expenseTotals = new Map<string, number>();
+      const otherTotals = new Map<string, number>();
+
+      for (const row of data as any[]) {
+        const accountName = (row.account_name || '').toString().trim();
+        if (!accountName) continue;
+        const accountNumber = (row.account_number || '').toString().trim();
+
+        // Skip AppFolio's built-in total/summary rows (empty account_number)
+        // We compute our own summary rows (NOI, Total Income, Total Expense, etc.)
+        if (!accountNumber) continue;
+
+        const { rowType, accountType, parentAccount } = classifyByCoA(accountNumber);
+        const ts = new Date().toISOString();
+
+        // Helper to accumulate totals
+        function addToTotals(propName: string, val: number) {
+          if (rowType === 'income') incomeTotals.set(propName, (incomeTotals.get(propName) || 0) + val);
+          else if (rowType === 'expense') expenseTotals.set(propName, (expenseTotals.get(propName) || 0) + val);
+          else otherTotals.set(propName, (otherTotals.get(propName) || 0) + val);
+        }
+
+        const baseRecord = {
+          period_start: periodStart, period_end: periodEnd,
+          account_name: accountName, account_path: parentAccount, account_depth: parentAccount ? 1 : 0,
+          row_type: rowType, account_type: accountType, account_number: accountNumber,
+          parent_account: parentAccount, synced_at: ts
+        };
+
+        // Parse total column
+        const totalVal = row.total ? parseFloat(String(row.total).replace(/,/g, '')) : null;
+        if (totalVal !== null && !isNaN(totalVal)) {
+          allRecords.push({ ...baseRecord, property_name: 'Total', amount: totalVal });
+          addToTotals('Total', totalVal);
+        }
+
+        // Parse per-property amounts from properties array: [{id, value}, ...]
+        const properties = row.properties;
+        if (Array.isArray(properties)) {
+          for (const prop of properties) {
+            const propId = Number(prop.id);
+            const propName = propMap.get(propId) || `Property ${propId}`;
+            const val = prop.value ? parseFloat(String(prop.value).replace(/,/g, '')) : null;
+            if (val === null || isNaN(val) || val === 0) continue;
+
+            allRecords.push({ ...baseRecord, property_name: propName, amount: val });
+            addToTotals(propName, val);
+          }
+        }
+      }
+
+      // Add computed summary rows for each property
+      const allProps = new Set([...incomeTotals.keys(), ...expenseTotals.keys(), ...otherTotals.keys()]);
+      for (const prop of allProps) {
+        const income = incomeTotals.get(prop) || 0;
+        const expense = expenseTotals.get(prop) || 0;
+        const other = otherTotals.get(prop) || 0;
+        const noi = income - expense;
+        const cashFlow = noi + other;
+        const ts = new Date().toISOString();
+
+        for (const sr of [
+          { account_name: 'Total Operating Income', row_type: 'total_income', amount: income },
+          { account_name: 'Total Operating Expense', row_type: 'total_expense', amount: expense },
+          { account_name: 'NOI - Net Operating Income', row_type: 'noi', amount: noi },
+          { account_name: 'Net Other Items', row_type: 'net_other', amount: other },
+          { account_name: 'Cash Flow', row_type: 'cash_flow', amount: cashFlow },
+        ]) {
+          allRecords.push({
+            period_start: periodStart, period_end: periodEnd,
+            account_name: sr.account_name, account_path: null, account_depth: 0,
+            row_type: sr.row_type, property_name: prop, amount: sr.amount, synced_at: ts
+          });
+        }
+      }
+
+      // Rate limit between monthly calls
+      if (m > 0) {
+        await new Promise(resolve => setTimeout(resolve, 2200));
+      }
+    }
+
+    if (allRecords.length === 0) {
+      return { report: 'cash_flow', success: true, rowsProcessed: 0 };
+    }
+
+    // Truncate and re-insert
+    await supabase.rpc('truncate_af_cash_flow');
+
+    const batchSize = 100;
+    for (let i = 0; i < allRecords.length; i += batchSize) {
+      const batch = allRecords.slice(i, i + batchSize);
+      const { error } = await supabase.from('af_cash_flow').insert(batch);
+      if (error) throw new Error(JSON.stringify(error));
+    }
+
+    return { report: 'cash_flow', success: true, rowsProcessed: allRecords.length };
+  } catch (error: any) {
+    return { report: 'cash_flow', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 // Helper function for Central Time
 function getTodayDate(): string {
   const now = new Date();
@@ -906,6 +1128,7 @@ Deno.serve(async (req: Request) => {
       // New reports
       results.push(await syncVendorDirectory()); await delay();
       results.push(await syncPropertyDirectory()); await delay();
+      results.push(await syncOwnerDirectory()); await delay();
       results.push(await syncTenantLedger()); await delay();
       results.push(await syncIncomeRegister()); await delay();
       results.push(await syncLeaseHistory()); await delay();
@@ -917,7 +1140,8 @@ Deno.serve(async (req: Request) => {
       results.push(await syncTrialBalance()); await delay();
       results.push(await syncProspectSourceTracking()); await delay();
       results.push(await syncTenantDirectory()); await delay();
-      results.push(await syncWorkOrders());
+      results.push(await syncWorkOrders()); await delay();
+      results.push(await syncCashFlow());
 
     } else if (reportParam === 'core') {
       // Just the core reports for faster sync
@@ -938,7 +1162,8 @@ Deno.serve(async (req: Request) => {
       results.push(await syncGeneralLedger()); await delay();
       results.push(await syncChartOfAccounts()); await delay();
       results.push(await syncBillDetail()); await delay();
-      results.push(await syncTrialBalance());
+      results.push(await syncTrialBalance()); await delay();
+      results.push(await syncCashFlow());
 
     } else {
       // Individual report sync
@@ -963,7 +1188,9 @@ Deno.serve(async (req: Request) => {
         'trial_balance': syncTrialBalance,
         'prospect_source_tracking': syncProspectSourceTracking,
         'tenant_directory': syncTenantDirectory,
-        'work_order': syncWorkOrders
+        'work_order': syncWorkOrders,
+        'cash_flow': syncCashFlow,
+        'owner_directory': syncOwnerDirectory
       };
       
       const syncFn = syncFunctions[reportParam];
