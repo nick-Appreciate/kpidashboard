@@ -217,7 +217,7 @@ export default function SimmonsDepositsDashboard() {
     // Strip $, commas from search to match raw amounts
     const q = rSearch.toLowerCase().replace(/[$,]/g, '');
     const fmtAmt = (n: number | null) => n != null ? [String(n), n.toFixed(2), n.toLocaleString('en-US', { minimumFractionDigits: 2 })] : [];
-    const amounts = [...fmtAmt(r.simmons_amount), ...fmtAmt(r.af_amount)];
+    const amounts = [...fmtAmt(r.simmons_amount != null ? Number(r.simmons_amount) : null), ...fmtAmt(r.af_amount != null ? Number(r.af_amount) : null)];
     return (
       (r.simmons_payer || '').toLowerCase().includes(q) ||
       (r.af_payer || '').toLowerCase().includes(q) ||
