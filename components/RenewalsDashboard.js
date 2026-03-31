@@ -305,8 +305,8 @@ export default function RenewalsDashboard() {
       const bucket = months.find(m => m.year === expDate.getFullYear() && m.month === expDate.getMonth());
       if (bucket) bucket.count++;
     });
-    // Prepend the Expired bucket (all leases with past lease end date)
-    const expiredCount = leaseData.badLeases.filter(l => l.issueType === 'expired').length;
+    // Prepend the Expired bucket (past lease end date + month-to-month combined)
+    const expiredCount = leaseData.badLeases.filter(l => l.issueType === 'expired' || l.issueType === 'monthToMonth').length;
     months.unshift({ label: 'Expired', year: -1, month: -1, count: expiredCount, isExpired: true });
     return months;
   }, [leaseData]);
