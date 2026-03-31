@@ -61,7 +61,7 @@ const isKCProperty = (prop) => KC_PROPERTIES.some(kc => prop?.toLowerCase().incl
 // Issue type badge renderer
 const IssueBadge = ({ type }) => {
   const config = {
-    'eviction': { bg: 'bg-red-500/10', text: 'text-red-300', label: 'Eviction' },
+    'expired': { bg: 'bg-rose-500/10', text: 'text-rose-300', label: 'Expired' },
     'monthToMonth': { bg: 'bg-orange-500/10', text: 'text-orange-300', label: 'MTM' },
     'expiring': { bg: 'bg-amber-500/10', text: 'text-amber-300', label: '0-60' },
     'upcoming': { bg: 'bg-blue-500/10', text: 'text-blue-300', label: '60-90' },
@@ -81,7 +81,7 @@ export default function RenewalsDashboard() {
   const [endDate, setEndDate] = useState('');
 
   // Lease detail multi-select filters
-  const [activeIssues, setActiveIssues] = useState(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']));
+  const [activeIssues, setActiveIssues] = useState(new Set(['expired', 'monthToMonth', 'expiring', 'upcoming']));
   const [activeStatuses, setActiveStatuses] = useState(new Set());
   const [activeMonth, setActiveMonth] = useState(null); // { year, month } or null
   const [leaseDetailView, setLeaseDetailView] = useState('table');
@@ -163,7 +163,7 @@ export default function RenewalsDashboard() {
     if (!stats?.leaseHealthDetails) return [];
     const leases = [];
     const reasons = stats.leaseHealthDetails.badLeasesByReason || {};
-    (reasons.evictions || []).forEach(l => leases.push({ ...l, issueType: 'eviction' }));
+    (reasons.expired || []).forEach(l => leases.push({ ...l, issueType: 'expired' }));
     (reasons.monthToMonth || []).forEach(l => leases.push({ ...l, issueType: 'monthToMonth' }));
     (reasons.expiringWithin60Days || []).forEach(l => leases.push({ ...l, issueType: 'expiring' }));
     (stats.leaseHealthDetails.upcomingExpirations || []).forEach(l => leases.push({ ...l, issueType: 'upcoming' }));
@@ -190,7 +190,7 @@ export default function RenewalsDashboard() {
 
   // Issue type button config
   const issueButtons = [
-    { key: 'eviction', label: 'Eviction', bg: 'bg-red-500', text: 'text-red-300', activeBg: 'bg-red-500/20', inactiveBg: 'bg-surface-overlay' },
+    { key: 'expired', label: 'Expired', bg: 'bg-rose-500', text: 'text-rose-300', activeBg: 'bg-rose-500/20', inactiveBg: 'bg-surface-overlay' },
     { key: 'monthToMonth', label: 'MTM', bg: 'bg-orange-500', text: 'text-orange-300', activeBg: 'bg-orange-500/20', inactiveBg: 'bg-surface-overlay' },
     { key: 'expiring', label: '0-60', bg: 'bg-amber-500', text: 'text-amber-300', activeBg: 'bg-amber-500/20', inactiveBg: 'bg-surface-overlay' },
     { key: 'upcoming', label: '60-90', bg: 'bg-blue-500', text: 'text-blue-300', activeBg: 'bg-blue-500/20', inactiveBg: 'bg-surface-overlay' },
@@ -216,7 +216,7 @@ export default function RenewalsDashboard() {
     if (dimension === 'issue') {
       setActiveIssues(prev =>
         prev.size === 1 && prev.has(value)
-          ? new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming'])
+          ? new Set(['expired', 'monthToMonth', 'expiring', 'upcoming'])
           : new Set([value])
       );
     } else if (dimension === 'status') {
@@ -247,18 +247,14 @@ export default function RenewalsDashboard() {
       .filter(l => activeStatuses.has(l.renewalStatus || 'Unknown'))
       .filter(l => {
         if (!activeMonth) return true;
+        if (activeMonth.expired) return l.issueType === 'expired';
         const exp = getLeaseExpirationMonth(l);
         return exp && exp.year === activeMonth.year && exp.month === activeMonth.month;
       })
       .sort((a, b) => {
-        // Evictions always at the bottom
-        if (a.issueType === 'eviction' && b.issueType !== 'eviction') return 1;
-        if (b.issueType === 'eviction' && a.issueType !== 'eviction') return -1;
         // MTM with no days left at the very top
-        const aNull = a.daysUntilExpiration == null;
-        const bNull = b.daysUntilExpiration == null;
-        const aMtmNull = aNull && a.issueType === 'monthToMonth';
-        const bMtmNull = bNull && b.issueType === 'monthToMonth';
+        const aMtmNull = a.daysUntilExpiration == null && a.issueType === 'monthToMonth';
+        const bMtmNull = b.daysUntilExpiration == null && b.issueType === 'monthToMonth';
         if (aMtmNull && !bMtmNull) return -1;
         if (bMtmNull && !aMtmNull) return 1;
         // Sort by days left ascending (oldest/most negative first), nulls last
@@ -277,11 +273,11 @@ export default function RenewalsDashboard() {
 
   // For the mini chart, provide leaseData-like shape
   const leaseData = useMemo(() => ({
-    badLeases: allLeases.filter(l => ['eviction', 'monthToMonth', 'expiring'].includes(l.issueType)),
+    badLeases: allLeases.filter(l => ['expired', 'monthToMonth', 'expiring'].includes(l.issueType)),
     upcoming: allLeases.filter(l => l.issueType === 'upcoming'),
   }), [allLeases]);
 
-  // Compute upcoming expirations bucketed by month for next 6 months
+  // Compute upcoming expirations bucketed by month for next 6 months, plus an Expired bucket
   const monthlyExpirations = useMemo(() => {
     const today = new Date();
     const months = [];
@@ -292,11 +288,12 @@ export default function RenewalsDashboard() {
         year: d.getFullYear(),
         month: d.getMonth(),
         count: 0,
+        isExpired: false,
       });
     }
-    // Include all leases with an expiration date in the next 6 months
-    const allLeases = [...leaseData.badLeases, ...leaseData.upcoming];
-    allLeases.forEach(lease => {
+    // Include forward-looking leases in their month buckets
+    const forwardLeases = [...leaseData.badLeases.filter(l => l.issueType !== 'expired'), ...leaseData.upcoming];
+    forwardLeases.forEach(lease => {
       let expDate;
       if (lease.leaseEnd) {
         expDate = new Date(lease.leaseEnd + 'T00:00:00');
@@ -308,6 +305,9 @@ export default function RenewalsDashboard() {
       const bucket = months.find(m => m.year === expDate.getFullYear() && m.month === expDate.getMonth());
       if (bucket) bucket.count++;
     });
+    // Prepend the Expired bucket (all leases with past lease end date)
+    const expiredCount = leaseData.badLeases.filter(l => l.issueType === 'expired').length;
+    months.unshift({ label: 'Expired', year: -1, month: -1, count: expiredCount, isExpired: true });
     return months;
   }, [leaseData]);
 
@@ -532,10 +532,12 @@ export default function RenewalsDashboard() {
 
     // Highlight selected month bar, dim others
     const getBarColors = () => monthlyExpirations.map((m, i) => {
-      if (activeMonth && (m.year !== activeMonth.year || m.month !== activeMonth.month)) {
-        return 'rgba(100,116,139,0.2)'; // dimmed slate
+      if (activeMonth) {
+        const isSelected = m.isExpired ? activeMonth.expired : (!activeMonth.expired && m.year === activeMonth.year && m.month === activeMonth.month);
+        if (!isSelected) return 'rgba(100,116,139,0.2)';
       }
-      return i === 0 ? '#f59e0b' : '#3b82f6';
+      if (m.isExpired) return '#ef4444'; // rose-red for expired
+      return i === 1 ? '#f59e0b' : '#3b82f6'; // i=1 is current month after prepend
     });
 
     expirationsMiniChartRef.current = new Chart(expirationsMiniCanvasRef.current.getContext('2d'), {
@@ -561,9 +563,8 @@ export default function RenewalsDashboard() {
             const idx = elements[0].index;
             const clicked = monthlyExpirations[idx];
             setActiveMonth(prev => {
-              if (prev && prev.year === clicked.year && prev.month === clicked.month) {
-                return null; // toggle off
-              }
+              if (clicked.isExpired) return (prev?.expired) ? null : { expired: true };
+              if (prev && !prev.expired && prev.year === clicked.year && prev.month === clicked.month) return null;
               return { year: clicked.year, month: clicked.month };
             });
           }
@@ -824,13 +825,13 @@ export default function RenewalsDashboard() {
                 <span>Showing {filteredLeases.length} of {tableleases.length} leases</span>
                 {activeMonth && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[11px] font-medium">
-                    {new Date(activeMonth.year, activeMonth.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                    {activeMonth.expired ? 'Expired' : new Date(activeMonth.year, activeMonth.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                     <button onClick={() => setActiveMonth(null)} className="hover:text-white ml-0.5">✕</button>
                   </span>
                 )}
                 <button
                   onClick={() => {
-                    setActiveIssues(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']));
+                    setActiveIssues(new Set(['expired', 'monthToMonth', 'expiring', 'upcoming']));
                     setActiveStatuses(new Set(allRenewalStatuses));
                     setActiveMonth(null);
                   }}
@@ -935,7 +936,7 @@ export default function RenewalsDashboard() {
                       <p className="text-sm">No leases match the selected filters</p>
                       <button
                         onClick={() => {
-                          setActiveIssues(new Set(['eviction', 'monthToMonth', 'expiring', 'upcoming']));
+                          setActiveIssues(new Set(['expired', 'monthToMonth', 'expiring', 'upcoming']));
                           setActiveStatuses(new Set(allRenewalStatuses));
                           setActiveMonth(null);
                         }}

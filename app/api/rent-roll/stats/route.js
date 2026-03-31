@@ -596,7 +596,7 @@ export async function GET(request) {
     
     // Get detailed bad lease information
     const badLeasesByReason = {
-      evictions: [],
+      expired: [],
       monthToMonth: [],
       expiringWithin60Days: []
     };
@@ -817,18 +817,14 @@ export async function GET(request) {
         leaseEndDate: u.lease_to || null
       };
       
-      // Check if lease is renewed - exclude from bad leases (except evictions)
+      // Skip evictions and move-out notices — handled elsewhere, not renewal candidates
+      if (u.status === 'Evict' || u.status?.startsWith('Notice')) return;
+
+      // Check if lease is renewed - exclude from bad leases
       const isRenewed = baseLeaseInfo.renewalStatus === 'Renewed';
-      
-      if (u.status === 'Evict') {
-        // Evictions always show regardless of renewal status
-        badLeasesByReason.evictions.push({
-          ...baseLeaseInfo,
-          reason: 'Eviction',
-          daysUntilExpiration: null
-        });
-      } else if (isRenewed) {
-        // Skip renewed leases for all other categories
+
+      if (isRenewed) {
+        // Skip renewed leases
         return;
       } else if (!u.lease_to) {
         badLeasesByReason.monthToMonth.push({
@@ -839,10 +835,10 @@ export async function GET(request) {
       } else {
         const leaseEnd = new Date(u.lease_to);
         const daysUntil = Math.ceil((leaseEnd.getTime() - currentDate.getTime()) / (24 * 60 * 60 * 1000));
-        
+
         if (leaseEnd < currentDate) {
-          // Expired lease - treat as month-to-month
-          badLeasesByReason.monthToMonth.push({
+          // Expired lease — separate bucket
+          badLeasesByReason.expired.push({
             ...baseLeaseInfo,
             reason: `Expired ${Math.abs(daysUntil)} days ago`,
             daysUntilExpiration: daysUntil
