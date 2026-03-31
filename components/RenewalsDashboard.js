@@ -247,7 +247,7 @@ export default function RenewalsDashboard() {
       .filter(l => activeStatuses.has(l.renewalStatus || 'Unknown'))
       .filter(l => {
         if (!activeMonth) return true;
-        if (activeMonth.expired) return l.issueType === 'expired';
+        if (activeMonth.expired) return l.issueType === 'expired' || l.issueType === 'monthToMonth';
         const exp = getLeaseExpirationMonth(l);
         return exp && exp.year === activeMonth.year && exp.month === activeMonth.month;
       })
