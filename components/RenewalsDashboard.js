@@ -243,11 +243,15 @@ export default function RenewalsDashboard() {
   // Filtered + sorted leases: filter by issue type & renewal status, sort by days left asc, evictions last
   const filteredLeases = useMemo(() => {
     return tableleases
-      .filter(l => activeIssues.has(l.issueType))
+      .filter(l => {
+        // When the Expired bar is selected, show expired+MTM regardless of issue toggles
+        if (activeMonth?.expired) return l.issueType === 'expired' || l.issueType === 'monthToMonth';
+        return activeIssues.has(l.issueType);
+      })
       .filter(l => activeStatuses.has(l.renewalStatus || 'Unknown'))
       .filter(l => {
         if (!activeMonth) return true;
-        if (activeMonth.expired) return l.issueType === 'expired' || l.issueType === 'monthToMonth';
+        if (activeMonth.expired) return true; // already handled above
         const exp = getLeaseExpirationMonth(l);
         return exp && exp.year === activeMonth.year && exp.month === activeMonth.month;
       })
