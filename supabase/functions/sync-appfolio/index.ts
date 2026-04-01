@@ -119,7 +119,7 @@ async function syncTenantTickler(): Promise<SyncResult> {
 async function syncRenewalSummary(): Promise<SyncResult> {
   try {
     const data = await fetchAppFolioReport('renewal_summary');
-    
+
     const records = data.map((row: any) => ({
       unit_name: row.unit_name || row.unit,
       property_name: row.property_name,
@@ -128,13 +128,20 @@ async function syncRenewalSummary(): Promise<SyncResult> {
       lease_end: row.lease_end || null,
       rent: row.rent ? parseFloat(row.rent) : null,
       status: row.status || null,
+      renewal_sent_date: row.renewal_sent_date || null,
+      countersigned_date: row.countersigned_date || null,
       updated_at: new Date().toISOString()
     }));
-    
-    await supabase.from('renewal_summary').delete().neq('id', 0);
-    const { error } = await supabase.from('renewal_summary').insert(records);
+
+    // Upsert by unique offer key (property, unit, lease_start, lease_end).
+    // This preserves Pending records with past-dated start times that AppFolio
+    // excludes from its default renewal_summary window (e.g. MTM tenants with
+    // outstanding renewal offers sent months ago).
+    const { error } = await supabase
+      .from('renewal_summary')
+      .upsert(records, { onConflict: 'property_name,unit_name,lease_start,lease_end' });
     if (error) throw new Error(JSON.stringify(error));
-    
+
     return { report: 'renewal_summary', success: true, rowsProcessed: records.length };
   } catch (error: any) {
     return { report: 'renewal_summary', success: false, rowsProcessed: 0, error: error?.message || String(error) };
