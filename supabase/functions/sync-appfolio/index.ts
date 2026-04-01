@@ -133,16 +133,25 @@ async function syncRenewalSummary(): Promise<SyncResult> {
       updated_at: new Date().toISOString()
     }));
 
+    // Deduplicate by unique offer key before upsert (AppFolio can return dupes)
+    const seen = new Set<string>();
+    const uniqueRecords = records.filter((r: any) => {
+      const key = `${r.property_name}|${r.unit_name}|${r.lease_start}|${r.lease_end}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     // Upsert by unique offer key (property, unit, lease_start, lease_end).
     // This preserves Pending records with past-dated start times that AppFolio
     // excludes from its default renewal_summary window (e.g. MTM tenants with
     // outstanding renewal offers sent months ago).
     const { error } = await supabase
       .from('renewal_summary')
-      .upsert(records, { onConflict: 'property_name,unit_name,lease_start,lease_end' });
+      .upsert(uniqueRecords, { onConflict: 'property_name,unit_name,lease_start,lease_end' });
     if (error) throw new Error(JSON.stringify(error));
 
-    return { report: 'renewal_summary', success: true, rowsProcessed: records.length };
+    return { report: 'renewal_summary', success: true, rowsProcessed: uniqueRecords.length };
   } catch (error: any) {
     return { report: 'renewal_summary', success: false, rowsProcessed: 0, error: error?.message || String(error) };
   }
