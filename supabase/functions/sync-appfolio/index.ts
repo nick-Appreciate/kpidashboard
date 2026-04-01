@@ -118,8 +118,20 @@ async function syncTenantTickler(): Promise<SyncResult> {
 
 async function syncRenewalSummary(): Promise<SyncResult> {
   try {
-    const data = await fetchAppFolioReport('renewal_summary');
-    
+    // Fetch with a wide date window: 2 years back to 2 years forward
+    // This captures expired/MTM tenants with sent renewals, not just upcoming leases
+    const today = new Date();
+    const twoYearsAgo = new Date(today);
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const twoYearsOut = new Date(today);
+    twoYearsOut.setFullYear(twoYearsOut.getFullYear() + 2);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+    const data = await fetchAppFolioReport('renewal_summary', {
+      'filters[lease_end_date_from]': fmt(twoYearsAgo),
+      'filters[lease_end_date_to]': fmt(twoYearsOut),
+    });
+
     const records = data.map((row: any) => ({
       unit_name: row.unit_name || row.unit,
       property_name: row.property_name,
@@ -128,6 +140,8 @@ async function syncRenewalSummary(): Promise<SyncResult> {
       lease_end: row.lease_end || null,
       rent: row.rent ? parseFloat(row.rent) : null,
       status: row.status || null,
+      renewal_sent_date: row.renewal_sent_date || null,
+      countersigned_date: row.countersigned_date || null,
       updated_at: new Date().toISOString()
     }));
     
