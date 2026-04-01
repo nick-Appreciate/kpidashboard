@@ -848,6 +848,35 @@ Deno.serve(async (req: Request) => {
         'tenant_directory': syncTenantDirectory
       };
       
+      if (reportParam === 'debug_v1_renewals') {
+        // Probe AppFolio v1 REST API for renewal/offer endpoints
+        const auth = btoa(`${appfolioClientId}:${appfolioClientSecret}`);
+        const base = `https://${appfolioDatabase}.appfolio.com/api/v1`;
+        const endpoints = [
+          '/renewal_offers.json',
+          '/renewal_offers.json?status=pending',
+          '/lease_renewals.json',
+          '/renewals.json',
+          `/occupancies/387/renewal_offers.json`,
+          `/occupancies/387/renewals.json`,
+        ];
+        const probeResults: Record<string, unknown> = {};
+        for (const ep of endpoints) {
+          try {
+            const res = await fetch(`${base}${ep}`, {
+              headers: { 'Authorization': `Basic ${auth}` }
+            });
+            const body = await res.text();
+            probeResults[ep] = { status: res.status, body: body.slice(0, 500) };
+          } catch (e: any) {
+            probeResults[ep] = { error: e?.message };
+          }
+        }
+        return new Response(JSON.stringify(probeResults, null, 2), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
       const syncFn = syncFunctions[reportParam];
       if (!syncFn) {
         return new Response(JSON.stringify({ error: `Unknown report: ${reportParam}` }), {
