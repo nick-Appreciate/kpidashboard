@@ -61,11 +61,12 @@ export async function POST(request) {
   try {
     const today = getCentralTimeDate();
     
-    // Fetch current rehab data
+    // Fetch current rehab data (only vacant units - exclude notice/eviction)
     const { data: rehabs, error: rehabError } = await supabase
       .from('rehabs')
       .select('*')
-      .in('status', ['pending_setup', 'in_progress']);
+      .in('status', ['pending_setup', 'in_progress'])
+      .eq('source_type', 'vacancy');
     
     if (rehabError) {
       return NextResponse.json({ error: rehabError.message }, { status: 500 });

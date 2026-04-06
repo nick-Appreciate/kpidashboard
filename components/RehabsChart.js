@@ -42,7 +42,9 @@ const DB_TO_DISPLAY = {
   'complete': 'Complete'
 };
 
-export default function RehabsChart({ rehabs = [], selectedProperty = 'all' }) {
+export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty = 'all' }) {
+  // Only include currently vacant units in chart calculations (exclude notice/eviction)
+  const rehabs = allRehabs.filter(r => r.source_type === 'vacancy');
   const [selectedStatuses, setSelectedStatuses] = useState(['In Progress', 'Complete']);
   const [timeRange, setTimeRange] = useState('30'); // days
   const [historyData, setHistoryData] = useState([]);
