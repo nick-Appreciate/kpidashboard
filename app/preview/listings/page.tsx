@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
 import PropertyCard from '../../../components/public/PropertyCard';
@@ -10,6 +11,16 @@ import {
   Listing,
   Property,
 } from '../../../components/public/sampleListings';
+
+// Leaflet pulls in `window` synchronously, so the map component is SSR-excluded.
+const PropertyMap = dynamic(() => import('../../../components/public/PropertyMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[480px] rounded-2xl bg-[#F1F0EC] flex items-center justify-center text-[#0A0A0A]/45 text-[13px]">
+      Loading map…
+    </div>
+  ),
+});
 
 type SortKey = 'recent' | 'price_asc' | 'price_desc' | 'bedrooms';
 
@@ -125,6 +136,23 @@ export default function ListingsPage() {
           </div>
         </div>
       </section>
+
+      {/* MAP */}
+      {properties.length > 0 && (
+        <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-8">
+          <div className="flex items-end justify-between mb-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.15em] text-[#0A0A0A]/50 mb-1.5">
+                Where we have rentals
+              </p>
+              <h2 className="font-[var(--font-fraunces)] text-[24px] md:text-[28px] leading-tight text-[#0A0A0A]">
+                Our properties on the map
+              </h2>
+            </div>
+          </div>
+          <PropertyMap properties={properties} height="480px" />
+        </section>
+      )}
 
       {/* GRID */}
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 py-10">

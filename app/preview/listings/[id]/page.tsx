@@ -1,23 +1,39 @@
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import PublicNav from '../../../../components/public/PublicNav';
 import PublicFooter from '../../../../components/public/PublicFooter';
-import { SAMPLE_LISTINGS, TENANT_PORTAL_URL } from '../../../../components/public/sampleListings';
-
-export function generateStaticParams() {
-  return SAMPLE_LISTINGS.map(l => ({ id: l.id }));
-}
+import PhotoLightbox from '../../../../components/public/PhotoLightbox';
+import {
+  SAMPLE_LISTINGS,
+  TENANT_PORTAL_URL,
+  getApplicationUrl,
+  getFullAddress,
+} from '../../../../components/public/sampleListings';
 
 export default function ListingDetailPage({ params }: { params: { id: string } }) {
   const listing = SAMPLE_LISTINGS.find(l => l.id === params.id);
   if (!listing) notFound();
+
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const openLightbox = (idx: number) => {
+    setLightboxIndex(idx);
+    setLightboxOpen(true);
+  };
 
   const availableDate = new Date(listing.available_on + 'T12:00:00').toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   });
+
+  const fullAddress = getFullAddress(listing);
+  const applyUrl = getApplicationUrl(listing.id);
 
   // Sibling units at the same property (for the "Other units here" section)
   const siblings = SAMPLE_LISTINGS.filter(
@@ -40,9 +56,13 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         </Link>
       </div>
 
-      {/* Photo gallery — primary + 4 thumbs if available */}
+      {/* Photo gallery — click any to open the lightbox */}
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-2">
-        <PhotoGallery photos={listing.photos} address={listing.address} />
+        <PhotoGallery
+          photos={listing.photos}
+          address={listing.address}
+          onOpen={openLightbox}
+        />
       </section>
 
       {/* Header + key facts */}
@@ -53,13 +73,10 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
           </p>
           <h1 className="font-[var(--font-fraunces)] text-[40px] md:text-[52px] leading-[1] tracking-[-0.02em] text-[#0A0A0A] mb-2">
             {listing.address}
-            {listing.unit_label && (
-              <span className="text-[#0A0A0A]/45"> · {listing.unit_label}</span>
-            )}
           </h1>
           <p className="text-[17px] text-[#0A0A0A]/65 mb-8">
-            {listing.bedrooms} bed · {listing.bathrooms} bath · {listing.square_feet.toLocaleString()}{' '}
-            sqft · Available {availableDate}
+            {listing.bedrooms} bed · {listing.bathrooms} bath ·{' '}
+            {listing.square_feet.toLocaleString()} sqft · Available {availableDate}
           </p>
 
           <p className="text-[16px] leading-[1.65] text-[#0A0A0A]/80 max-w-[620px] mb-10">
@@ -92,7 +109,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             </dl>
 
             <a
-              href={listing.application_url}
+              href={applyUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center w-full px-4 py-3.5 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
@@ -126,11 +143,11 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               >
                 <div>
                   <p className="text-[14px] font-medium text-[#0A0A0A]">
-                    {unit.unit_label ?? 'Unit'}
+                    {unit.bedrooms} bd · {unit.bathrooms} ba ·{' '}
+                    {unit.square_feet.toLocaleString()} sqft
                   </p>
                   <p className="text-[12px] text-[#0A0A0A]/55">
-                    {unit.bedrooms} bd · {unit.bathrooms} ba · {unit.square_feet.toLocaleString()}{' '}
-                    sqft · Available{' '}
+                    Available{' '}
                     {new Date(unit.available_on + 'T12:00:00').toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -156,7 +173,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         <div className="flex items-end justify-between mb-5">
           <h2 className="font-[var(--font-fraunces)] text-[26px] text-[#0A0A0A]">Location</h2>
           <a
-            href={`https://maps.google.com/?q=${encodeURIComponent(listing.address + ', ' + listing.city + ', ' + listing.state)}`}
+            href={`https://maps.google.com/?q=${encodeURIComponent(fullAddress)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[13px] text-[#0A0A0A]/60 hover:text-[#0A0A0A]"
@@ -164,80 +181,120 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             Open in Google Maps ↗
           </a>
         </div>
-        <div className="rounded-2xl overflow-hidden border border-black/5 h-[320px] relative bg-[#F1F0EC]">
+        <div className="rounded-2xl overflow-hidden border border-black/5 h-[380px] relative bg-[#F1F0EC]">
           <iframe
             title="map"
             width="100%"
             height="100%"
             loading="lazy"
-            allowFullScreen
-            src={`https://maps.google.com/maps?q=${encodeURIComponent(listing.address)}&z=15&output=embed`}
+            style={{ border: 0 }}
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${listing.longitude - 0.01}%2C${listing.latitude - 0.005}%2C${listing.longitude + 0.01}%2C${listing.latitude + 0.005}&layer=mapnik&marker=${listing.latitude}%2C${listing.longitude}`}
           />
         </div>
       </section>
 
       <PublicFooter />
+
+      <PhotoLightbox
+        photos={listing.photos}
+        alt={listing.address}
+        open={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        initialIndex={lightboxIndex}
+      />
     </main>
   );
 }
 
-function PhotoGallery({ photos, address }: { photos: string[]; address: string }) {
+function PhotoGallery({
+  photos,
+  address,
+  onOpen,
+}: {
+  photos: string[];
+  address: string;
+  onOpen: (index: number) => void;
+}) {
   const hero = photos[0];
   const thumbs = photos.slice(1, 5);
   const extraCount = Math.max(0, photos.length - 5);
 
   if (!hero) return null;
 
-  // If only 1 photo, full-width single image
   if (thumbs.length === 0) {
     return (
-      <div className="relative aspect-[16/9] md:aspect-[21/9] rounded-3xl overflow-hidden bg-[#F1F0EC]">
+      <button
+        onClick={() => onOpen(0)}
+        className="relative aspect-[16/9] md:aspect-[21/9] w-full rounded-3xl overflow-hidden bg-[#F1F0EC] cursor-zoom-in group"
+        aria-label="Open photo gallery"
+      >
         <Image
           src={hero}
           alt={address}
           fill
           sizes="1280px"
-          className="object-cover"
+          className="object-cover group-hover:scale-[1.01] transition-transform duration-500"
           unoptimized
           priority
         />
-      </div>
+      </button>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-2 rounded-3xl overflow-hidden">
-      <div className="md:col-span-2 md:row-span-2 relative aspect-[4/3] md:aspect-auto bg-[#F1F0EC] md:min-h-[420px]">
+    <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-2 rounded-3xl overflow-hidden relative">
+      <button
+        onClick={() => onOpen(0)}
+        className="md:col-span-2 md:row-span-2 relative aspect-[4/3] md:aspect-auto bg-[#F1F0EC] md:min-h-[420px] cursor-zoom-in group"
+        aria-label="Open photo gallery"
+      >
         <Image
           src={hero}
           alt={address}
           fill
           sizes="(max-width: 768px) 100vw, 640px"
-          className="object-cover"
+          className="object-cover group-hover:scale-[1.02] transition-transform duration-500"
           unoptimized
           priority
         />
-      </div>
+      </button>
       {thumbs.map((photo, i) => (
-        <div
+        <button
           key={photo}
-          className="relative aspect-square bg-[#F1F0EC] hidden md:block"
+          onClick={() => onOpen(i + 1)}
+          className="relative aspect-square bg-[#F1F0EC] hidden md:block cursor-zoom-in group"
+          aria-label={`Open photo ${i + 2}`}
         >
           <Image
             src={photo}
             alt={`${address} photo ${i + 2}`}
             fill
-            sizes="(max-width: 768px) 0, 320px"
-            className="object-cover"
+            sizes="320px"
+            className="object-cover group-hover:scale-[1.02] transition-transform duration-500"
             unoptimized
           />
           {i === thumbs.length - 1 && extraCount > 0 && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-[14px] font-medium">
+            <div className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-[14px] font-medium">
               +{extraCount} more
             </div>
           )}
-        </div>
+        </button>
       ))}
+
+      {/* "Show all photos" overlay button, always visible on the hero corner */}
+      <button
+        onClick={() => onOpen(0)}
+        className="absolute bottom-4 right-4 px-4 py-2 bg-white/95 hover:bg-white text-[#0A0A0A] rounded-full text-[13px] font-medium shadow-md backdrop-blur-sm flex items-center gap-1.5 transition-colors"
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+          <path
+            fillRule="evenodd"
+            d="M3 5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm3 4a2 2 0 100-4 2 2 0 000 4zm9 2a.75.75 0 01-.75.75h-8.5L8.25 9.25 10 11l2.25-2.25 2.5 2.5v.75H15z"
+            clipRule="evenodd"
+          />
+        </svg>
+        Show all {photos.length} photos
+      </button>
     </div>
   );
 }

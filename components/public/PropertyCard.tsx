@@ -16,7 +16,7 @@ function formatRentRange(property: Property): string {
   return `$${property.minRent.toLocaleString()} – $${property.maxRent.toLocaleString()}`;
 }
 
-function UnitRow({ unit }: { unit: Listing }) {
+function UnitRow({ unit, hideAddress }: { unit: Listing; hideAddress?: boolean }) {
   const specs = `${unit.bedrooms} bd · ${unit.bathrooms} ba · ${unit.square_feet.toLocaleString()} sqft`;
   return (
     <Link
@@ -24,14 +24,8 @@ function UnitRow({ unit }: { unit: Listing }) {
       className="group/unit flex items-center justify-between gap-3 px-4 py-3 border-t border-black/5 hover:bg-black/[0.02] transition-colors"
     >
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 mb-0.5">
-          <p className="text-[13px] font-medium text-[#0A0A0A]">
-            {unit.unit_label ?? 'Unit'}
-          </p>
-          <span className="text-[11px] text-[#0A0A0A]/45">·</span>
-          <p className="text-[12px] text-[#0A0A0A]/55 truncate">{specs}</p>
-        </div>
-        <p className="text-[11px] text-[#0A0A0A]/50">{formatAvailable(unit.available_on)}</p>
+        <p className="text-[13px] font-medium text-[#0A0A0A] mb-0.5">{specs}</p>
+        <p className="text-[11px] text-[#0A0A0A]/55">{formatAvailable(unit.available_on)}</p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
         <p className="font-[var(--font-fraunces)] text-[18px] text-[#0A0A0A] tabular-nums">
@@ -50,15 +44,12 @@ export default function PropertyCard({ property }: { property: Property }) {
   const primaryPhoto = property.photos[0];
   const unitCount = property.units.length;
   const rentLabel = formatRentRange(property);
+  // Photo + header always link to the first (soonest-available) unit.
+  const firstUnitHref = `/preview/listings/${property.units[0].id}`;
 
   return (
     <article className="bg-white rounded-2xl overflow-hidden border border-black/5 hover:border-black/10 transition-all hover:shadow-[0_20px_40px_-20px_rgba(10,10,10,0.12)]">
-      {/* Property header: photo + address block */}
-      <Link
-        href={unitCount === 1 ? `/preview/listings/${property.units[0].id}` : '#units'}
-        className="group block"
-        scroll={false}
-      >
+      <Link href={firstUnitHref} className="group block">
         <div className="relative aspect-[4/3] bg-[#F1F0EC] overflow-hidden">
           {primaryPhoto && (
             <Image
@@ -78,7 +69,11 @@ export default function PropertyCard({ property }: { property: Property }) {
           {property.photos.length > 1 && (
             <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-white/90 text-[#0A0A0A] rounded-full text-[11px] font-medium backdrop-blur-sm flex items-center gap-1">
               <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
-                <path fillRule="evenodd" d="M1 5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H3a2 2 0 01-2-2V5zm8.5 3.5L6 12l3 3h6l-3.5-3.5L9.5 8.5z" clipRule="evenodd" />
+                <path
+                  fillRule="evenodd"
+                  d="M1 5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H3a2 2 0 01-2-2V5zm8.5 3.5L6 12l3 3h6l-3.5-3.5L9.5 8.5z"
+                  clipRule="evenodd"
+                />
               </svg>
               {property.photos.length}
             </div>
@@ -100,8 +95,7 @@ export default function PropertyCard({ property }: { property: Property }) {
         </div>
       </Link>
 
-      {/* Unit list */}
-      <div id="units">
+      <div>
         {property.units.map(unit => (
           <UnitRow key={unit.id} unit={unit} />
         ))}

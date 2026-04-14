@@ -3,10 +3,9 @@
 // Supabase queries backed by the sync-appfolio-listings scraper.
 
 export interface Listing {
-  id: string;
-  listing_id: number;
+  id: string;            // listable_uid from AppFolio — used to build Apply URL
+  listing_id: number;    // AppFolio's internal numeric listing id
   address: string;
-  unit_label?: string;
   city: string;
   state: string;
   zip: string;
@@ -19,7 +18,6 @@ export interface Listing {
   square_feet: number;
   available_on: string;
   photos: string[];
-  application_url: string;
   application_fee: number;
   deposit: number;
   pet_policy: string;
@@ -29,9 +27,19 @@ export interface Listing {
   marketing_description: string;
 }
 
-// Photos pulled from https://appreciateinc.appfolio.com/listings/detail/{id}
+// Build the real AppFolio Apply URL from a listable_uid. Pattern verified from
+// the public detail page's Apply button on 2026-04-14.
+export function getApplicationUrl(listingId: string): string {
+  return `https://appreciateinc.appfolio.com/listings/rental_applications/new?listable_uid=${listingId}&source=Website`;
+}
+
+export function getFullAddress(l: Pick<Listing, 'address' | 'city' | 'state' | 'zip'>): string {
+  return `${l.address}, ${l.city}, ${l.state} ${l.zip}`;
+}
+
+// Photo galleries pulled from https://appreciateinc.appfolio.com/listings/detail/{id}
 // on 2026-04-14. These are the exact public gallery URLs the scraper will land
-// in the `af_listing_photos` table.
+// in the `af_listing_photos` table in Phase B.
 const MAPLE_PHOTOS = [
   'https://images.cdn.appfolio.com/appreciateinc/images/b0860f8a-d695-4675-993e-fb73d70c894a/large.png',
   'https://images.cdn.appfolio.com/appreciateinc/images/10904c54-d5a3-4729-a40f-3223017838d4/large.jpeg',
@@ -72,6 +80,10 @@ const NO_PHOTO = [
   'https://listings.cdn.appfolio.com/listings/assets/listings/rental_listing/no_photo-ea9e892a45f62e048771a4b22081d1eed003a21f0658a92aa5abcfd357dd4699.png',
 ];
 
+// Note: AppFolio's public listings page does NOT expose unit labels (A/B/C) or
+// property_id. All three units at 3307 Wood Avenue show the EXACT same address
+// string. Phase B scraper will join to af_property_directory.property_id for
+// stronger grouping; until then we group on lat/lng (same building = same coords).
 export const SAMPLE_LISTINGS: Listing[] = [
   {
     id: 'c6ee0a40-68b0-4ae5-85e6-12c41b261861',
@@ -89,7 +101,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 1000,
     available_on: '2026-04-23',
     photos: MAPLE_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=70',
     application_fee: 50,
     deposit: 900,
     pet_policy: 'Cats OK, small dogs by approval',
@@ -99,12 +110,11 @@ export const SAMPLE_LISTINGS: Listing[] = [
     marketing_description:
       '3-bedroom, 1-bath apartment with 1,000 sq ft of living space — perfect for small families. The building features secure breezeways, shared laundry rooms, and extra storage in the basement.',
   },
-  // 3307 Wood Avenue — 3 units
+  // 3307 Wood Avenue — 3 units (AppFolio shows same address string for all)
   {
     id: '4f40aaea-d342-49df-bb16-ab1289c8dc20',
     listing_id: 51,
     address: '3307 Wood Avenue',
-    unit_label: 'Unit A',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -117,7 +127,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 825,
     available_on: '2026-05-01',
     photos: WOOD_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=51',
     application_fee: 50,
     deposit: 800,
     pet_policy: 'No pets',
@@ -131,7 +140,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     id: 'd2c1b8b9-54d5-460c-a7e4-5e9160027456',
     listing_id: 61,
     address: '3307 Wood Avenue',
-    unit_label: 'Unit B',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -144,7 +152,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 825,
     available_on: '2026-05-10',
     photos: WOOD_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=61',
     application_fee: 50,
     deposit: 800,
     pet_policy: 'No pets',
@@ -158,7 +165,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     id: '5676292c-bd52-41da-8539-3fd14f7f4d23',
     listing_id: 52,
     address: '3307 Wood Avenue',
-    unit_label: 'Unit C',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -171,7 +177,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 750,
     available_on: '2026-05-20',
     photos: WOOD_UNIT_C_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=52',
     application_fee: 50,
     deposit: 700,
     pet_policy: 'No pets',
@@ -186,7 +191,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     id: 'b844d836-3872-45f3-a6a4-6031346e5518',
     listing_id: 48,
     address: '3303 Wood Avenue',
-    unit_label: 'Unit A',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -199,7 +203,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 825,
     available_on: '2026-04-25',
     photos: WOOD_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=48',
     application_fee: 50,
     deposit: 800,
     pet_policy: 'No pets',
@@ -213,7 +216,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     id: '60163f9d-55ef-4a7e-a117-6c4116a4961d',
     listing_id: 34,
     address: '3303 Wood Avenue',
-    unit_label: 'Unit B',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -226,7 +228,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 825,
     available_on: '2026-06-01',
     photos: WOOD_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=34',
     application_fee: 50,
     deposit: 800,
     pet_policy: 'No pets',
@@ -252,7 +253,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 675,
     available_on: '2026-05-15',
     photos: NO_PHOTO,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=68',
     application_fee: 50,
     deposit: 700,
     pet_policy: 'Cats OK',
@@ -278,7 +278,6 @@ export const SAMPLE_LISTINGS: Listing[] = [
     square_feet: 950,
     available_on: '2026-05-01',
     photos: FIFTYEIGHT_PHOTOS,
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=49',
     application_fee: 50,
     deposit: 800,
     pet_policy: 'Small dogs by approval',
@@ -294,7 +293,7 @@ export const SAMPLE_LISTINGS: Listing[] = [
 
 export interface Property {
   key: string;              // stable id derived from lat/lng
-  address: string;          // street address with unit stripped
+  address: string;          // street address
   city: string;
   state: string;
   zip: string;
@@ -308,9 +307,12 @@ export interface Property {
 }
 
 export function groupByProperty(listings: Listing[]): Property[] {
+  // Phase B note: when wired to real data, group on af_property_directory.property_id
+  // (joined via the listings scraper). For the mockup we use coordinates since AppFolio's
+  // public scrape doesn't expose the property_id — units at the same building share
+  // identical lat/lng.
   const byKey = new Map<string, Listing[]>();
   for (const l of listings) {
-    // Group on coordinates — units at the same building share exact lat/lng
     const key = `${l.latitude.toFixed(5)}_${l.longitude.toFixed(5)}`;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(l);
