@@ -3,6 +3,32 @@
 import { useEffect, useRef } from 'react';
 import type { Property } from './sampleListings';
 
+/** Great-circle distance in miles between two lat/lng pairs. */
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3959; // earth radius, miles
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/** Best-effort browser geolocation. Resolves to null on denial, timeout, or unsupported. */
+function getUserLocation(): Promise<[number, number] | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return Promise.resolve(null);
+  }
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve([pos.coords.latitude, pos.coords.longitude]),
+      () => resolve(null),
+      { timeout: 5000, maximumAge: 300_000, enableHighAccuracy: false },
+    );
+  });
+}
+
 interface Props {
   properties: Property[];
   /** Height CSS string (e.g. "400px" or "60vh"). */
@@ -35,6 +61,11 @@ export default function PropertyMap({ properties, height = '480px' }: Props) {
         document.head.appendChild(link);
       }
 
+      // Best-effort geolocation — if the browser shares the user's position
+      // we zoom to the nearby subset of properties instead of the full portfolio.
+      // Denied / unsupported / timeout → quietly fall back to the full fit.
+      const userLoc = await getUserLocation();
+
       if (cancelled || !ref.current) return;
 
       // Tear down any previous instance if this component is hot-reloaded
@@ -43,13 +74,35 @@ export default function PropertyMap({ properties, height = '480px' }: Props) {
         mapRef.current = null;
       }
 
-      const bounds = L.latLngBounds(properties.map(p => [p.latitude, p.longitude]));
+      const NEARBY_RADIUS_MILES = 150;
+      const nearbyProps = userLoc
+        ? properties.filter(
+            p => haversineMiles(userLoc[0], userLoc[1], p.latitude, p.longitude) <= NEARBY_RADIUS_MILES,
+          )
+        : [];
+
+      const focusProps = nearbyProps.length > 0 ? nearbyProps : properties;
+      const bounds = L.latLngBounds(focusProps.map(p => [p.latitude, p.longitude]));
+      if (userLoc && nearbyProps.length > 0) {
+        bounds.extend([userLoc[0], userLoc[1]]);
+      }
+
       const map = L.map(ref.current, {
         scrollWheelZoom: false,
         zoomControl: true,
         attributionControl: true,
       }).fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
       mapRef.current = map;
+
+      // Small "you are here" dot so users see why the zoom landed where it did.
+      if (userLoc && nearbyProps.length > 0) {
+        const youIcon = L.divIcon({
+          className: 'apm-you-are-here',
+          html: '<span class="apm-you-dot"><span class="apm-you-pulse"></span></span>',
+          iconSize: [0, 0],
+        });
+        L.marker([userLoc[0], userLoc[1]], { icon: youIcon, interactive: false }).addTo(map);
+      }
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
@@ -174,6 +227,38 @@ export default function PropertyMap({ properties, height = '480px' }: Props) {
         }
         .leaflet-popup-content {
           margin: 0;
+        }
+        .apm-you-dot {
+          position: absolute;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #06b6d4;
+          border: 3px solid #fff;
+          transform: translate(-50%, -50%);
+          box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.5);
+        }
+        .apm-you-pulse {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 100%;
+          height: 100%;
+          border-radius: 50%;
+          background: rgba(6, 182, 212, 0.4);
+          transform: translate(-50%, -50%);
+          animation: apm-you-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        @keyframes apm-you-ping {
+          0% {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 0.6;
+          }
+          80%,
+          100% {
+            transform: translate(-50%, -50%) scale(2.8);
+            opacity: 0;
+          }
         }
       `}</style>
     </>

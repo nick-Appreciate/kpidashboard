@@ -17,20 +17,23 @@ export default function PublicNav() {
           Appreciate Property Management
         </Link>
 
-        <div className="hidden md:flex items-center gap-8 text-[14px] text-[#0A0A0A]/75">
-          <Link href="/preview/listings" className="hover:text-[#0A0A0A] transition-colors">
-            Listings
-          </Link>
+        <div className="hidden md:flex items-center gap-2">
+          <a
+            href={TENANT_PORTAL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center px-4 py-2 text-[13px] font-medium rounded-full bg-[#0A0A0A] text-white hover:bg-[#06b6d4] transition-colors"
+          >
+            Tenant Portal
+          </a>
+          {/* Phase C: switch href to https://app.appreciate.io once the hostname split ships. */}
+          <a
+            href="/login"
+            className="inline-flex items-center justify-center px-3.5 py-2 text-[12px] font-medium rounded-full bg-black/[0.06] text-[#0A0A0A]/70 hover:bg-black/[0.1] hover:text-[#0A0A0A] transition-colors"
+          >
+            Admin
+          </a>
         </div>
-
-        <a
-          href={TENANT_PORTAL_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden md:inline-flex items-center justify-center px-4 py-2 text-[13px] font-medium rounded-full bg-[#0A0A0A] text-white hover:bg-[#06b6d4] transition-colors"
-        >
-          Tenant Portal
-        </a>
 
         <button
           className="md:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5"
@@ -44,17 +47,20 @@ export default function PublicNav() {
       </nav>
 
       {open && (
-        <div className="md:hidden border-t border-black/5 px-6 py-5 flex flex-col gap-4 bg-[#FAFAF7]">
-          <Link href="/preview/listings" className="text-[15px] text-[#0A0A0A]" onClick={() => setOpen(false)}>
-            Listings
-          </Link>
+        <div className="md:hidden border-t border-black/5 px-6 py-5 flex flex-col gap-3 bg-[#FAFAF7]">
           <a
             href={TENANT_PORTAL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center justify-center px-4 py-2.5 text-[13px] font-medium rounded-full bg-[#0A0A0A] text-white mt-2 w-fit"
+            className="inline-flex items-center justify-center px-4 py-2.5 text-[13px] font-medium rounded-full bg-[#0A0A0A] text-white w-fit"
           >
             Tenant Portal ↗
+          </a>
+          <a
+            href="/login"
+            className="inline-flex items-center justify-center px-4 py-2 text-[12px] font-medium rounded-full bg-black/[0.06] text-[#0A0A0A]/70 w-fit"
+          >
+            Admin
           </a>
         </div>
       )}
