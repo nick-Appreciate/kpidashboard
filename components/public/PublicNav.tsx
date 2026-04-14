@@ -12,9 +12,9 @@ export default function PublicNav() {
       <nav className="max-w-[1280px] mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
         <Link
           href="/preview/landing"
-          className="font-[var(--font-fraunces)] text-[22px] font-medium tracking-tight text-[#0A0A0A]"
+          className="font-[var(--font-fraunces)] text-[20px] font-medium tracking-tight text-[#0A0A0A] leading-none"
         >
-          Appreciate
+          Appreciate Property Management
         </Link>
 
         <div className="hidden md:flex items-center gap-8 text-[14px] text-[#0A0A0A]/75">
@@ -24,14 +24,6 @@ export default function PublicNav() {
           <Link href="/preview/listings" className="hover:text-[#0A0A0A] transition-colors">
             Listings
           </Link>
-          <a
-            href={TENANT_PORTAL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-[#0A0A0A] transition-colors"
-          >
-            Tenant Portal ↗
-          </a>
         </div>
 
         <a
@@ -66,7 +58,7 @@ export default function PublicNav() {
             href={TENANT_PORTAL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[15px] text-[#0A0A0A]"
+            className="inline-flex items-center justify-center px-4 py-2.5 text-[13px] font-medium rounded-full bg-[#0A0A0A] text-white mt-2 w-fit"
           >
             Tenant Portal ↗
           </a>

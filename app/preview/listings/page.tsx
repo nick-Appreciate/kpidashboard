@@ -3,8 +3,13 @@
 import { useMemo, useState } from 'react';
 import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
-import ListingCard from '../../../components/public/ListingCard';
-import { SAMPLE_LISTINGS, Listing } from '../../../components/public/sampleListings';
+import PropertyCard from '../../../components/public/PropertyCard';
+import {
+  SAMPLE_LISTINGS,
+  groupByProperty,
+  Listing,
+  Property,
+} from '../../../components/public/sampleListings';
 
 type SortKey = 'recent' | 'price_asc' | 'price_desc' | 'bedrooms';
 
@@ -14,30 +19,40 @@ export default function ListingsPage() {
   const [maxRent, setMaxRent] = useState<number | 'any'>('any');
   const [petsOk, setPetsOk] = useState(false);
 
-  const filtered = useMemo(() => {
-    let rows: Listing[] = [...SAMPLE_LISTINGS];
+  const properties = useMemo(() => {
+    // Filter units first, then re-group so properties with no matching units drop out
+    let units: Listing[] = [...SAMPLE_LISTINGS];
 
-    if (minBeds !== 'any') rows = rows.filter(l => l.bedrooms >= minBeds);
-    if (maxRent !== 'any') rows = rows.filter(l => l.rent <= maxRent);
-    if (petsOk) rows = rows.filter(l => /cat|dog/i.test(l.pet_policy));
+    if (minBeds !== 'any') units = units.filter(l => l.bedrooms >= minBeds);
+    if (maxRent !== 'any') units = units.filter(l => l.rent <= maxRent);
+    if (petsOk) units = units.filter(l => /cat|dog/i.test(l.pet_policy));
+
+    const grouped = groupByProperty(units);
 
     switch (sort) {
       case 'price_asc':
-        rows.sort((a, b) => a.rent - b.rent);
+        grouped.sort((a, b) => a.minRent - b.minRent);
         break;
       case 'price_desc':
-        rows.sort((a, b) => b.rent - a.rent);
+        grouped.sort((a, b) => b.maxRent - a.maxRent);
         break;
       case 'bedrooms':
-        rows.sort((a, b) => b.bedrooms - a.bedrooms);
+        // Sort by the property's max bedroom count across its units
+        grouped.sort((a, b) => {
+          const maxA = Math.max(...a.units.map(u => u.bedrooms));
+          const maxB = Math.max(...b.units.map(u => u.bedrooms));
+          return maxB - maxA;
+        });
         break;
       case 'recent':
       default:
-        rows.sort((a, b) => a.available_on.localeCompare(b.available_on));
+        grouped.sort((a, b) => a.nextAvailable.localeCompare(b.nextAvailable));
     }
 
-    return rows;
+    return grouped;
   }, [sort, minBeds, maxRent, petsOk]);
+
+  const totalUnits = properties.reduce((s, p) => s + p.units.length, 0);
 
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
@@ -45,7 +60,8 @@ export default function ListingsPage() {
 
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-14 pb-10">
         <p className="text-[12px] uppercase tracking-[0.15em] text-[#0A0A0A]/50 mb-3">
-          {filtered.length} {filtered.length === 1 ? 'home' : 'homes'} available
+          {totalUnits} {totalUnits === 1 ? 'unit' : 'units'} across {properties.length}{' '}
+          {properties.length === 1 ? 'property' : 'properties'}
         </p>
         <h1 className="font-[var(--font-fraunces)] text-[44px] md:text-[56px] leading-[0.98] tracking-[-0.02em] text-[#0A0A0A] mb-3">
           Find your next home.
@@ -112,7 +128,7 @@ export default function ListingsPage() {
 
       {/* GRID */}
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 py-10">
-        {filtered.length === 0 ? (
+        {properties.length === 0 ? (
           <div className="text-center py-24 text-[#0A0A0A]/50">
             <p className="font-[var(--font-fraunces)] text-[24px] text-[#0A0A0A] mb-2">
               Nothing matches those filters.
@@ -121,8 +137,8 @@ export default function ListingsPage() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
-            {filtered.map(l => (
-              <ListingCard key={l.id} listing={l} />
+            {properties.map((p: Property) => (
+              <PropertyCard key={p.key} property={p} />
             ))}
           </div>
         )}

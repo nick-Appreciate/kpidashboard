@@ -19,6 +19,14 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     year: 'numeric',
   });
 
+  // Sibling units at the same property (for the "Other units here" section)
+  const siblings = SAMPLE_LISTINGS.filter(
+    l =>
+      l.id !== listing.id &&
+      l.latitude === listing.latitude &&
+      l.longitude === listing.longitude,
+  );
+
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
       <PublicNav />
@@ -32,21 +40,9 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         </Link>
       </div>
 
-      {/* Photo gallery */}
+      {/* Photo gallery — primary + 4 thumbs if available */}
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-2">
-        <div className="relative aspect-[16/9] md:aspect-[21/9] rounded-3xl overflow-hidden bg-[#F1F0EC]">
-          {listing.photos[0] && (
-            <Image
-              src={listing.photos[0]}
-              alt={listing.address}
-              fill
-              sizes="1280px"
-              className="object-cover"
-              unoptimized
-              priority
-            />
-          )}
-        </div>
+        <PhotoGallery photos={listing.photos} address={listing.address} />
       </section>
 
       {/* Header + key facts */}
@@ -57,6 +53,9 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
           </p>
           <h1 className="font-[var(--font-fraunces)] text-[40px] md:text-[52px] leading-[1] tracking-[-0.02em] text-[#0A0A0A] mb-2">
             {listing.address}
+            {listing.unit_label && (
+              <span className="text-[#0A0A0A]/45"> · {listing.unit_label}</span>
+            )}
           </h1>
           <p className="text-[17px] text-[#0A0A0A]/65 mb-8">
             {listing.bedrooms} bed · {listing.bathrooms} bath · {listing.square_feet.toLocaleString()}{' '}
@@ -67,7 +66,6 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             {listing.marketing_description}
           </p>
 
-          {/* Feature sections */}
           <div className="grid sm:grid-cols-2 gap-8">
             <FeatureList title="Amenities" items={listing.amenities} />
             <FeatureList title="Appliances" items={listing.appliances} />
@@ -113,7 +111,47 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         </aside>
       </section>
 
-      {/* Map (static embed, no interactive map for mockup) */}
+      {/* Sibling units at the same property */}
+      {siblings.length > 0 && (
+        <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-8 pb-6">
+          <h2 className="font-[var(--font-fraunces)] text-[26px] text-[#0A0A0A] mb-4">
+            Other units at {listing.address}
+          </h2>
+          <div className="bg-white border border-black/5 rounded-2xl overflow-hidden">
+            {siblings.map(unit => (
+              <Link
+                key={unit.id}
+                href={`/preview/listings/${unit.id}`}
+                className="group flex items-center justify-between gap-3 px-5 py-4 border-t first:border-t-0 border-black/5 hover:bg-black/[0.02] transition-colors"
+              >
+                <div>
+                  <p className="text-[14px] font-medium text-[#0A0A0A]">
+                    {unit.unit_label ?? 'Unit'}
+                  </p>
+                  <p className="text-[12px] text-[#0A0A0A]/55">
+                    {unit.bedrooms} bd · {unit.bathrooms} ba · {unit.square_feet.toLocaleString()}{' '}
+                    sqft · Available{' '}
+                    {new Date(unit.available_on + 'T12:00:00').toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="font-[var(--font-fraunces)] text-[20px] text-[#0A0A0A]">
+                    {unit.rent_range}
+                  </p>
+                  <span className="text-[#0A0A0A]/30 group-hover:text-[#06b6d4] group-hover:translate-x-0.5 transition-all">
+                    →
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Map */}
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-10 pb-6">
         <div className="flex items-end justify-between mb-5">
           <h2 className="font-[var(--font-fraunces)] text-[26px] text-[#0A0A0A]">Location</h2>
@@ -126,7 +164,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             Open in Google Maps ↗
           </a>
         </div>
-        <div className="rounded-2xl overflow-hidden border border-black/5 h-[320px] relative bg-[#F1F0EC] flex items-center justify-center">
+        <div className="rounded-2xl overflow-hidden border border-black/5 h-[320px] relative bg-[#F1F0EC]">
           <iframe
             title="map"
             width="100%"
@@ -140,6 +178,67 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
 
       <PublicFooter />
     </main>
+  );
+}
+
+function PhotoGallery({ photos, address }: { photos: string[]; address: string }) {
+  const hero = photos[0];
+  const thumbs = photos.slice(1, 5);
+  const extraCount = Math.max(0, photos.length - 5);
+
+  if (!hero) return null;
+
+  // If only 1 photo, full-width single image
+  if (thumbs.length === 0) {
+    return (
+      <div className="relative aspect-[16/9] md:aspect-[21/9] rounded-3xl overflow-hidden bg-[#F1F0EC]">
+        <Image
+          src={hero}
+          alt={address}
+          fill
+          sizes="1280px"
+          className="object-cover"
+          unoptimized
+          priority
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-2 rounded-3xl overflow-hidden">
+      <div className="md:col-span-2 md:row-span-2 relative aspect-[4/3] md:aspect-auto bg-[#F1F0EC] md:min-h-[420px]">
+        <Image
+          src={hero}
+          alt={address}
+          fill
+          sizes="(max-width: 768px) 100vw, 640px"
+          className="object-cover"
+          unoptimized
+          priority
+        />
+      </div>
+      {thumbs.map((photo, i) => (
+        <div
+          key={photo}
+          className="relative aspect-square bg-[#F1F0EC] hidden md:block"
+        >
+          <Image
+            src={photo}
+            alt={`${address} photo ${i + 2}`}
+            fill
+            sizes="(max-width: 768px) 0, 320px"
+            className="object-cover"
+            unoptimized
+          />
+          {i === thumbs.length - 1 && extraCount > 0 && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-[14px] font-medium">
+              +{extraCount} more
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

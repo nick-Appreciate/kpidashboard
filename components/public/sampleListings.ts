@@ -6,6 +6,7 @@ export interface Listing {
   id: string;
   listing_id: number;
   address: string;
+  unit_label?: string;
   city: string;
   state: string;
   zip: string;
@@ -28,6 +29,49 @@ export interface Listing {
   marketing_description: string;
 }
 
+// Photos pulled from https://appreciateinc.appfolio.com/listings/detail/{id}
+// on 2026-04-14. These are the exact public gallery URLs the scraper will land
+// in the `af_listing_photos` table.
+const MAPLE_PHOTOS = [
+  'https://images.cdn.appfolio.com/appreciateinc/images/b0860f8a-d695-4675-993e-fb73d70c894a/large.png',
+  'https://images.cdn.appfolio.com/appreciateinc/images/10904c54-d5a3-4729-a40f-3223017838d4/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/22c0afd5-297d-4462-9b94-6aa7ed7b6218/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/2485eea8-6e22-4568-9871-94bc9fa8d6fc/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/37895d46-9483-4c8a-9908-1f13709a5c12/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/41e05e52-7520-4c43-8ce1-9b8c72616fba/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/48256dbf-4ce0-4385-b153-60f5ab08500f/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/5c411b93-2d64-4e28-8a37-150cd98d4530/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/60978eed-4e68-4c02-99e2-9132828cdcdf/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/61cab33e-102f-496f-a903-126f524b360e/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/672839d1-395f-48e4-950f-222591425135/large.jpeg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/698132af-6212-4911-a629-c2bdd139a335/large.jpeg',
+];
+
+const WOOD_PHOTOS = [
+  'https://images.cdn.appfolio.com/appreciateinc/images/65da504a-4ab3-477a-9149-9429a75cd403/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/3ed53677-72b2-40ff-aa10-1f989ec8c83c/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/4881a9cb-cf48-4604-952c-a81acb212c66/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/49adf595-cbfe-491f-b0d8-f21bc677feb8/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/6641cbcf-6fcc-4004-a1e0-838afb53424d/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/99ce0141-8976-476c-9d36-1c891a722289/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/a60aabc2-9204-4cfa-8d46-9b0aa5949caa/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/b580a98c-073c-47c6-848c-eb263292c14b/large.jpg',
+  'https://images.cdn.appfolio.com/appreciateinc/images/ec9d2bf4-7028-4af5-a889-4d22acac410e/large.jpg',
+];
+
+const WOOD_UNIT_C_PHOTOS = [
+  'https://images.cdn.appfolio.com/appreciateinc/images/b95f7b28-f044-4397-b8fb-d6e8d0d21390/large.jpg',
+  ...WOOD_PHOTOS,
+];
+
+const FIFTYEIGHT_PHOTOS = [
+  'https://images.cdn.appfolio.com/appreciateinc/leads_marketing_photos/ea33e86e-336d-47e4-900f-6644952ad10a/original.jpg',
+];
+
+const NO_PHOTO = [
+  'https://listings.cdn.appfolio.com/listings/assets/listings/rental_listing/no_photo-ea9e892a45f62e048771a4b22081d1eed003a21f0658a92aa5abcfd357dd4699.png',
+];
+
 export const SAMPLE_LISTINGS: Listing[] = [
   {
     id: 'c6ee0a40-68b0-4ae5-85e6-12c41b261861',
@@ -44,9 +88,7 @@ export const SAMPLE_LISTINGS: Listing[] = [
     bathrooms: 1,
     square_feet: 1000,
     available_on: '2026-04-23',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/images/b0860f8a-d695-4675-993e-fb73d70c894a/large.png',
-    ],
+    photos: MAPLE_PHOTOS,
     application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=70',
     application_fee: 50,
     deposit: 900,
@@ -57,10 +99,12 @@ export const SAMPLE_LISTINGS: Listing[] = [
     marketing_description:
       '3-bedroom, 1-bath apartment with 1,000 sq ft of living space — perfect for small families. The building features secure breezeways, shared laundry rooms, and extra storage in the basement.',
   },
+  // 3307 Wood Avenue — 3 units
   {
     id: '4f40aaea-d342-49df-bb16-ab1289c8dc20',
     listing_id: 51,
     address: '3307 Wood Avenue',
+    unit_label: 'Unit A',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -72,9 +116,7 @@ export const SAMPLE_LISTINGS: Listing[] = [
     bathrooms: 1,
     square_feet: 825,
     available_on: '2026-05-01',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/images/65da504a-4ab3-477a-9149-9429a75cd403/large.jpg',
-    ],
+    photos: WOOD_PHOTOS,
     application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=51',
     application_fee: 50,
     deposit: 800,
@@ -86,9 +128,65 @@ export const SAMPLE_LISTINGS: Listing[] = [
       'Spacious 2-bedroom apartment in a well-maintained Kansas City building. Updated kitchen and hardwood floors throughout.',
   },
   {
+    id: 'd2c1b8b9-54d5-460c-a7e4-5e9160027456',
+    listing_id: 61,
+    address: '3307 Wood Avenue',
+    unit_label: 'Unit B',
+    city: 'Kansas City',
+    state: 'KS',
+    zip: '66102',
+    latitude: 39.1232193,
+    longitude: -94.66729,
+    rent: 1025,
+    rent_range: '$1,025',
+    bedrooms: 2,
+    bathrooms: 1,
+    square_feet: 825,
+    available_on: '2026-05-10',
+    photos: WOOD_PHOTOS,
+    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=61',
+    application_fee: 50,
+    deposit: 800,
+    pet_policy: 'No pets',
+    utilities_included: ['Water', 'Trash'],
+    amenities: ['On-site laundry', 'Off-street parking'],
+    appliances: ['Refrigerator', 'Range'],
+    marketing_description:
+      'Charming upper-floor 2-bedroom with natural light and a convenient location.',
+  },
+  {
+    id: '5676292c-bd52-41da-8539-3fd14f7f4d23',
+    listing_id: 52,
+    address: '3307 Wood Avenue',
+    unit_label: 'Unit C',
+    city: 'Kansas City',
+    state: 'KS',
+    zip: '66102',
+    latitude: 39.1232193,
+    longitude: -94.66729,
+    rent: 925,
+    rent_range: '$925',
+    bedrooms: 1,
+    bathrooms: 1,
+    square_feet: 750,
+    available_on: '2026-05-20',
+    photos: WOOD_UNIT_C_PHOTOS,
+    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=52',
+    application_fee: 50,
+    deposit: 700,
+    pet_policy: 'No pets',
+    utilities_included: ['Water', 'Trash'],
+    amenities: ['On-site laundry'],
+    appliances: ['Refrigerator', 'Range'],
+    marketing_description:
+      'Well-sized 1-bedroom apartment with a clean, simple layout. Great starter home or for a small household.',
+  },
+  // 3303 Wood Avenue — 2 units
+  {
     id: 'b844d836-3872-45f3-a6a4-6031346e5518',
     listing_id: 48,
     address: '3303 Wood Avenue',
+    unit_label: 'Unit A',
     city: 'Kansas City',
     state: 'KS',
     zip: '66102',
@@ -100,9 +198,7 @@ export const SAMPLE_LISTINGS: Listing[] = [
     bathrooms: 1,
     square_feet: 825,
     available_on: '2026-04-25',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/images/65da504a-4ab3-477a-9149-9429a75cd403/large.jpg',
-    ],
+    photos: WOOD_PHOTOS,
     application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=48',
     application_fee: 50,
     deposit: 800,
@@ -112,6 +208,33 @@ export const SAMPLE_LISTINGS: Listing[] = [
     appliances: ['Refrigerator', 'Range'],
     marketing_description:
       'Classic 2-bedroom in a quiet Kansas City neighborhood. Close to dining, parks, and transit.',
+  },
+  {
+    id: '60163f9d-55ef-4a7e-a117-6c4116a4961d',
+    listing_id: 34,
+    address: '3303 Wood Avenue',
+    unit_label: 'Unit B',
+    city: 'Kansas City',
+    state: 'KS',
+    zip: '66102',
+    latitude: 39.1232576,
+    longitude: -94.666954,
+    rent: 1025,
+    rent_range: '$1,025',
+    bedrooms: 2,
+    bathrooms: 1,
+    square_feet: 825,
+    available_on: '2026-06-01',
+    photos: WOOD_PHOTOS,
+    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=34',
+    application_fee: 50,
+    deposit: 800,
+    pet_policy: 'No pets',
+    utilities_included: ['Water', 'Trash'],
+    amenities: ['On-site laundry', 'Off-street parking'],
+    appliances: ['Refrigerator', 'Range'],
+    marketing_description:
+      'Updated 2-bedroom unit on the upper floor of a classic Kansas City duplex.',
   },
   {
     id: '60ec8a3b-40c8-4bd4-8368-db85d7ce409e',
@@ -128,9 +251,7 @@ export const SAMPLE_LISTINGS: Listing[] = [
     bathrooms: 1,
     square_feet: 675,
     available_on: '2026-05-15',
-    photos: [
-      'https://listings.cdn.appfolio.com/listings/assets/listings/rental_listing/no_photo-ea9e892a45f62e048771a4b22081d1eed003a21f0658a92aa5abcfd357dd4699.png',
-    ],
+    photos: NO_PHOTO,
     application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=68',
     application_fee: 50,
     deposit: 700,
@@ -156,9 +277,7 @@ export const SAMPLE_LISTINGS: Listing[] = [
     bathrooms: 1,
     square_feet: 950,
     available_on: '2026-05-01',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/leads_marketing_photos/ea33e86e-336d-47e4-900f-6644952ad10a/original.jpg',
-    ],
+    photos: FIFTYEIGHT_PHOTOS,
     application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=49',
     application_fee: 50,
     deposit: 800,
@@ -169,90 +288,55 @@ export const SAMPLE_LISTINGS: Listing[] = [
     marketing_description:
       'Roomy 2-bedroom duplex with a private fenced yard. Bright living spaces and plenty of storage throughout.',
   },
-  {
-    id: '60163f9d-55ef-4a7e-a117-6c4116a4961d',
-    listing_id: 34,
-    address: '3303 Wood Avenue, Apt B',
-    city: 'Kansas City',
-    state: 'KS',
-    zip: '66102',
-    latitude: 39.1232576,
-    longitude: -94.666954,
-    rent: 1025,
-    rent_range: '$1,025',
-    bedrooms: 2,
-    bathrooms: 1,
-    square_feet: 825,
-    available_on: '2026-06-01',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/images/65da504a-4ab3-477a-9149-9429a75cd403/large.jpg',
-    ],
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=34',
-    application_fee: 50,
-    deposit: 800,
-    pet_policy: 'No pets',
-    utilities_included: ['Water', 'Trash'],
-    amenities: ['On-site laundry', 'Off-street parking'],
-    appliances: ['Refrigerator', 'Range'],
-    marketing_description:
-      'Updated 2-bedroom unit on the upper floor of a classic Kansas City duplex.',
-  },
-  {
-    id: 'd2c1b8b9-54d5-460c-a7e4-5e9160027456',
-    listing_id: 61,
-    address: '3307 Wood Avenue, Apt B',
-    city: 'Kansas City',
-    state: 'KS',
-    zip: '66102',
-    latitude: 39.1232193,
-    longitude: -94.66729,
-    rent: 1025,
-    rent_range: '$1,025',
-    bedrooms: 2,
-    bathrooms: 1,
-    square_feet: 825,
-    available_on: '2026-05-10',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/images/65da504a-4ab3-477a-9149-9429a75cd403/large.jpg',
-    ],
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=61',
-    application_fee: 50,
-    deposit: 800,
-    pet_policy: 'No pets',
-    utilities_included: ['Water', 'Trash'],
-    amenities: ['On-site laundry', 'Off-street parking'],
-    appliances: ['Refrigerator', 'Range'],
-    marketing_description:
-      'Charming upper-floor 2-bedroom with natural light and a convenient location.',
-  },
-  {
-    id: '5676292c-bd52-41da-8539-3fd14f7f4d23',
-    listing_id: 52,
-    address: '3307 Wood Avenue, Apt C',
-    city: 'Kansas City',
-    state: 'KS',
-    zip: '66102',
-    latitude: 39.1232193,
-    longitude: -94.66729,
-    rent: 925,
-    rent_range: '$925',
-    bedrooms: 1,
-    bathrooms: 1,
-    square_feet: 750,
-    available_on: '2026-05-20',
-    photos: [
-      'https://images.cdn.appfolio.com/appreciateinc/images/b95f7b28-f044-4397-b8fb-d6e8d0d21390/large.jpg',
-    ],
-    application_url: 'https://appreciateinc.appfolio.com/listings/rental_applications/new?listing_id=52',
-    application_fee: 50,
-    deposit: 700,
-    pet_policy: 'No pets',
-    utilities_included: ['Water', 'Trash'],
-    amenities: ['On-site laundry'],
-    appliances: ['Refrigerator', 'Range'],
-    marketing_description:
-      'Well-sized 1-bedroom apartment with a clean, simple layout. Great starter home or for a small household.',
-  },
 ];
+
+// ─── Grouping helpers ──────────────────────────────────────────────────
+
+export interface Property {
+  key: string;              // stable id derived from lat/lng
+  address: string;          // street address with unit stripped
+  city: string;
+  state: string;
+  zip: string;
+  latitude: number;
+  longitude: number;
+  photos: string[];         // photos from the first unit as the property's representative set
+  units: Listing[];         // sorted by available_on asc
+  minRent: number;
+  maxRent: number;
+  nextAvailable: string;    // earliest available_on
+}
+
+export function groupByProperty(listings: Listing[]): Property[] {
+  const byKey = new Map<string, Listing[]>();
+  for (const l of listings) {
+    // Group on coordinates — units at the same building share exact lat/lng
+    const key = `${l.latitude.toFixed(5)}_${l.longitude.toFixed(5)}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(l);
+  }
+
+  const properties: Property[] = [];
+  for (const [key, units] of Array.from(byKey.entries())) {
+    const sorted = [...units].sort((a, b) => a.available_on.localeCompare(b.available_on));
+    const rents = sorted.map(u => u.rent);
+    properties.push({
+      key,
+      address: sorted[0].address,
+      city: sorted[0].city,
+      state: sorted[0].state,
+      zip: sorted[0].zip,
+      latitude: sorted[0].latitude,
+      longitude: sorted[0].longitude,
+      photos: sorted[0].photos,
+      units: sorted,
+      minRent: Math.min(...rents),
+      maxRent: Math.max(...rents),
+      nextAvailable: sorted[0].available_on,
+    });
+  }
+
+  return properties;
+}
 
 export const TENANT_PORTAL_URL = 'https://appreciateinc.appfolio.com/connect';

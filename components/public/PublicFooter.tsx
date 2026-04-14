@@ -8,10 +8,12 @@ export default function PublicFooter() {
     <footer className="border-t border-black/5 mt-24 bg-[#FAFAF7]">
       <div className="max-w-[1280px] mx-auto px-6 lg:px-10 py-12 grid grid-cols-2 md:grid-cols-4 gap-8">
         <div className="col-span-2">
-          <p className="font-[var(--font-fraunces)] text-xl text-[#0A0A0A] mb-2">Appreciate</p>
+          <p className="font-[var(--font-fraunces)] text-xl text-[#0A0A0A] mb-2">
+            Appreciate Property Management
+          </p>
           <p className="text-[13px] text-[#0A0A0A]/60 max-w-sm leading-relaxed">
-            A family-owned property management company serving the Kansas City and mid-Missouri
-            rental markets. Thoughtful homes, straightforward leases.
+            Property management serving the Kansas City and mid-Missouri rental markets.
+            Thoughtful homes, straightforward leases.
           </p>
         </div>
         <div>

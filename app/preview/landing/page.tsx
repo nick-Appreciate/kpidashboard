@@ -2,18 +2,25 @@ import Link from 'next/link';
 import Image from 'next/image';
 import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
-import ListingCard from '../../../components/public/ListingCard';
-import { SAMPLE_LISTINGS, TENANT_PORTAL_URL } from '../../../components/public/sampleListings';
+import PropertyCard from '../../../components/public/PropertyCard';
+import {
+  SAMPLE_LISTINGS,
+  groupByProperty,
+  TENANT_PORTAL_URL,
+} from '../../../components/public/sampleListings';
 
 export const metadata = {
-  title: 'Appreciate — Rental Homes in Kansas City & Columbia',
+  title: 'Appreciate Property Management — Rentals in Kansas City & Columbia',
   description:
-    'Quality rental homes from a family-owned property manager in Kansas City, KS and Columbia, MO.',
+    'Quality rental homes in Kansas City, KS and Columbia, MO from Appreciate Property Management.',
 };
 
 export default function LandingPage() {
-  const featured = SAMPLE_LISTINGS.slice(0, 3);
-  const heroPhoto = SAMPLE_LISTINGS[1]?.photos[0];
+  const properties = groupByProperty(SAMPLE_LISTINGS).sort((a, b) =>
+    a.nextAvailable.localeCompare(b.nextAvailable),
+  );
+  const featured = properties.slice(0, 3);
+  const heroPhoto = properties[0]?.photos[0] || SAMPLE_LISTINGS[0].photos[0];
 
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
@@ -27,13 +34,11 @@ export default function LandingPage() {
               Kansas City · Columbia · Independence
             </p>
             <h1 className="font-[var(--font-fraunces)] text-[48px] md:text-[68px] leading-[0.95] tracking-[-0.02em] text-[#0A0A0A] mb-7">
-              A home you'll
-              <br />
-              <em className="italic text-[#06b6d4]">appreciate</em>.
+              Quality rentals across the Midwest.
             </h1>
             <p className="text-[17px] leading-[1.55] text-[#0A0A0A]/70 max-w-[480px] mb-9">
-              Thoughtfully managed rentals from a family-owned team. Browse our current
-              availability, apply online, and move in with confidence.
+              Browse our current availability, apply online in minutes, and move in with
+              confidence. Updated hourly from our leasing system.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -57,7 +62,7 @@ export default function LandingPage() {
               {heroPhoto && (
                 <Image
                   src={heroPhoto}
-                  alt="Featured Appreciate property"
+                  alt="Featured Appreciate Property Management rental"
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
                   className="object-cover"
@@ -78,19 +83,19 @@ export default function LandingPage() {
               Available Now
             </p>
             <h2 className="font-[var(--font-fraunces)] text-[32px] md:text-[40px] leading-[1.05] tracking-[-0.01em] text-[#0A0A0A]">
-              Featured rentals
+              Featured properties
             </h2>
           </div>
           <Link
             href="/preview/listings"
             className="hidden md:inline-flex items-center text-[14px] text-[#0A0A0A]/75 hover:text-[#0A0A0A]"
           >
-            View all {SAMPLE_LISTINGS.length} listings →
+            View all {properties.length} properties →
           </Link>
         </div>
         <div className="grid md:grid-cols-3 gap-5 md:gap-6">
-          {featured.map(l => (
-            <ListingCard key={l.id} listing={l} />
+          {featured.map(p => (
+            <PropertyCard key={p.key} property={p} />
           ))}
         </div>
       </section>
@@ -101,9 +106,9 @@ export default function LandingPage() {
           {[
             {
               eyebrow: 'Local',
-              title: 'Family-owned, locally operated',
+              title: 'Rooted in the neighborhoods we serve',
               body:
-                'We live and work in the same neighborhoods as our rentals. Decisions are made quickly by people you can actually talk to.',
+                'We live and work in the same cities as our rentals. Decisions are made quickly by people you can actually talk to.',
             },
             {
               eyebrow: 'Responsive',
