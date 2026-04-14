@@ -71,8 +71,13 @@ export default function BPUUtilitiesDashboard() {
     }
   }, [authLoading, appUser, router]);
 
+  // Depend on primitive role value (not the whole appUser object), otherwise every
+  // Supabase onAuthStateChange tick (token refresh, tab visibility, etc.) minted a
+  // new object reference and refired this effect — aborting in-flight requests and
+  // clearing charts in a loop.
+  const isAdmin = appUser?.role === 'admin';
   useEffect(() => {
-    if (appUser?.role !== 'admin') return;
+    if (!isAdmin) return;
 
     const controller = new AbortController();
 
@@ -106,7 +111,7 @@ export default function BPUUtilitiesDashboard() {
       });
 
     return () => controller.abort();
-  }, [appUser, timeRange]);
+  }, [isAdmin, timeRange]);
 
   const handleMeterClick = (meterStr: string) => {
     const m = meters.find(m => m.meter === meterStr);
@@ -241,12 +246,6 @@ export default function BPUUtilitiesDashboard() {
       {/* Tab content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <BPUTotalSpendChart
-            dailyCost={dailyCost}
-            timeRange={timeRange}
-            loading={loading}
-          />
-
           <BPUUsageChart
             dailyUsage={dailyCost}
             timeRange={timeRange}
@@ -258,6 +257,12 @@ export default function BPUUtilitiesDashboard() {
             loading={loading}
             timeRange={timeRange}
             onMeterClick={handleMeterClick}
+          />
+
+          <BPUTotalSpendChart
+            dailyCost={dailyCost}
+            timeRange={timeRange}
+            loading={loading}
           />
 
           <BPUOccupiedUnits
