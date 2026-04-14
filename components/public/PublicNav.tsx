@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { TENANT_PORTAL_URL } from './sampleListings';
+import { TENANT_PORTAL_URL } from '../../lib/listings';
 
 export default function PublicNav() {
   const [open, setOpen] = useState(false);

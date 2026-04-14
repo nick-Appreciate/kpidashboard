@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { TENANT_PORTAL_URL } from './sampleListings';
+import { TENANT_PORTAL_URL } from '../../lib/listings';
 
 export default function PublicFooter() {
   return (

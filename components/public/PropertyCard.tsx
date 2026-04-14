@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { Property, Listing } from './sampleListings';
+import { Property, Listing } from '../../lib/listings';
 
 function formatAvailable(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00');

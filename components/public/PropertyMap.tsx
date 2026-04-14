@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { Property } from './sampleListings';
+import type { Property } from '../../lib/listings';
 
 /** Great-circle distance in miles between two lat/lng pairs. */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
