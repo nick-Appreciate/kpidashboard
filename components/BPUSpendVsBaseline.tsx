@@ -58,7 +58,7 @@ export default function BPUSpendVsBaseline({ rows, loading, timeRange, onMeterCl
         <div>
           <h3 className="text-lg font-semibold text-white">Spend vs Baseline</h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            {rangeLabel} spend per meter vs 90-day trimmed median. Sorted by current spend.
+            {rangeLabel} spend per meter vs 90-day trimmed median. Ranked by % change — biggest increases first.
           </p>
         </div>
         {totalBaseline > 0 && (

@@ -444,7 +444,15 @@ function computeSpendVsBaseline(
     });
   }
 
-  return rows.sort((a, b) => b.currentSpend - a.currentSpend);
+  // Sort by % change desc — biggest increases first (most likely problems).
+  // Rows with null changePct (insufficient history) fall to the bottom;
+  // they tiebreak by current spend desc so the ranking stays readable there.
+  return rows.sort((a, b) => {
+    if (a.changePct === null && b.changePct === null) return b.currentSpend - a.currentSpend;
+    if (a.changePct === null) return 1;
+    if (b.changePct === null) return -1;
+    return b.changePct - a.changePct;
+  });
 }
 
 function computeMeterSummaries(profiles: Map<string, MeterProfile>, filterStart?: string | null): MeterSummary[] {
