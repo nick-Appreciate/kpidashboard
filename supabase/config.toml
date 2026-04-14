@@ -1,2 +1,14 @@
 [functions.sync-appfolio]
 verify_jwt = false
+
+[functions.sync-bpu]
+verify_jwt = false
+
+[functions.sync-simmons]
+verify_jwt = false
+
+[functions.parse-invoice-pdf]
+verify_jwt = false
+
+[functions.embed-work-orders]
+verify_jwt = false
