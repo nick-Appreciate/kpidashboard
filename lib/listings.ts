@@ -181,4 +181,28 @@ export function getFullAddress(l: Pick<Listing, 'address' | 'city' | 'state' | '
   return `${l.address}, ${l.city}, ${l.state} ${l.zip}`;
 }
 
+/**
+ * Format an availability date for display.
+ *
+ *  - null / empty       → "Call for availability"
+ *  - on or before today → "Available now" (AppFolio sometimes leaves a stale
+ *                         past date when a unit's actually empty already)
+ *  - future date        → "Available <date>" with `format` controlling style
+ */
+export function formatAvailability(
+  available_on: string | null,
+  format: 'short' | 'long' = 'short',
+): string {
+  if (!available_on) return 'Call for availability';
+  const d = new Date(available_on + 'T12:00:00');
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (d <= today) return 'Available now';
+  const opts: Intl.DateTimeFormatOptions =
+    format === 'long'
+      ? { month: 'long', day: 'numeric', year: 'numeric' }
+      : { month: 'short', day: 'numeric' };
+  return 'Available ' + d.toLocaleDateString('en-US', opts);
+}
+
 export const TENANT_PORTAL_URL = 'https://appreciateinc.appfolio.com/connect';

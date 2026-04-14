@@ -6,7 +6,12 @@ import Image from 'next/image';
 import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
 import PhotoLightbox from '../../../components/public/PhotoLightbox';
-import { TENANT_PORTAL_URL, getFullAddress, type Listing } from '../../../lib/listings';
+import {
+  TENANT_PORTAL_URL,
+  getFullAddress,
+  formatAvailability,
+  type Listing,
+} from '../../../lib/listings';
 
 interface Props {
   listing: Listing;
@@ -22,14 +27,9 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
     setLightboxOpen(true);
   };
 
-  const availableDate = listing.available_on
-    ? new Date(listing.available_on + 'T12:00:00').toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-      })
-    : 'Call for availability';
-
+  // Single string like "Available now" / "Available April 17" / "Call for availability".
+  // Used in three render points below — header line, sidebar header, sidebar caption.
+  const availabilityLabel = formatAvailability(listing.available_on, 'long');
   const fullAddress = getFullAddress(listing);
 
   return (
@@ -63,7 +63,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
           </h1>
           <p className="text-[17px] text-[#0A0A0A]/65 mb-8">
             {listing.bedrooms} bed · {listing.bathrooms} bath ·{' '}
-            {listing.square_feet.toLocaleString()} sqft · Available {availableDate}
+            {listing.square_feet.toLocaleString()} sqft · {availabilityLabel}
           </p>
 
           {listing.marketing_description && (
@@ -87,7 +87,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
               </p>
               <p className="text-[14px] text-[#0A0A0A]/50">/ month</p>
             </div>
-            <p className="text-[13px] text-[#0A0A0A]/60 mb-6">Available {availableDate}</p>
+            <p className="text-[13px] text-[#0A0A0A]/60 mb-6">{availabilityLabel}</p>
 
             <dl className="space-y-3 text-[13px] pb-6 border-b border-black/5 mb-6">
               {listing.deposit > 0 && (
@@ -137,13 +137,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
                     {unit.square_feet.toLocaleString()} sqft
                   </p>
                   <p className="text-[12px] text-[#0A0A0A]/55">
-                    {unit.available_on
-                      ? 'Available ' +
-                        new Date(unit.available_on + 'T12:00:00').toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                        })
-                      : 'Call for availability'}
+                    {formatAvailability(unit.available_on)}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

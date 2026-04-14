@@ -2,14 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { Property, Listing } from '../../lib/listings';
-
-function formatAvailable(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00');
-  const now = new Date();
-  if (d <= now) return 'Available now';
-  return 'Available ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+import { Property, Listing, formatAvailability } from '../../lib/listings';
 
 function formatRentRange(property: Property): string {
   if (property.minRent === property.maxRent) return '$' + property.minRent.toLocaleString();
@@ -25,7 +18,7 @@ function UnitRow({ unit, hideAddress }: { unit: Listing; hideAddress?: boolean }
     >
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-[#0A0A0A] mb-0.5">{specs}</p>
-        <p className="text-[11px] text-[#0A0A0A]/55">{formatAvailable(unit.available_on)}</p>
+        <p className="text-[11px] text-[#0A0A0A]/55">{formatAvailability(unit.available_on)}</p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
         <p className="font-[var(--font-fraunces)] text-[18px] text-[#0A0A0A] tabular-nums">
