@@ -9,6 +9,7 @@ import BPULeakAlerts from './BPULeakAlerts';
 import BPUMeterDetail from './BPUMeterDetail';
 import BPUOccupiedUnits from './BPUOccupiedUnits';
 import BPUSpendVsBaseline, { SpendVsBaselineRow } from './BPUSpendVsBaseline';
+import BPUTotalSpendChart from './BPUTotalSpendChart';
 
 interface Stats {
   totalMeters: number;
@@ -240,6 +241,12 @@ export default function BPUUtilitiesDashboard() {
       {/* Tab content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          <BPUTotalSpendChart
+            dailyCost={dailyCost}
+            timeRange={timeRange}
+            loading={loading}
+          />
+
           <BPUUsageChart
             dailyUsage={dailyCost}
             timeRange={timeRange}
