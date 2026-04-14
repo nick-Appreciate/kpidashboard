@@ -4,15 +4,15 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
-import PublicNav from '../../../../components/public/PublicNav';
-import PublicFooter from '../../../../components/public/PublicFooter';
-import PhotoLightbox from '../../../../components/public/PhotoLightbox';
+import PublicNav from '../../../components/public/PublicNav';
+import PublicFooter from '../../../components/public/PublicFooter';
+import PhotoLightbox from '../../../components/public/PhotoLightbox';
 import {
   SAMPLE_LISTINGS,
   TENANT_PORTAL_URL,
   getApplicationUrl,
   getFullAddress,
-} from '../../../../components/public/sampleListings';
+} from '../../../components/public/sampleListings';
 
 export default function ListingDetailPage({ params }: { params: { id: string } }) {
   const listing = SAMPLE_LISTINGS.find(l => l.id === params.id);
@@ -49,7 +49,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
 
       <div className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-8 pb-4">
         <Link
-          href="/preview/listings"
+          href="/listings"
           className="inline-flex items-center gap-1.5 text-[13px] text-[#0A0A0A]/60 hover:text-[#0A0A0A] transition-colors"
         >
           ← All listings
@@ -138,7 +138,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             {siblings.map(unit => (
               <Link
                 key={unit.id}
-                href={`/preview/listings/${unit.id}`}
+                href={`/listings/${unit.id}`}
                 className="group flex items-center justify-between gap-3 px-5 py-4 border-t first:border-t-0 border-black/5 hover:bg-black/[0.02] transition-colors"
               >
                 <div>

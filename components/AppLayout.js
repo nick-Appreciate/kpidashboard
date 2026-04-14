@@ -19,9 +19,11 @@ function LayoutContent({ children }) {
   const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
   const isAuthPage = authPages.includes(pathname);
 
-  // /preview/* routes are the unauthenticated public-site design mockup
-  // (appreciate.io landing + listings). Bypass the dashboard sidebar/auth chrome.
-  const isPreviewPage = pathname?.startsWith('/preview/');
+  // Public-site routes (appreciate.io/, appreciate.io/listings/*) render
+  // without the admin sidebar/auth chrome. Admin hostnames render them too
+  // if they're somehow navigated to, but the hostname middleware makes that
+  // an edge case.
+  const isPublicPage = pathname === '/listings' || pathname?.startsWith('/listings/');
 
   useEffect(() => {
     setIsDesktop(window.innerWidth >= 1024);
@@ -44,7 +46,7 @@ function LayoutContent({ children }) {
     return () => clearInterval(interval);
   }, [appUser?.role]);
   // Show auth pages without auth check
-  if (isAuthPage || isPreviewPage) {
+  if (isAuthPage || isPublicPage) {
     return <>{children}</>;
   }
 

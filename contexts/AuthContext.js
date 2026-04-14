@@ -161,10 +161,16 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    // Redirect to login if not authenticated (except on auth pages and the
-    // unauthenticated public-site mockup at /preview/*).
+    // Only the admin app (app.appreciate.io and localhost dev) enforces login.
+    // On the public host (appreciate.io, Vercel preview URLs, etc.) every
+    // page is reachable without auth — listings, detail pages, landing hero,
+    // etc. Admin pages shouldn't be linked to from the public host anyway.
+    const host = typeof window !== 'undefined' ? window.location.host : '';
+    const isAdminHost = host.startsWith('app.') || host.startsWith('localhost:');
+    if (!isAdminHost) return;
+
     const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-    const isPublic = authPages.includes(pathname) || pathname?.startsWith('/preview/');
+    const isPublic = authPages.includes(pathname) || pathname?.startsWith('/listings');
     if (!loading && !user && !isPublic) {
       router.push('/login');
     }

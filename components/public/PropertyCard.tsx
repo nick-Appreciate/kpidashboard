@@ -20,7 +20,7 @@ function UnitRow({ unit, hideAddress }: { unit: Listing; hideAddress?: boolean }
   const specs = `${unit.bedrooms} bd · ${unit.bathrooms} ba · ${unit.square_feet.toLocaleString()} sqft`;
   return (
     <Link
-      href={`/preview/listings/${unit.id}`}
+      href={`/listings/${unit.id}`}
       className="group/unit flex items-center justify-between gap-3 px-4 py-3 border-t border-black/5 hover:bg-black/[0.02] transition-colors"
     >
       <div className="min-w-0 flex-1">
@@ -45,7 +45,7 @@ export default function PropertyCard({ property }: { property: Property }) {
   const unitCount = property.units.length;
   const rentLabel = formatRentRange(property);
   // Photo + header always link to the first (soonest-available) unit.
-  const firstUnitHref = `/preview/listings/${property.units[0].id}`;
+  const firstUnitHref = `/listings/${property.units[0].id}`;
 
   return (
     <article className="bg-white rounded-2xl overflow-hidden border border-black/5 hover:border-black/10 transition-all hover:shadow-[0_20px_40px_-20px_rgba(10,10,10,0.12)]">

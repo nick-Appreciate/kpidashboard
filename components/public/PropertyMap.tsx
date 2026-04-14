@@ -134,7 +134,7 @@ export default function PropertyMap({ properties, height = '480px' }: Props) {
               <p class="apm-popup-addr">${property.address}</p>
               <p class="apm-popup-meta">${property.city}, ${property.state} · ${rentLabel}/mo</p>
               <p class="apm-popup-meta-sub">${unitCount} unit${unitCount > 1 ? 's' : ''} available</p>
-              <a href="/preview/listings/${firstUnitId}" class="apm-popup-link">View property →</a>
+              <a href="/listings/${firstUnitId}" class="apm-popup-link">View property →</a>
             </div>
           </div>
         `;

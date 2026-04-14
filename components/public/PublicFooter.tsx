@@ -19,7 +19,7 @@ export default function PublicFooter() {
         <div>
           <p className="text-[12px] uppercase tracking-wider text-[#0A0A0A]/50 mb-3">Prospective Tenants</p>
           <ul className="space-y-2 text-[13px] text-[#0A0A0A]/75">
-            <li><Link href="/preview/listings" className="hover:text-[#0A0A0A]">Available Rentals</Link></li>
+            <li><Link href="/listings" className="hover:text-[#0A0A0A]">Available Rentals</Link></li>
             <li><a href={TENANT_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="hover:text-[#0A0A0A]">Apply Online ↗</a></li>
           </ul>
         </div>

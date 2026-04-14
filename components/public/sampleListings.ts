@@ -1,5 +1,5 @@
 // Sample data copied from https://appreciateinc.appfolio.com/listings on 2026-04-14.
-// Used only for the /preview/* design mockup — Phase B replaces this with
+// Used only for the public-site design mockup — Phase B replaces this with
 // Supabase queries backed by the sync-appfolio-listings scraper.
 
 export interface Listing {

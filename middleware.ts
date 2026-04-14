@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
  *  - `app.appreciate.io` and `localhost:*` → admin app (default Next routing,
  *    `/` renders the dashboard as today).
  *  - Every other host (appreciate.io, the Vercel preview URL, etc.) →
- *    public site: `/` rewrites to `/preview/listings` so unauthenticated
+ *    public site: `/` rewrites to `/listings` so unauthenticated
  *    visitors land on the listings page instead of the login redirect.
  *
  * Direct admin paths (`/admin/*`, `/bookkeeping`, etc.) still flow through
@@ -33,13 +33,16 @@ export function middleware(req: NextRequest) {
 
   const isAdminHost = host.startsWith('app.') || host.startsWith('localhost:');
 
-  // Public hosts: redirect the root URL to the listings page. We use redirect
-  // (not rewrite) so the client-side `usePathname()` matches the rendered
-  // route — otherwise AuthContext sees pathname `/` and triggers its admin
-  // login redirect even though middleware already picked the public route.
+  // Public hosts: redirect the root URL to `/listings`. A rewrite would keep
+  // the URL at `/` but Next's `usePathname()` / AppLayout still see the
+  // browser URL, so the admin chrome tries to render — breaking the public
+  // render. Redirecting makes pathname match the page (`/listings`) so the
+  // existing public-page bypasses in AppLayout/AuthContext kick in cleanly.
+  // Trade-off: the URL bar reads `appreciate.io/listings` rather than `/` —
+  // a pattern every major rental site uses (airbnb, zillow, trulia).
   if (!isAdminHost && pathname === '/') {
     const url = req.nextUrl.clone();
-    url.pathname = '/preview/listings';
+    url.pathname = '/listings';
     return NextResponse.redirect(url);
   }
 

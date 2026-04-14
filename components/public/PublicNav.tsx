@@ -11,7 +11,7 @@ export default function PublicNav() {
     <header className="sticky top-0 z-50 bg-[#FAFAF7]/85 backdrop-blur-md border-b border-black/5">
       <nav className="max-w-[1280px] mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
         <Link
-          href="/preview/listings"
+          href="/listings"
           className="font-[var(--font-fraunces)] text-[20px] font-medium tracking-tight text-[#0A0A0A] leading-none"
         >
           Appreciate Property Management

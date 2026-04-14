@@ -3,19 +3,19 @@
 import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
-import PublicNav from '../../../components/public/PublicNav';
-import PublicFooter from '../../../components/public/PublicFooter';
-import PropertyCard from '../../../components/public/PropertyCard';
+import PublicNav from '../../components/public/PublicNav';
+import PublicFooter from '../../components/public/PublicFooter';
+import PropertyCard from '../../components/public/PropertyCard';
 import {
   SAMPLE_LISTINGS,
   groupByProperty,
   TENANT_PORTAL_URL,
   Listing,
   Property,
-} from '../../../components/public/sampleListings';
+} from '../../components/public/sampleListings';
 
 // Leaflet pulls in `window` synchronously, so the map component is SSR-excluded.
-const PropertyMap = dynamic(() => import('../../../components/public/PropertyMap'), {
+const PropertyMap = dynamic(() => import('../../components/public/PropertyMap'), {
   ssr: false,
   loading: () => (
     <div className="h-[480px] rounded-2xl bg-[#F1F0EC] flex items-center justify-center text-[#0A0A0A]/45 text-[13px]">

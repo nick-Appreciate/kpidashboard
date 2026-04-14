@@ -8,7 +8,7 @@ const inter = Inter({
   display: 'swap',
 });
 
-// Fraunces is used as the display serif on /preview/* (appreciate.io public site).
+// Fraunces is the display serif on the public site (appreciate.io). The admin
 // The admin dashboard keeps Inter for everything.
 const fraunces = Fraunces({
   subsets: ['latin'],
