@@ -11,16 +11,13 @@ export default function PublicNav() {
     <header className="sticky top-0 z-50 bg-[#FAFAF7]/85 backdrop-blur-md border-b border-black/5">
       <nav className="max-w-[1280px] mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
         <Link
-          href="/preview/landing"
+          href="/preview/listings"
           className="font-[var(--font-fraunces)] text-[20px] font-medium tracking-tight text-[#0A0A0A] leading-none"
         >
           Appreciate Property Management
         </Link>
 
         <div className="hidden md:flex items-center gap-8 text-[14px] text-[#0A0A0A]/75">
-          <Link href="/preview/landing" className="hover:text-[#0A0A0A] transition-colors">
-            Home
-          </Link>
           <Link href="/preview/listings" className="hover:text-[#0A0A0A] transition-colors">
             Listings
           </Link>
@@ -48,9 +45,6 @@ export default function PublicNav() {
 
       {open && (
         <div className="md:hidden border-t border-black/5 px-6 py-5 flex flex-col gap-4 bg-[#FAFAF7]">
-          <Link href="/preview/landing" className="text-[15px] text-[#0A0A0A]" onClick={() => setOpen(false)}>
-            Home
-          </Link>
           <Link href="/preview/listings" className="text-[15px] text-[#0A0A0A]" onClick={() => setOpen(false)}>
             Listings
           </Link>
