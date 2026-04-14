@@ -110,8 +110,8 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
           <div className="md:col-span-5 md:pl-4">
             <div className="relative aspect-[4/5] md:aspect-[4/5] rounded-3xl overflow-hidden bg-[#F1F0EC]">
               <Image
-                src="/hero-building.jpg"
-                alt="Apartment building"
+                src="/hero-building.webp"
+                alt="1411 W Maple Avenue — Independence, MO"
                 fill
                 sizes="(max-width: 768px) 100vw, 45vw"
                 className="object-cover"
