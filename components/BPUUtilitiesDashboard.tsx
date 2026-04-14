@@ -5,11 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import BPUUsageChart, { TIME_RANGES } from './BPUUsageChart';
-import BPUBaselineChart from './BPUBaselineChart';
-import BPUWasteChart from './BPUWasteChart';
 import BPULeakAlerts from './BPULeakAlerts';
 import BPUMeterDetail from './BPUMeterDetail';
 import BPUOccupiedUnits from './BPUOccupiedUnits';
+import BPUSpendVsBaseline, { SpendVsBaselineRow } from './BPUSpendVsBaseline';
 
 interface Stats {
   totalMeters: number;
@@ -56,8 +55,7 @@ export default function BPUUtilitiesDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [dailyUsage, setDailyUsage] = useState<any[]>([]);
   const [dailyCost, setDailyCost] = useState<any[]>([]);
-  const [dailyWaste, setDailyWaste] = useState<any[]>([]);
-  const [baselineDeviation, setBaselineDeviation] = useState<any[]>([]);
+  const [spendVsBaseline, setSpendVsBaseline] = useState<SpendVsBaselineRow[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [meters, setMeters] = useState<MeterSummary[]>([]);
   const [occupiedMetered, setOccupiedMetered] = useState<any[]>([]);
@@ -81,8 +79,7 @@ export default function BPUUtilitiesDashboard() {
     setLoading(true);
     setDailyUsage([]);
     setDailyCost([]);
-    setDailyWaste([]);
-    setBaselineDeviation([]);
+    setSpendVsBaseline([]);
     setAlerts([]);
     setMeters([]);
     setOccupiedMetered([]);
@@ -95,8 +92,7 @@ export default function BPUUtilitiesDashboard() {
         setStats(data.stats || null);
         setDailyUsage(data.dailyUsage || []);
         setDailyCost(data.dailyCost || []);
-        setDailyWaste(data.dailyWaste || []);
-        setBaselineDeviation(data.baselineDeviation || []);
+        setSpendVsBaseline(data.spendVsBaseline || []);
         setAlerts(data.alerts || []);
         setMeters(data.meters || []);
         setOccupiedMetered(data.occupiedMetered || []);
@@ -250,16 +246,11 @@ export default function BPUUtilitiesDashboard() {
             loading={loading}
           />
 
-          <BPUWasteChart
-            dailyWaste={dailyWaste}
-            timeRange={timeRange}
+          <BPUSpendVsBaseline
+            rows={spendVsBaseline}
             loading={loading}
-          />
-
-          <BPUBaselineChart
-            baselineDeviation={baselineDeviation}
             timeRange={timeRange}
-            loading={loading}
+            onMeterClick={handleMeterClick}
           />
 
           <BPUOccupiedUnits

@@ -82,13 +82,15 @@ export async function GET(request: Request) {
       startDateStr = startDate.toISOString().split('T')[0];
     }
 
-    // Always fetch at least 30 days for alert detection (recurring leaks need history)
+    // Always fetch 90 days of history BEFORE the window start — needed for:
+    //  • Alert detection (recurring leaks)
+    //  • Spend-vs-baseline (90-day trimmed historical median)
     const days = daysParam === 'all' ? Infinity : parseInt(daysParam, 10);
-    const MIN_ALERT_DAYS = 30;
+    const BASELINE_HISTORY_DAYS = 90;
     let fetchStartDateStr = startDateStr;
-    if (startDateStr && days < MIN_ALERT_DAYS) {
-      const fetchStart = new Date(today);
-      fetchStart.setDate(fetchStart.getDate() - MIN_ALERT_DAYS);
+    if (startDateStr) {
+      const fetchStart = new Date(startDateStr);
+      fetchStart.setDate(fetchStart.getDate() - BASELINE_HISTORY_DAYS);
       fetchStartDateStr = fetchStart.toISOString().split('T')[0];
     }
     let allData: Reading[] = [];
@@ -192,9 +194,10 @@ export async function GET(request: Request) {
     const stats = computeStats(allData, profiles, startDateStr);
     const dailyUsage = filterDate(computeDailyUsage(allData, profiles));
     const dailyCost = filterDate(computeDailyCost(allData, profiles));
-    const dailyWaste = filterDate(computeDailyWaste(profiles));
-    const baselineDeviation = filterDate(computeBaselineDeviation(allData, profiles));
     const meters = computeMeterSummaries(profiles, startDateStr);
+    const spendVsBaseline = startDateStr
+      ? computeSpendVsBaseline(profiles, startDateStr, today)
+      : [];
 
     // ─── Occupied metered units ───────────────────────────────────────────
     const occupiedMetered = await computeOccupiedMeteredUnits(supabase, profiles, startDateStr, days);
@@ -203,8 +206,7 @@ export async function GET(request: Request) {
       stats: { ...stats, alertCount: alerts.length },
       dailyUsage,
       dailyCost,
-      dailyWaste,
-      baselineDeviation,
+      spendVsBaseline,
       alerts,
       meters,
       occupiedMetered,
@@ -333,92 +335,116 @@ function computeDailyCost(data: Reading[], profiles: Map<string, MeterProfile>) 
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/**
- * Estimated Waste = excess above each meter's baseline on statistically elevated days.
- *
- * For each meter:
- *   baseline = median daily CCF (robust to outliers)
- *   z-score  = modified z-score for the day (uses MAD, not std dev)
- *
- * A day counts as waste when z > 2.0 AND dailyCcf > median:
- *   wasteCcf = dailyCcf - median
- *
- * Why z > 2.0: balances sensitivity with specificity — catches real anomalies
- * without flagging normal variation. Each meter's own median defines "normal"
- * so a high-usage meter and a low-usage meter are both evaluated fairly.
- *
- * Dollar estimate = wasteCcf × ESTIMATED_RATE_PER_CCF ($35/CCF all-in).
- */
-function computeDailyWaste(profiles: Map<string, MeterProfile>) {
-  const dateMap = new Map<string, Record<string, number>>();
-
-  for (const profile of Array.from(profiles.values())) {
-    const dailyEntries = Array.from(profile.dailyUsage.entries()).sort(([a], [b]) => a.localeCompare(b));
-    const values = dailyEntries.map(([, v]) => v);
-    const totalUsage = values.reduce((s, v) => s + v, 0);
-    if (totalUsage === 0 || values.length < 7) continue;
-
-    // Each meter's own median is its baseline
-    const sorted = [...values].sort((a, b) => a - b);
-    const median = sorted.length % 2 === 0
-      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-      : sorted[Math.floor(sorted.length / 2)];
-
-    if (median === 0) continue; // Can't define waste for a meter with zero baseline
-
-    // Modified z-scores for this meter's daily values
-    const { scores } = modifiedZScores(values);
-    if (scores.length === 0) continue;
-
-    const label = shortAddressLabel(profile.address);
-
-    for (let i = 0; i < dailyEntries.length; i++) {
-      const [date, ccf] = dailyEntries[i];
-
-      // Only flag as waste when statistically elevated above this meter's baseline
-      if (scores[i] > 2.0 && ccf > median) {
-        const wasteCcf = ccf - median;
-        const rate = rateForSource(profile.source);
-        const wasteDollars = Math.round(wasteCcf * rate * 100) / 100;
-        if (wasteDollars < 0.50) continue; // Skip noise below $0.50
-        if (!dateMap.has(date)) dateMap.set(date, {});
-        dateMap.get(date)![label] = wasteDollars;
-      }
-    }
-  }
-
-  return Array.from(dateMap.entries())
-    .map(([date, meters]) => ({ date, ...meters }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+interface SpendVsBaselineRow {
+  meter: string;
+  label: string;
+  address: string;
+  name: string;
+  accountNumber: string;
+  currentSpend: number;
+  currentCcf: number;
+  baselineSpend: number | null;
+  baselineDailyCcf: number | null;
+  changePct: number | null;
+  priorDays: number;
+  windowDays: number;
 }
 
-function computeBaselineDeviation(data: Reading[], profiles: Map<string, MeterProfile>) {
-  // For each meter, compute daily usage as a ratio of its median (baseline = 1.0)
-  const dateMap = new Map<string, Record<string, number>>();
+/**
+ * Spend vs Baseline — per-meter current-window spend compared to a baseline
+ * projected from the 90 days immediately preceding the current window.
+ *
+ * Baseline = median daily CCF from the 90-day reference window, with days
+ * flagged as modified-z > 2 trimmed out (so past leak days don't inflate
+ * the baseline). Projected across the current window length and multiplied
+ * by the per-source rate.
+ *
+ * If a meter has <30 days of prior history, baseline is null (shown as
+ * "insufficient history" in the UI).
+ */
+function computeSpendVsBaseline(
+  profiles: Map<string, MeterProfile>,
+  startDateStr: string,
+  endDateStr: string,
+): SpendVsBaselineRow[] {
+  const HISTORY_DAYS = 90;
+  const MIN_HISTORY_DAYS = 30;
+  const Z_THRESHOLD = 2.0;
+
+  const historyStart = new Date(startDateStr);
+  historyStart.setDate(historyStart.getDate() - HISTORY_DAYS);
+  const historyStartStr = historyStart.toISOString().split('T')[0];
+
+  // Count calendar days in the current window, inclusive
+  const windowDays =
+    Math.round(
+      (new Date(endDateStr).getTime() - new Date(startDateStr).getTime()) / 86_400_000,
+    ) + 1;
+
+  const rows: SpendVsBaselineRow[] = [];
 
   for (const profile of Array.from(profiles.values())) {
-    const dailyValues = Array.from(profile.dailyUsage.values());
-    const totalUsage = dailyValues.reduce((s, v) => s + v, 0);
-    if (totalUsage === 0) continue;
+    let currentCcf = 0;
+    const historyValues: number[] = [];
 
-    // Compute median daily usage as baseline
-    const sorted = [...dailyValues].sort((a, b) => a - b);
-    const median = sorted.length % 2 === 0
-      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-      : sorted[Math.floor(sorted.length / 2)];
-
-    if (median === 0) continue; // Can't compute ratio with zero baseline
-
-    const label = shortAddressLabel(profile.address);
     for (const [date, ccf] of Array.from(profile.dailyUsage)) {
-      if (!dateMap.has(date)) dateMap.set(date, {});
-      dateMap.get(date)![label] = Math.round((ccf / median) * 100) / 100;
+      if (date >= startDateStr && date <= endDateStr) {
+        currentCcf += ccf;
+      } else if (date >= historyStartStr && date < startDateStr) {
+        historyValues.push(ccf);
+      }
     }
+
+    const rate = rateForSource(profile.source);
+    const currentSpend = Math.round(currentCcf * rate * 100) / 100;
+
+    let baselineDailyCcf: number | null = null;
+    let baselineSpend: number | null = null;
+    let changePct: number | null = null;
+
+    if (historyValues.length >= MIN_HISTORY_DAYS) {
+      // Trim leak days (|z| > Z_THRESHOLD) from the history window before taking median
+      const { scores } = modifiedZScores(historyValues);
+      const trimmed: number[] = [];
+      for (let i = 0; i < historyValues.length; i++) {
+        if (Math.abs(scores[i]) <= Z_THRESHOLD) trimmed.push(historyValues[i]);
+      }
+      const baselineSet = trimmed.length > 0 ? trimmed : historyValues;
+      const sorted = [...baselineSet].sort((a, b) => a - b);
+      baselineDailyCcf =
+        sorted.length % 2 === 0
+          ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+          : sorted[Math.floor(sorted.length / 2)];
+
+      const baselineCcf = baselineDailyCcf * windowDays;
+      baselineSpend = Math.round(baselineCcf * rate * 100) / 100;
+
+      if (baselineSpend > 0) {
+        changePct = Math.round(((currentSpend - baselineSpend) / baselineSpend) * 1000) / 10;
+      } else if (currentSpend === 0) {
+        changePct = 0;
+      }
+      // else: baseline ~0 with current > 0 → leave changePct null (shown as "—")
+    }
+
+    rows.push({
+      meter: profile.meter,
+      label: shortAddressLabel(profile.address),
+      address: profile.address,
+      name: profile.name,
+      accountNumber: profile.accountNumber,
+      currentSpend,
+      currentCcf: Math.round(currentCcf * 100) / 100,
+      baselineSpend,
+      baselineDailyCcf:
+        baselineDailyCcf !== null ? Math.round(baselineDailyCcf * 1000) / 1000 : null,
+      changePct,
+      priorDays: historyValues.length,
+      windowDays,
+    });
   }
 
-  return Array.from(dateMap.entries())
-    .map(([date, meters]) => ({ date, ...meters }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  return rows.sort((a, b) => b.currentSpend - a.currentSpend);
 }
 
 function computeMeterSummaries(profiles: Map<string, MeterProfile>, filterStart?: string | null): MeterSummary[] {
