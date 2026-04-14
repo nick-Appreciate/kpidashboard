@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .session-state.json
+.como-session-state.json
+.bpu-session-state.json
 .env
 downloads/
 .screenshots/
