@@ -161,16 +161,16 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    // Only the admin app (app.appreciate.io and localhost dev) enforces login.
-    // On the public host (appreciate.io, Vercel preview URLs, etc.) every
-    // page is reachable without auth — listings, detail pages, landing hero,
-    // etc. Admin pages shouldn't be linked to from the public host anyway.
-    const host = typeof window !== 'undefined' ? window.location.host : '';
-    const isAdminHost = host.startsWith('app.') || host.startsWith('localhost:');
-    if (!isAdminHost) return;
-
+    // Path-based admin gate. Public paths render without auth; admin paths
+    // (anything not in the public list) bounce unauthenticated visitors to
+    // /login. After login, the auth callback returns them to /dashboard.
     const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-    const isPublic = authPages.includes(pathname) || pathname?.startsWith('/listings');
+    const isPublic =
+      pathname === '/' || // middleware redirects this to /listings; defensive
+      pathname === '/privacy' ||
+      pathname === '/terms' ||
+      authPages.includes(pathname) ||
+      pathname?.startsWith('/listings');
     if (!loading && !user && !isPublic) {
       router.push('/login');
     }

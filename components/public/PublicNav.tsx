@@ -26,9 +26,10 @@ export default function PublicNav() {
           >
             Tenant Portal
           </a>
-          {/* Phase C: switch href to https://app.appreciate.io once the hostname split ships. */}
+          {/* /dashboard is admin-gated — AuthContext bounces unauthenticated
+              clicks through /login first and back here on success. */}
           <a
-            href="/login"
+            href="/dashboard"
             className="inline-flex items-center justify-center px-3.5 py-2 text-[12px] font-medium rounded-full bg-black/[0.06] text-[#0A0A0A]/70 hover:bg-black/[0.1] hover:text-[#0A0A0A] transition-colors"
           >
             Admin
@@ -57,7 +58,7 @@ export default function PublicNav() {
             Tenant Portal ↗
           </a>
           <a
-            href="/login"
+            href="/dashboard"
             className="inline-flex items-center justify-center px-4 py-2 text-[12px] font-medium rounded-full bg-black/[0.06] text-[#0A0A0A]/70 w-fit"
           >
             Admin

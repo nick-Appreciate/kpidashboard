@@ -23,7 +23,7 @@ export default function AuthCallbackPage() {
         const { data: { session: existingSession } } = await supabaseBrowser.auth.getSession();
         if (existingSession && isMounted) {
           console.log('Session established:', existingSession.user?.email);
-          window.location.href = '/';
+          window.location.href = '/dashboard';
           return;
         }
 
@@ -58,7 +58,7 @@ export default function AuthCallbackPage() {
                     return;
                   }
                   // Redirect immediately without status update
-                  window.location.href = '/';
+                  window.location.href = '/dashboard';
                 }
                 return;
               }
@@ -79,7 +79,7 @@ export default function AuthCallbackPage() {
             }
             
             // Redirect immediately without status update
-            window.location.href = '/';
+            window.location.href = '/dashboard';
           }
         } else if (accessToken && refreshToken) {
           // Legacy hash-based flow
@@ -122,7 +122,7 @@ export default function AuthCallbackPage() {
               window.location.href = '/auth/set-password';
             } else {
               // Redirect immediately without status update
-              window.location.href = '/';
+              window.location.href = '/dashboard';
             }
           }
         } else if (accessToken) {
@@ -131,7 +131,7 @@ export default function AuthCallbackPage() {
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session && isMounted) {
             // Redirect immediately without status update
-            window.location.href = '/';
+            window.location.href = '/dashboard';
           } else if (isMounted) {
             setError('Session could not be established. Please try logging in again.');
           }
@@ -139,7 +139,7 @@ export default function AuthCallbackPage() {
           // No auth params - check if already logged in
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session && isMounted) {
-            window.location.href = '/';
+            window.location.href = '/dashboard';
           } else if (isMounted) {
             setError('No authentication data found. Please try logging in again.');
           }
@@ -151,7 +151,7 @@ export default function AuthCallbackPage() {
           // Try to check session one more time
           const { data: { session } } = await supabaseBrowser.auth.getSession();
           if (session) {
-            window.location.href = '/';
+            window.location.href = '/dashboard';
             return;
           }
         }
