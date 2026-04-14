@@ -181,23 +181,34 @@ export function getFullAddress(l: Pick<Listing, 'address' | 'city' | 'state' | '
   return `${l.address}, ${l.city}, ${l.state} ${l.zip}`;
 }
 
+/** How far in the future an "available_on" date is still treated as "now". */
+const AVAILABLE_NOW_WINDOW_DAYS = 3;
+
 /**
  * Format an availability date for display.
  *
- *  - null / empty       → "Call for availability"
- *  - on or before today → "Available now" (AppFolio sometimes leaves a stale
- *                         past date when a unit's actually empty already)
- *  - future date        → "Available <date>" with `format` controlling style
+ *  - null / empty                       → "Call for availability"
+ *  - today, past, or within 3 days      → "Available now" (AppFolio often
+ *                                         marks units as available a few days
+ *                                         out for cleaning/turnover, but
+ *                                         prospective tenants should read
+ *                                         them as move-in ready)
+ *  - >3 days in the future              → "Available <date>" per `format`
  */
 export function formatAvailability(
   available_on: string | null,
   format: 'short' | 'long' = 'short',
 ): string {
   if (!available_on) return 'Call for availability';
-  const d = new Date(available_on + 'T12:00:00');
+
+  // Compare as YYYY-MM-DD strings to avoid timezone pitfalls — we only care
+  // about calendar day. Build threshold = today + N days in local time.
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (d <= today) return 'Available now';
+  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() + AVAILABLE_NOW_WINDOW_DAYS);
+  const thresholdStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  if (available_on <= thresholdStr) return 'Available now';
+
+  const d = new Date(available_on + 'T12:00:00');
   const opts: Intl.DateTimeFormatOptions =
     format === 'long'
       ? { month: 'long', day: 'numeric', year: 'numeric' }
