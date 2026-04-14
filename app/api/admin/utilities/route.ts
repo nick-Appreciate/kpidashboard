@@ -82,15 +82,15 @@ export async function GET(request: Request) {
       startDateStr = startDate.toISOString().split('T')[0];
     }
 
-    // Always fetch 90 days of history BEFORE the window start — needed for:
-    //  • Alert detection (recurring leaks)
-    //  • Spend-vs-baseline (90-day trimmed historical median)
+    // Always fetch at least 30 days for alert detection (recurring leaks need history).
+    // Baseline (90 days of prior history) is fetched separately via daily-aggregate RPC
+    // below so we don't pull hourly readings we don't need.
     const days = daysParam === 'all' ? Infinity : parseInt(daysParam, 10);
-    const BASELINE_HISTORY_DAYS = 90;
+    const MIN_ALERT_DAYS = 30;
     let fetchStartDateStr = startDateStr;
-    if (startDateStr) {
-      const fetchStart = new Date(startDateStr);
-      fetchStart.setDate(fetchStart.getDate() - BASELINE_HISTORY_DAYS);
+    if (startDateStr && days < MIN_ALERT_DAYS) {
+      const fetchStart = new Date(today);
+      fetchStart.setDate(fetchStart.getDate() - MIN_ALERT_DAYS);
       fetchStartDateStr = fetchStart.toISOString().split('T')[0];
     }
     let allData: Reading[] = [];
@@ -195,8 +195,65 @@ export async function GET(request: Request) {
     const dailyUsage = filterDate(computeDailyUsage(allData, profiles));
     const dailyCost = filterDate(computeDailyCost(allData, profiles));
     const meters = computeMeterSummaries(profiles, startDateStr);
+
+    // ─── Baseline history (separate lightweight query) ─────────────────────
+    // Pull 90 days of DAILY aggregates immediately before the visible window.
+    // Using the RPC here keeps payload small (~24K rows for 90d × all meters
+    // at daily granularity, vs 180K+ at hourly) so we don't bloat the primary fetch.
+    let baselineHistory: Map<string, Map<string, number>> = new Map();
+    if (startDateStr) {
+      const baselineStart = new Date(startDateStr);
+      baselineStart.setDate(baselineStart.getDate() - 90);
+      const baselineStartStr = baselineStart.toISOString().split('T')[0];
+
+      try {
+        const { data: baselineRpc, error: baselineErr } = await supabase
+          .rpc('get_daily_meter_usage', {
+            start_date: baselineStartStr,
+            end_date: startDateStr,
+            meter_filter: meterParam || null,
+          })
+          .single();
+
+        const baselineRows = baselineRpc as any[] | null;
+        if (!baselineErr && baselineRows) {
+          for (const row of baselineRows) {
+            // Exclude the window start itself — strictly prior history
+            if (row.day >= startDateStr) continue;
+            if (!baselineHistory.has(row.meter)) {
+              baselineHistory.set(row.meter, new Map());
+            }
+            baselineHistory.get(row.meter)!.set(row.day, Number(row.total_ccf) || 0);
+          }
+        }
+
+        // Also include COMO baseline history if the daily RPC doesn't cover it
+        const { data: comoHist } = await supabase
+          .from('como_meter_readings')
+          .select('reading_timestamp, account_number, name, meter, location, address, ccf')
+          .gte('reading_timestamp', baselineStartStr)
+          .lt('reading_timestamp', startDateStr)
+          .order('reading_timestamp', { ascending: true });
+
+        if (comoHist && comoHist.length > 0) {
+          const comoDaily = spreadComoToDailyReadings(comoHist as any[], baselineStartStr);
+          for (const r of comoDaily) {
+            if (r.reading_timestamp.split('T')[0] >= startDateStr) continue;
+            if (!baselineHistory.has(r.meter)) {
+              baselineHistory.set(r.meter, new Map());
+            }
+            const date = r.reading_timestamp.split('T')[0];
+            const prev = baselineHistory.get(r.meter)!.get(date) || 0;
+            baselineHistory.get(r.meter)!.set(date, prev + (r.ccf ?? 0));
+          }
+        }
+      } catch (err) {
+        console.warn('[utilities] baseline history fetch failed, baselines may be sparse:', err);
+      }
+    }
+
     const spendVsBaseline = startDateStr
-      ? computeSpendVsBaseline(profiles, startDateStr, today)
+      ? computeSpendVsBaseline(profiles, baselineHistory, startDateStr, today)
       : [];
 
     // ─── Occupied metered units ───────────────────────────────────────────
@@ -364,16 +421,12 @@ interface SpendVsBaselineRow {
  */
 function computeSpendVsBaseline(
   profiles: Map<string, MeterProfile>,
+  baselineHistory: Map<string, Map<string, number>>,
   startDateStr: string,
   endDateStr: string,
 ): SpendVsBaselineRow[] {
-  const HISTORY_DAYS = 90;
   const MIN_HISTORY_DAYS = 30;
   const Z_THRESHOLD = 2.0;
-
-  const historyStart = new Date(startDateStr);
-  historyStart.setDate(historyStart.getDate() - HISTORY_DAYS);
-  const historyStartStr = historyStart.toISOString().split('T')[0];
 
   // Count calendar days in the current window, inclusive
   const windowDays =
@@ -385,15 +438,17 @@ function computeSpendVsBaseline(
 
   for (const profile of Array.from(profiles.values())) {
     let currentCcf = 0;
-    const historyValues: number[] = [];
-
     for (const [date, ccf] of Array.from(profile.dailyUsage)) {
       if (date >= startDateStr && date <= endDateStr) {
         currentCcf += ccf;
-      } else if (date >= historyStartStr && date < startDateStr) {
-        historyValues.push(ccf);
       }
     }
+
+    // Baseline data comes from the separate prior-90-day RPC fetch
+    const historyMap = baselineHistory.get(profile.meter);
+    const historyValues: number[] = historyMap
+      ? Array.from(historyMap.values())
+      : [];
 
     const rate = rateForSource(profile.source);
     const currentSpend = Math.round(currentCcf * rate * 100) / 100;
