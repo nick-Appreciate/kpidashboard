@@ -19,6 +19,10 @@ function LayoutContent({ children }) {
   const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
   const isAuthPage = authPages.includes(pathname);
 
+  // /preview/* routes are the unauthenticated public-site design mockup
+  // (appreciate.io landing + listings). Bypass the dashboard sidebar/auth chrome.
+  const isPreviewPage = pathname?.startsWith('/preview/');
+
   useEffect(() => {
     setIsDesktop(window.innerWidth >= 1024);
     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
@@ -40,7 +44,7 @@ function LayoutContent({ children }) {
     return () => clearInterval(interval);
   }, [appUser?.role]);
   // Show auth pages without auth check
-  if (isAuthPage) {
+  if (isAuthPage || isPreviewPage) {
     return <>{children}</>;
   }
 

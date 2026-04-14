@@ -161,9 +161,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    // Redirect to login if not authenticated (except on auth pages)
+    // Redirect to login if not authenticated (except on auth pages and the
+    // unauthenticated public-site mockup at /preview/*).
     const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
-    if (!loading && !user && !authPages.includes(pathname)) {
+    const isPublic = authPages.includes(pathname) || pathname?.startsWith('/preview/');
+    if (!loading && !user && !isPublic) {
       router.push('/login');
     }
   }, [user, loading, pathname, router]);

@@ -1,4 +1,4 @@
-import { Inter } from 'next/font/google';
+import { Inter, Fraunces } from 'next/font/google';
 import './globals.css';
 import AppLayout from '../components/AppLayout';
 
@@ -6,6 +6,15 @@ const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
   display: 'swap',
+});
+
+// Fraunces is used as the display serif on /preview/* (appreciate.io public site).
+// The admin dashboard keeps Inter for everything.
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+  display: 'swap',
+  axes: ['SOFT', 'opsz'],
 });
 
 export const metadata = {
@@ -25,7 +34,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
       <body className={inter.className}>
         <AppLayout>{children}</AppLayout>
       </body>
