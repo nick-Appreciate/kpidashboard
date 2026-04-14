@@ -69,15 +69,6 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
 
   const totalUnits = properties.reduce((s, p) => s + p.units.length, 0);
 
-  // Up to 3 representative photos for the hero collage.
-  const heroPhotos = useMemo(() => {
-    const all = groupByProperty(listings);
-    return all
-      .map(p => ({ photo: p.photos[0] || null, address: p.address }))
-      .filter(x => x.photo && !x.photo.includes('no_photo'))
-      .slice(0, 3) as { photo: string; address: string }[];
-  }, [listings]);
-
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
       <PublicNav />
@@ -117,7 +108,16 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
             </div>
           </div>
           <div className="md:col-span-5 md:pl-4">
-            <HeroCollage photos={heroPhotos} />
+            <div className="relative aspect-[4/5] md:aspect-[4/5] rounded-3xl overflow-hidden bg-[#F1F0EC]">
+              <Image
+                src="/hero-building.jpg"
+                alt="Apartment building"
+                fill
+                sizes="(max-width: 768px) 100vw, 45vw"
+                className="object-cover"
+                priority
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -225,44 +225,6 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
 
       <PublicFooter />
     </main>
-  );
-}
-
-function HeroCollage({ photos }: { photos: { photo: string; address: string }[] }) {
-  if (photos.length === 0) return null;
-  const [main, ...rest] = photos;
-
-  return (
-    <div className="grid grid-cols-2 gap-3 h-[420px] md:h-[500px]">
-      <div className="relative col-span-1 row-span-2 rounded-2xl overflow-hidden bg-[#F1F0EC]">
-        <Image
-          src={main.photo}
-          alt={main.address}
-          fill
-          sizes="(max-width: 768px) 50vw, 30vw"
-          className="object-cover"
-          unoptimized
-          priority
-        />
-      </div>
-      {rest.slice(0, 2).map((p, i) => (
-        <div
-          key={p.photo}
-          className={`relative rounded-2xl overflow-hidden bg-[#F1F0EC] ${
-            rest.length === 1 && i === 0 ? 'row-span-2' : ''
-          }`}
-        >
-          <Image
-            src={p.photo}
-            alt={p.address}
-            fill
-            sizes="(max-width: 768px) 50vw, 20vw"
-            className="object-cover"
-            unoptimized
-          />
-        </div>
-      ))}
-    </div>
   );
 }
 
