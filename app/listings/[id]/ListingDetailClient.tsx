@@ -12,13 +12,16 @@ import {
   formatAvailability,
   type Listing,
 } from '../../../lib/listings';
+import { getDictionary, getListingPath, type Locale } from '../../../lib/i18n';
 
 interface Props {
   listing: Listing;
   siblings: Listing[];
+  locale: Locale;
 }
 
-export default function ListingDetailClient({ listing, siblings }: Props) {
+export default function ListingDetailClient({ listing, siblings, locale }: Props) {
+  const t = getDictionary(locale);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
@@ -29,19 +32,19 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
 
   // Single string like "Available now" / "Available April 17" / "Call for availability".
   // Used in three render points below — header line, sidebar header, sidebar caption.
-  const availabilityLabel = formatAvailability(listing.available_on, 'long');
+  const availabilityLabel = formatAvailability(listing.available_on, 'long', locale);
   const fullAddress = getFullAddress(listing);
 
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
-      <PublicNav />
+      <PublicNav locale={locale} />
 
       <div className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-8 pb-4">
         <Link
-          href="/listings"
+          href={getListingPath(locale)}
           className="inline-flex items-center gap-1.5 text-[13px] text-[#0A0A0A]/60 hover:text-[#0A0A0A] transition-colors"
         >
-          ← All listings
+          {t.detail.backAll}
         </Link>
       </div>
 
@@ -50,6 +53,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
           photos={listing.photos}
           address={listing.address}
           onOpen={openLightbox}
+          locale={locale}
         />
       </section>
 
@@ -62,8 +66,12 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
             {listing.address}
           </h1>
           <p className="text-[17px] text-[#0A0A0A]/65 mb-8">
-            {listing.bedrooms} bed · {listing.bathrooms} bath ·{' '}
-            {listing.square_feet.toLocaleString()} sqft · {availabilityLabel}
+            {t.detail.specsLine(
+              listing.bedrooms,
+              listing.bathrooms,
+              listing.square_feet.toLocaleString(),
+              availabilityLabel,
+            )}
           </p>
 
           {listing.marketing_description && (
@@ -74,7 +82,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
 
           <div className="grid sm:grid-cols-2 gap-8">
             {listing.pet_policy && (
-              <FeatureList title="Pet policy" items={[listing.pet_policy]} />
+              <FeatureList title={t.detail.petPolicy} items={[listing.pet_policy]} />
             )}
           </div>
         </div>
@@ -85,18 +93,18 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
               <p className="font-[var(--font-fraunces)] text-[42px] leading-none text-[#0A0A0A]">
                 {listing.rent_range}
               </p>
-              <p className="text-[14px] text-[#0A0A0A]/50">/ month</p>
+              <p className="text-[14px] text-[#0A0A0A]/50">{t.detail.perMonthLong}</p>
             </div>
             <p className="text-[13px] text-[#0A0A0A]/60 mb-6">{availabilityLabel}</p>
 
             <dl className="space-y-3 text-[13px] pb-6 border-b border-black/5 mb-6">
               {listing.deposit > 0 && (
-                <Row label="Deposit" value={`$${listing.deposit.toLocaleString()}`} />
+                <Row label={t.detail.deposit} value={`$${listing.deposit.toLocaleString()}`} />
               )}
               {listing.application_fee > 0 && (
-                <Row label="Application fee" value={`$${listing.application_fee}`} />
+                <Row label={t.detail.appFee} value={`$${listing.application_fee}`} />
               )}
-              {listing.pet_policy && <Row label="Pet policy" value={listing.pet_policy} />}
+              {listing.pet_policy && <Row label={t.detail.petPolicy} value={listing.pet_policy} />}
             </dl>
 
             <a
@@ -105,7 +113,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
               rel="noopener noreferrer"
               className="flex items-center justify-center w-full px-4 py-3.5 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
             >
-              Apply now ↗
+              {t.detail.applyNow}
             </a>
             <a
               href={TENANT_PORTAL_URL}
@@ -113,7 +121,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
               rel="noopener noreferrer"
               className="flex items-center justify-center w-full mt-2.5 px-4 py-3 rounded-full border border-black/10 text-[13px] text-[#0A0A0A] hover:bg-black/[0.03] transition-colors"
             >
-              Already a tenant? Portal ↗
+              {t.detail.portalTenant}
             </a>
           </div>
         </aside>
@@ -122,22 +130,21 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
       {siblings.length > 0 && (
         <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-8 pb-6">
           <h2 className="font-[var(--font-fraunces)] text-[26px] text-[#0A0A0A] mb-4">
-            Other units at {listing.address}
+            {t.detail.otherUnitsAt(listing.address)}
           </h2>
           <div className="bg-white border border-black/5 rounded-2xl overflow-hidden">
             {siblings.map(unit => (
               <Link
                 key={unit.id}
-                href={`/listings/${unit.id}`}
+                href={getListingPath(locale, unit.id)}
                 className="group flex items-center justify-between gap-3 px-5 py-4 border-t first:border-t-0 border-black/5 hover:bg-black/[0.02] transition-colors"
               >
                 <div>
                   <p className="text-[14px] font-medium text-[#0A0A0A]">
-                    {unit.bedrooms} bd · {unit.bathrooms} ba ·{' '}
-                    {unit.square_feet.toLocaleString()} sqft
+                    {t.detail.unitSpec(unit.bedrooms, unit.bathrooms, unit.square_feet.toLocaleString())}
                   </p>
                   <p className="text-[12px] text-[#0A0A0A]/55">
-                    {formatAvailability(unit.available_on)}
+                    {formatAvailability(unit.available_on, 'short', locale)}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -156,14 +163,14 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
 
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-10 pb-6">
         <div className="flex items-end justify-between mb-5">
-          <h2 className="font-[var(--font-fraunces)] text-[26px] text-[#0A0A0A]">Location</h2>
+          <h2 className="font-[var(--font-fraunces)] text-[26px] text-[#0A0A0A]">{t.detail.location}</h2>
           <a
             href={`https://maps.google.com/?q=${encodeURIComponent(fullAddress)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[13px] text-[#0A0A0A]/60 hover:text-[#0A0A0A]"
           >
-            Open in Google Maps ↗
+            {t.detail.openMaps}
           </a>
         </div>
         <div className="rounded-2xl overflow-hidden border border-black/5 h-[380px] relative bg-[#F1F0EC]">
@@ -178,7 +185,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
         </div>
       </section>
 
-      <PublicFooter />
+      <PublicFooter locale={locale} />
 
       <PhotoLightbox
         photos={listing.photos}
@@ -186,6 +193,7 @@ export default function ListingDetailClient({ listing, siblings }: Props) {
         open={lightboxOpen}
         onClose={() => setLightboxOpen(false)}
         initialIndex={lightboxIndex}
+        locale={locale}
       />
     </main>
   );
@@ -195,11 +203,14 @@ function PhotoGallery({
   photos,
   address,
   onOpen,
+  locale,
 }: {
   photos: string[];
   address: string;
   onOpen: (index: number) => void;
+  locale: Locale;
 }) {
+  const t = getDictionary(locale).detail;
   const hero = photos[0];
   const thumbs = photos.slice(1, 5);
   const extraCount = Math.max(0, photos.length - 5);
@@ -211,7 +222,7 @@ function PhotoGallery({
       <button
         onClick={() => onOpen(0)}
         className="relative aspect-[16/9] md:aspect-[21/9] w-full rounded-3xl overflow-hidden bg-[#F1F0EC] cursor-zoom-in group"
-        aria-label="Open photo gallery"
+        aria-label={t.openGallery}
       >
         <Image
           src={hero}
@@ -231,7 +242,7 @@ function PhotoGallery({
       <button
         onClick={() => onOpen(0)}
         className="md:col-span-2 md:row-span-2 relative aspect-[4/3] md:aspect-auto bg-[#F1F0EC] md:min-h-[420px] cursor-zoom-in group"
-        aria-label="Open photo gallery"
+        aria-label={t.openGallery}
       >
         <Image
           src={hero}
@@ -248,11 +259,11 @@ function PhotoGallery({
           key={photo}
           onClick={() => onOpen(i + 1)}
           className="relative aspect-square bg-[#F1F0EC] hidden md:block cursor-zoom-in group"
-          aria-label={`Open photo ${i + 2}`}
+          aria-label={t.openPhoto(i + 2)}
         >
           <Image
             src={photo}
-            alt={`${address} photo ${i + 2}`}
+            alt={`${address} — ${i + 2}`}
             fill
             sizes="320px"
             className="object-cover group-hover:scale-[1.02] transition-transform duration-500"
@@ -260,7 +271,7 @@ function PhotoGallery({
           />
           {i === thumbs.length - 1 && extraCount > 0 && (
             <div className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-[14px] font-medium">
-              +{extraCount} more
+              {t.extraCount(extraCount)}
             </div>
           )}
         </button>
@@ -277,7 +288,7 @@ function PhotoGallery({
             clipRule="evenodd"
           />
         </svg>
-        Show all {photos.length} photos
+        {t.showAllPhotos(photos.length)}
       </button>
     </div>
   );

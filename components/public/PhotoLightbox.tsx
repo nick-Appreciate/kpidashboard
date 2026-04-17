@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
+import { getDictionary, type Locale } from '../../lib/i18n';
 
 interface Props {
   photos: string[];
@@ -11,6 +12,7 @@ interface Props {
   onClose: () => void;
   /** Index of photo to start with */
   initialIndex?: number;
+  locale: Locale;
 }
 
 export default function PhotoLightbox({
@@ -19,7 +21,9 @@ export default function PhotoLightbox({
   open,
   onClose,
   initialIndex = 0,
+  locale,
 }: Props) {
+  const t = getDictionary(locale).lightbox;
   const [index, setIndex] = useState(initialIndex);
 
   useEffect(() => {
@@ -59,13 +63,13 @@ export default function PhotoLightbox({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Photo gallery"
+      aria-label={t.galleryLabel}
     >
       {/* Close button */}
       <button
         onClick={onClose}
         className="absolute top-5 right-5 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-        aria-label="Close gallery"
+        aria-label={t.closeGallery}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5">
           <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
@@ -85,7 +89,7 @@ export default function PhotoLightbox({
             prev();
           }}
           className="absolute left-4 md:left-8 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-          aria-label="Previous photo"
+          aria-label={t.prev}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-6 h-6">
             <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
@@ -117,7 +121,7 @@ export default function PhotoLightbox({
             next();
           }}
           className="absolute right-4 md:right-8 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-          aria-label="Next photo"
+          aria-label={t.next}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-6 h-6">
             <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
@@ -138,7 +142,7 @@ export default function PhotoLightbox({
               className={`relative w-14 h-10 rounded overflow-hidden flex-shrink-0 transition-all ${
                 i === index ? 'ring-2 ring-white opacity-100' : 'opacity-60 hover:opacity-100'
               }`}
-              aria-label={`Go to photo ${i + 1}`}
+              aria-label={t.goToPhoto(i + 1)}
             >
               <Image src={p} alt="" fill sizes="56px" className="object-cover" unoptimized />
             </button>

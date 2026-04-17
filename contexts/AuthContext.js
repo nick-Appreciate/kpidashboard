@@ -199,7 +199,9 @@ export function AuthProvider({ children }) {
       pathname === '/privacy' ||
       pathname === '/terms' ||
       authPages.includes(pathname) ||
-      pathname?.startsWith('/listings');
+      pathname?.startsWith('/listings') ||
+      pathname === '/es' ||
+      pathname?.startsWith('/es/');
     if (!loading && !user && !isPublic) {
       router.push('/login');
     }

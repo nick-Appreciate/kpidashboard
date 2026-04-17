@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { fetchActiveListings } from '../../lib/listings';
 import ListingsClient from './ListingsClient';
 
@@ -6,7 +7,16 @@ import ListingsClient from './ListingsClient';
 // the page gets fresh data within a minute or two of the new scrape.
 export const revalidate = 60;
 
+export const metadata: Metadata = {
+  alternates: {
+    languages: {
+      en: '/listings',
+      es: '/es/listings',
+    },
+  },
+};
+
 export default async function ListingsPage() {
   const listings = await fetchActiveListings();
-  return <ListingsClient listings={listings} />;
+  return <ListingsClient listings={listings} locale="en" />;
 }

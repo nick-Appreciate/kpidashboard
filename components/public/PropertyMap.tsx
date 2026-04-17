@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { Property } from '../../lib/listings';
+import { getDictionary, getListingPath, type Locale } from '../../lib/i18n';
 
 /** Great-circle distance in miles between two lat/lng pairs. */
 function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -31,6 +32,7 @@ function getUserLocation(): Promise<[number, number] | null> {
 
 interface Props {
   properties: Property[];
+  locale: Locale;
   /** Height CSS string (e.g. "400px" or "60vh"). */
   height?: string;
 }
@@ -40,12 +42,13 @@ interface Props {
  * no Google Maps API key is needed. Loaded dynamically so Leaflet's window-
  * dependent modules don't break SSR.
  */
-export default function PropertyMap({ properties, height = '480px' }: Props) {
+export default function PropertyMap({ properties, locale, height = '480px' }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
 
   useEffect(() => {
     if (!ref.current || properties.length === 0) return;
+    const t = getDictionary(locale).map;
 
     let cancelled = false;
 
@@ -132,9 +135,9 @@ export default function PropertyMap({ properties, height = '480px' }: Props) {
             ${photoUrl ? `<img src="${photoUrl}" alt="" class="apm-popup-img" />` : ''}
             <div class="apm-popup-body">
               <p class="apm-popup-addr">${property.address}</p>
-              <p class="apm-popup-meta">${property.city}, ${property.state} · ${rentLabel}/mo</p>
-              <p class="apm-popup-meta-sub">${unitCount} unit${unitCount > 1 ? 's' : ''} available</p>
-              <a href="/listings/${firstUnitId}" class="apm-popup-link">View property →</a>
+              <p class="apm-popup-meta">${property.city}, ${property.state} · ${rentLabel}${t.perMonth}</p>
+              <p class="apm-popup-meta-sub">${t.popupUnit(unitCount)}</p>
+              <a href="${getListingPath(locale, firstUnitId)}" class="apm-popup-link">${t.popupViewProperty}</a>
             </div>
           </div>
         `;
@@ -149,7 +152,7 @@ export default function PropertyMap({ properties, height = '480px' }: Props) {
         mapRef.current = null;
       }
     };
-  }, [properties]);
+  }, [properties, locale]);
 
   return (
     <>

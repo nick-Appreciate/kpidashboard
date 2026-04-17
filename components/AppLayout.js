@@ -19,11 +19,15 @@ function LayoutContent({ children }) {
   const authPages = ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'];
   const isAuthPage = authPages.includes(pathname);
 
-  // Public-site routes (appreciate.io/, appreciate.io/listings/*) render
-  // without the admin sidebar/auth chrome. Admin hostnames render them too
-  // if they're somehow navigated to, but the hostname middleware makes that
-  // an edge case.
-  const isPublicPage = pathname === '/listings' || pathname?.startsWith('/listings/');
+  // Public-site routes render without the admin sidebar/auth chrome. Covers
+  // both the English (/listings, /listings/*) and Spanish (/es, /es/listings,
+  // /es/listings/*) mirrors of the public site. Keep this in sync with the
+  // public-path allowlist in contexts/AuthContext.js.
+  const isPublicPage =
+    pathname === '/listings' ||
+    pathname?.startsWith('/listings/') ||
+    pathname === '/es' ||
+    pathname?.startsWith('/es/');
 
   useEffect(() => {
     setIsDesktop(window.innerWidth >= 1024);

@@ -3,27 +3,29 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { Property, Listing, formatAvailability } from '../../lib/listings';
+import { getDictionary, getListingPath, type Locale } from '../../lib/i18n';
 
 function formatRentRange(property: Property): string {
   if (property.minRent === property.maxRent) return '$' + property.minRent.toLocaleString();
   return `$${property.minRent.toLocaleString()} – $${property.maxRent.toLocaleString()}`;
 }
 
-function UnitRow({ unit, hideAddress }: { unit: Listing; hideAddress?: boolean }) {
-  const specs = `${unit.bedrooms} bd · ${unit.bathrooms} ba · ${unit.square_feet.toLocaleString()} sqft`;
+function UnitRow({ unit, locale }: { unit: Listing; locale: Locale }) {
+  const t = getDictionary(locale);
+  const specs = t.detail.unitSpec(unit.bedrooms, unit.bathrooms, unit.square_feet.toLocaleString());
   return (
     <Link
-      href={`/listings/${unit.id}`}
+      href={getListingPath(locale, unit.id)}
       className="group/unit flex items-center justify-between gap-3 px-4 py-3 border-t border-black/5 hover:bg-black/[0.02] transition-colors"
     >
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-[#0A0A0A] mb-0.5">{specs}</p>
-        <p className="text-[11px] text-[#0A0A0A]/55">{formatAvailability(unit.available_on)}</p>
+        <p className="text-[11px] text-[#0A0A0A]/55">{formatAvailability(unit.available_on, 'short', locale)}</p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
         <p className="font-[var(--font-fraunces)] text-[18px] text-[#0A0A0A] tabular-nums">
           {unit.rent_range}
-          <span className="text-[11px] font-sans text-[#0A0A0A]/45 ml-0.5">/mo</span>
+          <span className="text-[11px] font-sans text-[#0A0A0A]/45 ml-0.5">{t.card.perMonth}</span>
         </p>
         <span className="text-[#0A0A0A]/30 text-[14px] group-hover/unit:text-[#06b6d4] group-hover/unit:translate-x-0.5 transition-all">
           →
@@ -33,12 +35,19 @@ function UnitRow({ unit, hideAddress }: { unit: Listing; hideAddress?: boolean }
   );
 }
 
-export default function PropertyCard({ property }: { property: Property }) {
+export default function PropertyCard({
+  property,
+  locale,
+}: {
+  property: Property;
+  locale: Locale;
+}) {
+  const t = getDictionary(locale);
   const primaryPhoto = property.photos[0];
   const unitCount = property.units.length;
   const rentLabel = formatRentRange(property);
   // Photo + header always link to the first (soonest-available) unit.
-  const firstUnitHref = `/listings/${property.units[0].id}`;
+  const firstUnitHref = getListingPath(locale, property.units[0].id);
 
   return (
     <article className="bg-white rounded-2xl overflow-hidden border border-black/5 hover:border-black/10 transition-all hover:shadow-[0_20px_40px_-20px_rgba(10,10,10,0.12)]">
@@ -56,7 +65,7 @@ export default function PropertyCard({ property }: { property: Property }) {
           )}
           {unitCount > 1 && (
             <div className="absolute top-3 left-3 px-2.5 py-1 bg-[#0A0A0A]/90 text-white rounded-full text-[11px] font-medium backdrop-blur-sm">
-              {unitCount} units available
+              {t.card.unitsAvailable(unitCount)}
             </div>
           )}
           {property.photos.length > 1 && (
@@ -82,7 +91,7 @@ export default function PropertyCard({ property }: { property: Property }) {
             </p>
             <p className="text-[14px] text-[#0A0A0A]/75 tabular-nums shrink-0">
               {rentLabel}
-              <span className="text-[11px] text-[#0A0A0A]/45 ml-0.5">/mo</span>
+              <span className="text-[11px] text-[#0A0A0A]/45 ml-0.5">{t.card.perMonth}</span>
             </p>
           </div>
         </div>
@@ -90,7 +99,7 @@ export default function PropertyCard({ property }: { property: Property }) {
 
       <div>
         {property.units.map(unit => (
-          <UnitRow key={unit.id} unit={unit} />
+          <UnitRow key={unit.id} unit={unit} locale={locale} />
         ))}
       </div>
     </article>

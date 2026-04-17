@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { DEFAULT_LOCALE, getDictionary, type Locale } from './i18n';
 
 // Types that mirror the af_listings + af_listing_photos tables, shaped for
 // the public site's UI. Kept deliberately separate from the Supabase row
@@ -198,22 +199,29 @@ const AVAILABLE_NOW_WINDOW_DAYS = 3;
 export function formatAvailability(
   available_on: string | null,
   format: 'short' | 'long' = 'short',
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
-  if (!available_on) return 'Call for availability';
+  const t = getDictionary(locale).availability;
+  if (!available_on) return t.callForAvailability;
 
   // Compare as YYYY-MM-DD strings to avoid timezone pitfalls — we only care
   // about calendar day. Build threshold = today + N days in local time.
   const now = new Date();
-  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() + AVAILABLE_NOW_WINDOW_DAYS);
-  const thresholdStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-  if (available_on <= thresholdStr) return 'Available now';
+  const threshold = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + AVAILABLE_NOW_WINDOW_DAYS,
+  );
+  const thresholdStr = `${threshold.getFullYear()}-${String(threshold.getMonth() + 1).padStart(2, '0')}-${String(threshold.getDate()).padStart(2, '0')}`;
+  if (available_on <= thresholdStr) return t.availableNow;
 
   const d = new Date(available_on + 'T12:00:00');
   const opts: Intl.DateTimeFormatOptions =
     format === 'long'
       ? { month: 'long', day: 'numeric', year: 'numeric' }
       : { month: 'short', day: 'numeric' };
-  return 'Available ' + d.toLocaleDateString('en-US', opts);
+  const bcp47 = locale === 'es' ? 'es-US' : 'en-US';
+  return t.availablePrefix + d.toLocaleDateString(bcp47, opts);
 }
 
 export const TENANT_PORTAL_URL = 'https://appreciateinc.appfolio.com/connect';

@@ -12,20 +12,35 @@ import {
   type Listing,
   type Property,
 } from '../../lib/listings';
+import { getDictionary, type Locale } from '../../lib/i18n';
 
 // Leaflet pulls in `window` synchronously, so the map is SSR-excluded.
-const PropertyMap = dynamic(() => import('../../components/public/PropertyMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[480px] rounded-2xl bg-[#F1F0EC] flex items-center justify-center text-[#0A0A0A]/45 text-[13px]">
-      Loading map…
-    </div>
-  ),
-});
-
+// Map is lazy-loaded from inside the default export so we can access the
+// current locale for the loading fallback string.
 type SortKey = 'recent' | 'price_asc' | 'price_desc' | 'bedrooms';
 
-export default function ListingsClient({ listings }: { listings: Listing[] }) {
+interface Props {
+  listings: Listing[];
+  locale: Locale;
+}
+
+export default function ListingsClient({ listings, locale }: Props) {
+  const t = getDictionary(locale);
+
+  // Map component is dynamic() — the loading fallback reads t.map.loading via closure.
+  const PropertyMap = useMemo(
+    () =>
+      dynamic(() => import('../../components/public/PropertyMap'), {
+        ssr: false,
+        loading: () => (
+          <div className="h-[480px] rounded-2xl bg-[#F1F0EC] flex items-center justify-center text-[#0A0A0A]/45 text-[13px]">
+            {t.map.loading}
+          </div>
+        ),
+      }),
+    [t.map.loading],
+  );
+
   const [sort, setSort] = useState<SortKey>('recent');
   const [minBeds, setMinBeds] = useState<number | 'any'>('any');
   const [maxRent, setMaxRent] = useState<number | 'any'>('any');
@@ -71,31 +86,30 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
 
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
-      <PublicNav />
+      <PublicNav locale={locale} />
 
       {/* HERO */}
       <section className="max-w-[1280px] mx-auto px-6 lg:px-10 pt-12 pb-10 md:pt-20 md:pb-14">
         <div className="grid md:grid-cols-12 gap-8 md:gap-14 items-center">
           <div className="md:col-span-7">
             <p className="text-[12px] uppercase tracking-[0.18em] text-[#0A0A0A]/50 mb-5">
-              Kansas City · Columbia · Independence
+              {t.hero.tagline}
             </p>
             <h1 className="font-[var(--font-fraunces)] text-[52px] md:text-[84px] leading-[0.92] tracking-[-0.025em] text-[#0A0A0A] mb-6">
-              Find your next
+              {t.hero.headingPre}
               <br />
-              <span className="italic text-[#06b6d4]">home</span>.
+              <span className="italic text-[#06b6d4]">{t.hero.headingHome}</span>
+              {t.hero.headingPost}
             </h1>
             <p className="text-[17px] md:text-[19px] leading-[1.5] text-[#0A0A0A]/65 max-w-[540px] mb-8">
-              {totalUnits} {totalUnits === 1 ? 'rental' : 'rentals'} across{' '}
-              {properties.length} {properties.length === 1 ? 'property' : 'properties'} — updated
-              hourly as units come and go. Browse, filter, and apply in minutes.
+              {t.hero.subtitle(totalUnits, properties.length)}
             </p>
             <div className="flex flex-wrap gap-3">
               <a
                 href="#grid"
                 className="inline-flex items-center justify-center px-6 py-3.5 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
               >
-                See listings ↓
+                {t.hero.ctaSeeListings}
               </a>
               <a
                 href={TENANT_PORTAL_URL}
@@ -103,7 +117,7 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-6 py-3.5 rounded-full border border-[#0A0A0A]/15 text-[#0A0A0A] text-[14px] font-medium hover:bg-[#0A0A0A] hover:text-white transition-colors"
               >
-                Tenant Portal ↗
+                {t.hero.ctaPortal}
               </a>
             </div>
           </div>
@@ -129,23 +143,23 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
       >
         <div className="max-w-[1280px] mx-auto px-6 lg:px-10 py-4 flex flex-wrap items-center gap-3">
           <FilterSelect
-            label="Bedrooms"
+            label={t.filters.bedrooms}
             value={String(minBeds)}
             onChange={v => setMinBeds(v === 'any' ? 'any' : Number(v))}
             options={[
-              { v: 'any', l: 'Any' },
-              { v: '1', l: '1+' },
-              { v: '2', l: '2+' },
-              { v: '3', l: '3+' },
-              { v: '4', l: '4+' },
+              { v: 'any', l: t.filters.any },
+              { v: '1', l: t.filters.bed1plus },
+              { v: '2', l: t.filters.bed2plus },
+              { v: '3', l: t.filters.bed3plus },
+              { v: '4', l: t.filters.bed4plus },
             ]}
           />
           <FilterSelect
-            label="Max rent"
+            label={t.filters.maxRent}
             value={String(maxRent)}
             onChange={v => setMaxRent(v === 'any' ? 'any' : Number(v))}
             options={[
-              { v: 'any', l: 'Any' },
+              { v: 'any', l: t.filters.any },
               { v: '900', l: '$900' },
               { v: '1000', l: '$1,000' },
               { v: '1200', l: '$1,200' },
@@ -160,19 +174,19 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
               onChange={e => setPetsOk(e.target.checked)}
               className="w-3.5 h-3.5 accent-[#06b6d4]"
             />
-            <span className="text-[13px]">Pets OK</span>
+            <span className="text-[13px]">{t.filters.petsOk}</span>
           </label>
 
           <div className="ml-auto">
             <FilterSelect
-              label="Sort"
+              label={t.filters.sort}
               value={sort}
               onChange={v => setSort(v as SortKey)}
               options={[
-                { v: 'recent', l: 'Available soonest' },
-                { v: 'price_asc', l: 'Rent: low to high' },
-                { v: 'price_desc', l: 'Rent: high to low' },
-                { v: 'bedrooms', l: 'Most bedrooms' },
+                { v: 'recent', l: t.filters.sortAvailableSoonest },
+                { v: 'price_asc', l: t.filters.sortRentLowHigh },
+                { v: 'price_desc', l: t.filters.sortRentHighLow },
+                { v: 'bedrooms', l: t.filters.sortMostBedrooms },
               ]}
             />
           </div>
@@ -184,20 +198,16 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
         {properties.length === 0 ? (
           <div className="text-center py-24 text-[#0A0A0A]/50">
             <p className="font-[var(--font-fraunces)] text-[24px] text-[#0A0A0A] mb-2">
-              {listings.length === 0
-                ? 'No rentals available right now.'
-                : 'Nothing matches those filters.'}
+              {listings.length === 0 ? t.empty.noneTitle : t.empty.filteredTitle}
             </p>
             <p className="text-[14px]">
-              {listings.length === 0
-                ? 'Check back soon — our portfolio updates hourly.'
-                : 'Try widening your criteria.'}
+              {listings.length === 0 ? t.empty.noneBody : t.empty.filteredBody}
             </p>
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
             {properties.map((p: Property) => (
-              <PropertyCard key={p.key} property={p} />
+              <PropertyCard key={p.key} property={p} locale={locale} />
             ))}
           </div>
         )}
@@ -209,21 +219,21 @@ export default function ListingsClient({ listings }: { listings: Listing[] }) {
           <div className="flex items-end justify-between mb-4">
             <div>
               <p className="text-[11px] uppercase tracking-[0.15em] text-[#0A0A0A]/50 mb-1.5">
-                Where we have rentals
+                {t.map.overlineLocations}
               </p>
               <h2 className="font-[var(--font-fraunces)] text-[28px] md:text-[34px] leading-tight text-[#0A0A0A]">
-                Our properties on the map
+                {t.map.sectionHeading}
               </h2>
             </div>
           </div>
-          <PropertyMap properties={properties} height="520px" />
+          <PropertyMap properties={properties} height="520px" locale={locale} />
           <p className="text-[11px] text-[#0A0A0A]/50 mt-3">
-            If you allow location access, the map zooms to properties near you.
+            {t.map.geoHint}
           </p>
         </section>
       )}
 
-      <PublicFooter />
+      <PublicFooter locale={locale} />
     </main>
   );
 }
