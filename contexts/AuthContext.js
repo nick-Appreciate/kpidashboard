@@ -100,32 +100,61 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        // Use getUser() instead of getSession() to verify the session is valid
-        // getSession() can return stale data from localStorage
-        const { data: { user: authUser }, error: userError } = await supabaseBrowser.auth.getUser();
+        // Step 1: read the cached session from localStorage (no network call).
+        // This used to run AFTER getUser(), which meant a transient network
+        // failure on boot (DNS blip, flaky wifi, proxy hiccup) would clear
+        // the session and bounce the user through a fresh OAuth flow — which
+        // is exactly where the Supabase-hostname DNS issue is most likely to
+        // surface again. Reading the cache first lets us unblock the UI
+        // without any network roundtrip.
+        const { data: { session: cachedSession } } = await supabaseBrowser.auth.getSession();
 
-        if (userError || !authUser) {
-          // No valid session - clear any stale data and redirect to login
+        if (!cachedSession) {
+          // Genuinely no session in storage — normal unauthenticated state.
           setUser(null);
           setAppUser(null);
           setLoading(false);
           return;
         }
-        
-        // Valid session - set user and fetch app_user in background
-        setUser(authUser);
+
+        // Step 2: optimistically trust the cached session and unblock the UI.
+        setUser(cachedSession.user);
         setLoading(false);
-        
-        // Fetch app_user in background - don't block
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (session) {
-          syncAccessTokenCookie(session);
-          getOrCreateAppUser(session).then(appUserData => {
-            setAppUser(appUserData);
-          }).catch(err => {
-            console.error('Error fetching app_user:', err);
-          });
-        }
+        syncAccessTokenCookie(cachedSession);
+
+        // Step 3: fetch app_user in background — don't block rendering.
+        getOrCreateAppUser(cachedSession).then(appUserData => {
+          setAppUser(appUserData);
+        }).catch(err => {
+          console.error('Error fetching app_user:', err);
+        });
+
+        // Step 4: verify the session is still valid on the server, in the
+        // background. We only clear session on definitive auth failures
+        // (401/403 from the server). Network errors, aborts, and timeouts
+        // preserve the optimistic session — autoRefreshToken and
+        // onAuthStateChange handle real expiry/invalidation.
+        supabaseBrowser.auth.getUser().then(({ data: { user: verifiedUser }, error }) => {
+          if (error) {
+            const status = error.status ?? 0;
+            const isDefinitiveAuthFailure = status === 401 || status === 403;
+            if (isDefinitiveAuthFailure) {
+              supabaseBrowser.auth.signOut().catch(() => {});
+              setUser(null);
+              setAppUser(null);
+              syncAccessTokenCookie(null);
+            }
+            // Otherwise: probable transient network issue. Keep the session;
+            // the SDK will auto-refresh or onAuthStateChange will fire if
+            // anything genuinely changes.
+            return;
+          }
+          if (verifiedUser) {
+            setUser(verifiedUser);
+          }
+        }).catch(() => {
+          // Swallow — almost always a network/abort error. Keep cached session.
+        });
       } catch (error) {
         console.error('Auth init error:', error);
         setLoading(false);

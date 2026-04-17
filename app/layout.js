@@ -32,9 +32,24 @@ export const metadata = {
   },
 };
 
+// Resolve the Supabase origin at build time so we can prefetch DNS and warm
+// the TLS connection before any user click triggers an OAuth redirect.
+// Mitigates intermittent DNS_PROBE_FINISHED_NXDOMAIN errors some networks see
+// on the random-looking *.supabase.co subdomain when the browser has never
+// resolved it in the current session.
+const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
+      <head>
+        {supabaseOrigin && (
+          <>
+            <link rel="dns-prefetch" href={supabaseOrigin} />
+            <link rel="preconnect" href={supabaseOrigin} crossOrigin="" />
+          </>
+        )}
+      </head>
       <body className={inter.className}>
         <AppLayout>{children}</AppLayout>
       </body>
