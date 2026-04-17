@@ -13,6 +13,7 @@ export default function RehabsDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all');
   const [properties, setProperties] = useState([]);
   const [editingRehab, setEditingRehab] = useState(null);
   const [totalUnits, setTotalUnits] = useState(0);
@@ -281,10 +282,10 @@ export default function RehabsDashboard() {
   // Status order for sorting
   const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
 
-  // Filter rehabs by selected property
-  const filteredRehabs = selectedProperty === 'all'
-    ? rehabs
-    : rehabs.filter(r => r.property === selectedProperty);
+  // Filter rehabs by selected property and status
+  const filteredRehabs = rehabs
+    .filter(r => selectedProperty === 'all' || r.property === selectedProperty)
+    .filter(r => selectedStatus === 'all' || (r.rehab_status || 'Not Started') === selectedStatus);
 
   // All units for the table view (newVacancies are now auto-created as rehabs with 'Not Started' status)
   const allUnits = filteredRehabs
@@ -362,6 +363,22 @@ export default function RehabsDashboard() {
                 options={[
                   { value: 'all', label: 'All Properties' },
                   ...properties.map(prop => ({ value: prop, label: prop }))
+                ]}
+                compact
+                className="w-44"
+              />
+              <DarkSelect
+                value={selectedStatus}
+                onChange={setSelectedStatus}
+                options={[
+                  { value: 'all', label: 'All Statuses' },
+                  { value: 'Not Started', label: 'Not Started' },
+                  { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
+                  { value: 'Back Burner', label: 'Back Burner' },
+                  { value: 'Waiting', label: 'Waiting' },
+                  { value: 'In Progress', label: 'In Progress' },
+                  { value: 'Rented', label: 'Rented' },
+                  { value: 'Complete', label: 'Complete' }
                 ]}
                 compact
                 className="w-44"
