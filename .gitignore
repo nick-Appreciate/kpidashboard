@@ -58,3 +58,10 @@ bpu-bot/
 .appfolio-session.json
 .appfolio-screenshots/
 .tmp-bill-*.pdf
+
+# Claude / local scratch
+.claude/worktrees/
+.screenshots/
+.session-state.json
+output/
+supabase/.temp/
