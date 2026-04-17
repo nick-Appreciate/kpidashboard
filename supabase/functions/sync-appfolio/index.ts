@@ -147,12 +147,25 @@ async function syncRenewalSummary(): Promise<SyncResult> {
       countersigned_date: row.countersigned_date || null,
       updated_at: new Date().toISOString()
     }));
-    
-    await supabase.from('renewal_summary').delete().neq('id', 0);
-    const { error } = await supabase.from('renewal_summary').insert(records);
+
+    // Deduplicate by unique offer key before upsert (AppFolio can return dupes)
+    const seen = new Set<string>();
+    const uniqueRecords = records.filter((r: any) => {
+      const key = `${r.property_name}|${r.unit_name}|${r.lease_start}|${r.lease_end}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Upsert by unique offer key (property, unit, lease_start, lease_end).
+    // Together with the wide date window above, this preserves past-dated
+    // pending offers that AppFolio would otherwise drop on subsequent syncs.
+    const { error } = await supabase
+      .from('renewal_summary')
+      .upsert(uniqueRecords, { onConflict: 'property_name,unit_name,lease_start,lease_end' });
     if (error) throw new Error(JSON.stringify(error));
-    
-    return { report: 'renewal_summary', success: true, rowsProcessed: records.length };
+
+    return { report: 'renewal_summary', success: true, rowsProcessed: uniqueRecords.length };
   } catch (error: any) {
     return { report: 'renewal_summary', success: false, rowsProcessed: 0, error: error?.message || String(error) };
   }
