@@ -42,6 +42,9 @@ const DB_TO_DISPLAY = {
   'complete': 'Complete'
 };
 
+// Vacant-only column prefix (new columns starting 2026-04-06)
+const VACANT_PREFIX = 'vacant_';
+
 export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty = 'all' }) {
   // Only include currently vacant units in chart calculations (exclude notice/eviction)
   const rehabs = allRehabs.filter(r => r.source_type === 'vacancy');
@@ -90,10 +93,14 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
     const todayStr = centralTime.toISOString().split('T')[0];
 
     // Convert historical data to chart format
+    // Use vacant-only columns when available (from 2026-04-06+), fall back to original columns
     const historicalPoints = historyData.map(snapshot => {
       const point = { date: snapshot.snapshot_date };
+      const hasVacantData = snapshot.vacant_total_units != null && snapshot.vacant_total_units > 0;
       Object.entries(DB_TO_DISPLAY).forEach(([dbKey, displayName]) => {
-        point[displayName] = snapshot[dbKey] || 0;
+        point[displayName] = hasVacantData
+          ? (snapshot[`${VACANT_PREFIX}${dbKey}`] || 0)
+          : (snapshot[dbKey] || 0);
       });
       return point;
     });

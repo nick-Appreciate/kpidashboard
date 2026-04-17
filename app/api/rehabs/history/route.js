@@ -61,56 +61,71 @@ export async function POST(request) {
   try {
     const today = getCentralTimeDate();
     
-    // Fetch current rehab data (only vacant units - exclude notice/eviction)
+    // Fetch current rehab data (all units)
     const { data: rehabs, error: rehabError } = await supabase
       .from('rehabs')
       .select('*')
-      .in('status', ['pending_setup', 'in_progress'])
-      .eq('source_type', 'vacancy');
-    
+      .in('status', ['pending_setup', 'in_progress']);
+
     if (rehabError) {
       return NextResponse.json({ error: rehabError.message }, { status: 500 });
     }
-    
-    // Calculate portfolio-wide stats
-    const statusCounts = {
+
+    const emptyStatusCounts = () => ({
       not_started: 0,
       supervisor_onboard: 0,
       back_burner: 0,
       waiting: 0,
       in_progress: 0,
       complete: 0
-    };
-    
+    });
+
+    // Calculate portfolio-wide stats (all rehabs) and vacant-only stats
+    const statusCounts = emptyStatusCounts();
+    const vacantStatusCounts = emptyStatusCounts();
+
     // Also track by property
     const byProperty = {};
-    
+
     rehabs?.forEach(r => {
       const status = r.rehab_status || 'Not Started';
       const statusKey = status.toLowerCase().replace(/ /g, '_');
-      
+      const isVacant = r.source_type === 'vacancy';
+
       if (statusCounts.hasOwnProperty(statusKey)) {
         statusCounts[statusKey]++;
+        if (isVacant) vacantStatusCounts[statusKey]++;
       }
-      
+
       // Track by property
       if (!byProperty[r.property]) {
         byProperty[r.property] = {
-          not_started: 0,
-          supervisor_onboard: 0,
-          back_burner: 0,
-          waiting: 0,
-          in_progress: 0,
-          complete: 0,
-          total_units: 0
+          ...emptyStatusCounts(),
+          total_units: 0,
+          vacant_not_started: 0,
+          vacant_supervisor_onboard: 0,
+          vacant_back_burner: 0,
+          vacant_waiting: 0,
+          vacant_in_progress: 0,
+          vacant_complete: 0,
+          vacant_total_units: 0
         };
       }
       byProperty[r.property].total_units++;
       if (byProperty[r.property].hasOwnProperty(statusKey)) {
         byProperty[r.property][statusKey]++;
       }
+      if (isVacant) {
+        byProperty[r.property].vacant_total_units++;
+        const vacantKey = `vacant_${statusKey}`;
+        if (byProperty[r.property].hasOwnProperty(vacantKey)) {
+          byProperty[r.property][vacantKey]++;
+        }
+      }
     });
-    
+
+    const vacantTotal = rehabs?.filter(r => r.source_type === 'vacancy').length || 0;
+
     // Upsert portfolio-wide snapshot
     const { error: portfolioError } = await supabase
       .from('rehab_daily_snapshots')
@@ -118,13 +133,20 @@ export async function POST(request) {
         snapshot_date: today,
         property: null, // null = portfolio-wide
         total_units: rehabs?.length || 0,
-        ...statusCounts
+        ...statusCounts,
+        vacant_not_started: vacantStatusCounts.not_started,
+        vacant_supervisor_onboard: vacantStatusCounts.supervisor_onboard,
+        vacant_back_burner: vacantStatusCounts.back_burner,
+        vacant_waiting: vacantStatusCounts.waiting,
+        vacant_in_progress: vacantStatusCounts.in_progress,
+        vacant_complete: vacantStatusCounts.complete,
+        vacant_total_units: vacantTotal
       }, { onConflict: 'snapshot_date,property' });
-    
+
     if (portfolioError) {
       console.error('Error saving portfolio snapshot:', portfolioError);
     }
-    
+
     // Upsert per-property snapshots
     for (const [property, counts] of Object.entries(byProperty)) {
       const { error: propError } = await supabase
@@ -134,17 +156,19 @@ export async function POST(request) {
           property,
           ...counts
         }, { onConflict: 'snapshot_date,property' });
-      
+
       if (propError) {
         console.error(`Error saving snapshot for ${property}:`, propError);
       }
     }
-    
-    return NextResponse.json({ 
-      success: true, 
+
+    return NextResponse.json({
+      success: true,
       date: today,
       totalUnits: rehabs?.length || 0,
+      vacantUnits: vacantTotal,
       statusCounts,
+      vacantStatusCounts,
       propertiesTracked: Object.keys(byProperty).length
     });
   } catch (err) {
