@@ -1385,8 +1385,11 @@ Deno.serve(async (req: Request) => {
       results.push(await syncTrialBalance()); await delay();
       results.push(await syncProspectSourceTracking()); await delay();
       results.push(await syncTenantDirectory()); await delay();
-      results.push(await syncWorkOrders()); await delay();
-      results.push(await syncCashFlow());
+      results.push(await syncWorkOrders());
+      // syncCashFlow is NOT in the 'all' bundle. It appends snapshot history
+      // rows (no truncate), so running it every 15 min would multiply table
+      // size by 96× per day. Invoked separately on a daily cron with
+      // ?report=cash_flow.
 
     } else if (reportParam === 'core') {
       // Just the core reports for faster sync
@@ -1400,15 +1403,15 @@ Deno.serve(async (req: Request) => {
       results.push(await syncTenantDirectory());
       
     } else if (reportParam === 'financial') {
-      // Financial reports
+      // Financial reports. syncCashFlow NOT included — it's append-only and
+      // runs on its own daily cron via ?report=cash_flow.
       results.push(await syncTenantLedger()); await delay();
       results.push(await syncIncomeRegister()); await delay();
       results.push(await syncChargeDetail()); await delay();
       results.push(await syncGeneralLedger()); await delay();
       results.push(await syncChartOfAccounts()); await delay();
       results.push(await syncBillDetail()); await delay();
-      results.push(await syncTrialBalance()); await delay();
-      results.push(await syncCashFlow());
+      results.push(await syncTrialBalance());
 
     } else {
       // Individual report sync
