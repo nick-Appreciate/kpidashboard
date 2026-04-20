@@ -1109,9 +1109,11 @@ async function syncCashFlow(): Promise<SyncResult> {
       return { report: 'cash_flow', success: true, rowsProcessed: 0 };
     }
 
-    // Truncate and re-insert
-    await supabase.rpc('truncate_af_cash_flow');
-
+    // Append-only snapshot history — each sync adds a new set of rows keyed
+    // by synced_at. The af_cash_flow_latest view returns just the most recent
+    // snapshot per (property, account, period_start) for the current UI, but
+    // older rows stay around so we can answer "what did March look like on
+    // March 15" retroactively. No more TRUNCATE.
     const batchSize = 100;
     for (let i = 0; i < allRecords.length; i += batchSize) {
       const batch = allRecords.slice(i, i + batchSize);
@@ -1122,6 +1124,202 @@ async function syncCashFlow(): Promise<SyncResult> {
     return { report: 'cash_flow', success: true, rowsProcessed: allRecords.length };
   } catch (error: any) {
     return { report: 'cash_flow', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
+// Reconstruct historical MTD snapshots for af_cash_flow by replaying AppFolio
+// cash_flow_comparison with varying posted_on_to dates. For each target month
+// and each snapshot day within that month, calls AppFolio and inserts rows
+// with synced_at set to the simulated historical date.
+//
+// Invoked via GET ?report=cash_flow_backfill[&months=12][&days=7,14,21,28]
+async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14, 21, 28]): Promise<SyncResult> {
+  try {
+    const today = getTodayDate();
+    const todayDate = new Date(today + 'T12:00:00Z');
+    const allRecords: any[] = [];
+    let snapshotsTaken = 0;
+
+    // Property ID -> name map + COA map (same as syncCashFlow)
+    const { data: propDir } = await supabase
+      .from('af_property_directory')
+      .select('property_id, property_name');
+    const propMap = new Map<number, string>();
+    for (const p of (propDir || [])) {
+      propMap.set(Number(p.property_id), p.property_name);
+    }
+
+    const { data: coaData } = await supabase
+      .from('af_chart_of_accounts')
+      .select('number, account_name, account_type, sub_accountof');
+    const coaMap = new Map<string, { account_type: string; sub_accountof: string | null }>();
+    for (const c of (coaData || [])) {
+      if (c.number) coaMap.set(c.number, { account_type: c.account_type, sub_accountof: c.sub_accountof });
+    }
+
+    function classifyByCoA(acctNum: string): { rowType: string; accountType: string; parentAccount: string | null } {
+      const coa = acctNum ? coaMap.get(acctNum) : null;
+      if (coa) {
+        const at = coa.account_type;
+        let rowType = 'income';
+        if (at === 'Income') rowType = 'income';
+        else if (at === 'Expense') rowType = 'expense';
+        else if (at === 'Other Income') rowType = 'other_income';
+        else if (at === 'Other Expense') rowType = 'other_expense';
+        else rowType = 'other';
+        return { rowType, accountType: at, parentAccount: coa.sub_accountof };
+      }
+      if (acctNum) {
+        const num = parseFloat(acctNum);
+        if (num >= 4000 && num < 5000) return { rowType: 'income', accountType: 'Income', parentAccount: null };
+        if (num >= 5000 && num < 7000) return { rowType: 'expense', accountType: 'Expense', parentAccount: null };
+        if (num >= 7000 && num < 8000) return { rowType: 'other_income', accountType: 'Other Income', parentAccount: null };
+        if (num >= 8000) return { rowType: 'other_expense', accountType: 'Other Expense', parentAccount: null };
+      }
+      return { rowType: 'income', accountType: 'Income', parentAccount: null };
+    }
+
+    // Iterate months from oldest to current
+    for (let m = monthsBack; m >= 0; m--) {
+      const monthDate = new Date(todayDate);
+      monthDate.setUTCMonth(monthDate.getUTCMonth() - m);
+      const year = monthDate.getUTCFullYear();
+      const month = monthDate.getUTCMonth();
+      const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+      const periodStart = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const periodEnd = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      // Snapshot days that actually exist in this month and aren't in the future
+      const validDays = snapshotDays
+        .filter(d => d <= lastDay)
+        .map(d => `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
+        .filter(ds => ds <= today);
+
+      for (const snapshotDateStr of validDays) {
+        let data: unknown[];
+        try {
+          data = await fetchAppFolioReport('cash_flow_comparison', {
+            posted_on_from: periodStart,
+            posted_on_to: snapshotDateStr,
+          });
+        } catch (err: any) {
+          console.error(`[backfill] AppFolio fetch failed for ${snapshotDateStr}: ${err?.message}`);
+          await new Promise(resolve => setTimeout(resolve, 2200));
+          continue;
+        }
+
+        if (!data || data.length === 0) {
+          await new Promise(resolve => setTimeout(resolve, 2200));
+          continue;
+        }
+
+        // synced_at = snapshot date at 23:59:59 UTC so the "latest snapshot"
+        // ordering picks it over earlier snapshot-day rows for the same month.
+        const syncedAt = `${snapshotDateStr}T23:59:59.999Z`;
+
+        const incomeTotals = new Map<string, number>();
+        const expenseTotals = new Map<string, number>();
+        const otherTotals = new Map<string, number>();
+
+        for (const row of data as any[]) {
+          const accountName = (row.account_name || '').toString().trim();
+          if (!accountName) continue;
+          const accountNumber = (row.account_number || '').toString().trim();
+          if (!accountNumber) continue;
+
+          const { rowType, accountType, parentAccount } = classifyByCoA(accountNumber);
+
+          function addToTotals(propName: string, val: number) {
+            if (rowType === 'income') incomeTotals.set(propName, (incomeTotals.get(propName) || 0) + val);
+            else if (rowType === 'expense') expenseTotals.set(propName, (expenseTotals.get(propName) || 0) + val);
+            else otherTotals.set(propName, (otherTotals.get(propName) || 0) + val);
+          }
+
+          const baseRecord = {
+            period_start: periodStart, period_end: periodEnd,
+            account_name: accountName, account_path: parentAccount, account_depth: parentAccount ? 1 : 0,
+            row_type: rowType, account_type: accountType, account_number: accountNumber,
+            parent_account: parentAccount, synced_at: syncedAt,
+          };
+
+          const totalVal = row.total ? parseFloat(String(row.total).replace(/,/g, '')) : null;
+          if (totalVal !== null && !isNaN(totalVal)) {
+            allRecords.push({ ...baseRecord, property_name: 'Total', amount: totalVal });
+            addToTotals('Total', totalVal);
+          }
+
+          const properties = row.properties;
+          if (Array.isArray(properties)) {
+            for (const prop of properties) {
+              const propId = Number(prop.id);
+              const propName = propMap.get(propId) || `Property ${propId}`;
+              const val = prop.value ? parseFloat(String(prop.value).replace(/,/g, '')) : null;
+              if (val === null || isNaN(val) || val === 0) continue;
+
+              allRecords.push({ ...baseRecord, property_name: propName, amount: val });
+              addToTotals(propName, val);
+            }
+          }
+        }
+
+        // Summary rows per property for THIS snapshot
+        const allProps = new Set([...incomeTotals.keys(), ...expenseTotals.keys(), ...otherTotals.keys()]);
+        for (const prop of allProps) {
+          const income = incomeTotals.get(prop) || 0;
+          const expense = expenseTotals.get(prop) || 0;
+          const other = otherTotals.get(prop) || 0;
+          const noi = income - expense;
+          const cashFlow = noi + other;
+
+          for (const sr of [
+            { account_name: 'Total Operating Income', row_type: 'total_income', amount: income },
+            { account_name: 'Total Operating Expense', row_type: 'total_expense', amount: expense },
+            { account_name: 'NOI - Net Operating Income', row_type: 'noi', amount: noi },
+            { account_name: 'Net Other Items', row_type: 'net_other', amount: other },
+            { account_name: 'Cash Flow', row_type: 'cash_flow', amount: cashFlow },
+          ]) {
+            allRecords.push({
+              period_start: periodStart, period_end: periodEnd,
+              account_name: sr.account_name, account_path: null, account_depth: 0,
+              row_type: sr.row_type, property_name: prop, amount: sr.amount, synced_at: syncedAt,
+            });
+          }
+        }
+
+        snapshotsTaken++;
+        // Rate limit before next AppFolio call
+        await new Promise(resolve => setTimeout(resolve, 2200));
+      }
+    }
+
+    if (allRecords.length === 0) {
+      return { report: 'cash_flow_backfill', success: true, rowsProcessed: 0, error: `No snapshots taken` };
+    }
+
+    // Insert in batches. The unique constraint (period_start, account_name,
+    // property_name, synced_at) protects against re-running backfill with the
+    // same snapshot days — the second run's inserts will conflict and fail,
+    // so use upsert with ignoreDuplicates to make the op idempotent.
+    const batchSize = 100;
+    for (let i = 0; i < allRecords.length; i += batchSize) {
+      const batch = allRecords.slice(i, i + batchSize);
+      const { error } = await supabase
+        .from('af_cash_flow')
+        .upsert(batch, {
+          onConflict: 'period_start,account_name,property_name,synced_at',
+          ignoreDuplicates: true,
+        });
+      if (error) throw new Error(JSON.stringify(error));
+    }
+
+    return {
+      report: 'cash_flow_backfill',
+      success: true,
+      rowsProcessed: allRecords.length,
+      error: `${snapshotsTaken} snapshots taken across ${monthsBack + 1} months`,
+    };
+  } catch (error: any) {
+    return { report: 'cash_flow_backfill', success: false, rowsProcessed: 0, error: error?.message || String(error) };
   }
 }
 
@@ -1222,15 +1420,26 @@ Deno.serve(async (req: Request) => {
         'cash_flow': syncCashFlow,
         'owner_directory': syncOwnerDirectory
       };
-      
-      const syncFn = syncFunctions[reportParam];
-      if (!syncFn) {
-        return new Response(JSON.stringify({ error: `Unknown report: ${reportParam}` }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
+
+      // One-off backfill mode: replay AppFolio for historical MTD snapshots.
+      // Accepts ?months=12&days=7,14,21,28 (defaults are those values).
+      if (reportParam === 'cash_flow_backfill') {
+        const monthsBack = parseInt(url.searchParams.get('months') || '12', 10);
+        const daysCsv = url.searchParams.get('days');
+        const days = daysCsv
+          ? daysCsv.split(',').map(d => parseInt(d.trim(), 10)).filter(d => d > 0 && d <= 31)
+          : [7, 14, 21, 28];
+        results.push(await backfillCashFlow(monthsBack, days));
+      } else {
+        const syncFn = syncFunctions[reportParam];
+        if (!syncFn) {
+          return new Response(JSON.stringify({ error: `Unknown report: ${reportParam}` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        results.push(await syncFn());
       }
-      results.push(await syncFn());
     }
     
     const successCount = results.filter(r => r.success).length;

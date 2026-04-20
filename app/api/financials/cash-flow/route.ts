@@ -21,8 +21,12 @@ export async function GET(request: Request) {
     let from = 0;
     const pageSize = 1000;
     while (true) {
+      // af_cash_flow_latest returns only the most recent snapshot per
+      // (property, account, period_start). The underlying af_cash_flow table
+      // now keeps full snapshot history — views that want historical MTD
+      // should query af_cash_flow directly with a synced_at filter.
       let query = supabase
-        .from('af_cash_flow')
+        .from('af_cash_flow_latest')
         .select('period_start, period_end, account_name, account_number, account_type, account_depth, row_type, parent_account, property_name, amount')
         .gte('period_start', cutoffStr)
         .order('period_start', { ascending: true })
@@ -40,9 +44,9 @@ export async function GET(request: Request) {
       from += pageSize;
     }
 
-    // Fetch distinct properties
+    // Fetch distinct properties (also from the latest-snapshot view)
     const { data: propRows } = await supabase
-      .from('af_cash_flow')
+      .from('af_cash_flow_latest')
       .select('property_name')
       .neq('property_name', 'Total')
       .gte('period_start', cutoffStr);
