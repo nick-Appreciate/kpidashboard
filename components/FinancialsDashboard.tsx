@@ -57,6 +57,10 @@ const SUMMARY_METRICS = [
   { value: 'cash_flow', label: 'Cash Flow' },
   { value: 'capex', label: 'CapEx' },
   { value: 'value', label: 'Estimated Value' },
+  // Point-in-time metric: outstanding bills as of the snapshot date.
+  // Kept out of NOI / Cash Flow (different row_type) and out of the detail
+  // table (the table only renders income/expense/other row_types).
+  { value: 'unpaid_bills', label: 'Unpaid Bills' },
 ];
 
 

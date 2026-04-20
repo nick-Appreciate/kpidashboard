@@ -966,6 +966,28 @@ async function syncCashFlow(): Promise<SyncResult> {
       propMap.set(Number(p.property_id), p.property_name);
     }
 
+    // ── Unpaid-bills point-in-time snapshot ─────────────────────────────
+    // Compute the current unpaid total per property (and portfolio) ONCE,
+    // up front, from af_bill_detail (which is overwritten each sync, so
+    // it reflects "right now"). We'll append an Unpaid Bills row for
+    // every (period, property) combo below so the Day-of-Month /
+    // Month-End views pick it up the same way they pick cash-flow rows.
+    const { data: unpaidRows } = await supabase
+      .from('af_bill_detail')
+      .select('property_name, amount')
+      .is('paid_date', null)
+      .not('bill_date', 'is', null)
+      .lte('bill_date', today);
+    const unpaidByProperty = new Map<string, number>();
+    let unpaidTotal = 0;
+    for (const b of unpaidRows || []) {
+      const amt = Number(b.amount) || 0;
+      if (!b.property_name) continue;
+      unpaidByProperty.set(b.property_name, (unpaidByProperty.get(b.property_name) || 0) + amt);
+      unpaidTotal += amt;
+    }
+    unpaidByProperty.set('Total', unpaidTotal);
+
     // Build account number -> COA info map
     const { data: coaData } = await supabase
       .from('af_chart_of_accounts')
@@ -1097,6 +1119,20 @@ async function syncCashFlow(): Promise<SyncResult> {
             row_type: sr.row_type, property_name: prop, amount: sr.amount, synced_at: ts
           });
         }
+
+        // Unpaid Bills point-in-time snapshot for this (period, property).
+        // Amount is the CURRENT unpaid total for the property; synced_at is
+        // `ts` (now), so the Day-of-Month / Month-End views treat it the
+        // same as any cash-flow row. row_type='unpaid_bills' keeps it out
+        // of NOI / Total Expense / Cash Flow calculations and out of the
+        // detail table's account breakdown.
+        allRecords.push({
+          period_start: periodStart, period_end: periodEnd,
+          account_name: 'Unpaid Bills', account_path: null, account_depth: 0,
+          row_type: 'unpaid_bills', property_name: prop,
+          amount: unpaidByProperty.get(prop) || 0,
+          synced_at: ts,
+        });
       }
 
       // Rate limit between monthly calls
