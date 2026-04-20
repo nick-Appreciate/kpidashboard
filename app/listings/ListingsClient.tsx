@@ -82,8 +82,6 @@ export default function ListingsClient({ listings, locale }: Props) {
     return grouped;
   }, [listings, sort, minBeds, maxRent, petsOk]);
 
-  const totalUnits = properties.reduce((s, p) => s + p.units.length, 0);
-
   return (
     <main className="min-h-screen bg-[#FAFAF7] text-[#0A0A0A]">
       <PublicNav locale={locale} />
@@ -95,15 +93,12 @@ export default function ListingsClient({ listings, locale }: Props) {
             <p className="text-[12px] uppercase tracking-[0.18em] text-[#0A0A0A]/50 mb-5">
               {t.hero.tagline}
             </p>
-            <h1 className="font-[var(--font-fraunces)] text-[52px] md:text-[84px] leading-[0.92] tracking-[-0.025em] text-[#0A0A0A] mb-6">
+            <h1 className="font-[var(--font-fraunces)] text-[52px] md:text-[84px] leading-[0.92] tracking-[-0.025em] text-[#0A0A0A] mb-8">
               {t.hero.headingPre}
               <br />
               <span className="italic text-[#06b6d4]">{t.hero.headingHome}</span>
               {t.hero.headingPost}
             </h1>
-            <p className="text-[17px] md:text-[19px] leading-[1.5] text-[#0A0A0A]/65 max-w-[540px] mb-8">
-              {t.hero.subtitle(totalUnits, properties.length)}
-            </p>
             <div className="flex flex-wrap gap-3">
               <a
                 href="#grid"

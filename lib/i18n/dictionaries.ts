@@ -21,7 +21,6 @@ interface Dictionary {
     headingPre: string;
     headingHome: string;
     headingPost: string;
-    subtitle: (totalUnits: number, propCount: number) => string;
     ctaSeeListings: string;
     ctaPortal: string;
   };
@@ -122,8 +121,6 @@ const en: Dictionary = {
     headingPre: 'Find your next',
     headingHome: 'home',
     headingPost: '.',
-    subtitle: (totalUnits, propCount) =>
-      `${totalUnits} ${totalUnits === 1 ? 'rental' : 'rentals'} across ${propCount} ${propCount === 1 ? 'property' : 'properties'} — updated hourly as units come and go. Browse, filter, and apply in minutes.`,
     ctaSeeListings: 'See listings ↓',
     ctaPortal: 'Tenant Portal ↗',
   },
@@ -224,8 +221,6 @@ const es: Dictionary = {
     headingPre: 'Encuentra tu próximo',
     headingHome: 'hogar',
     headingPost: '.',
-    subtitle: (totalUnits, propCount) =>
-      `${totalUnits} ${totalUnits === 1 ? 'propiedad en alquiler' : 'propiedades en alquiler'} en ${propCount} ${propCount === 1 ? 'edificio' : 'edificios'} — actualizadas cada hora. Explora, filtra y aplica en minutos.`,
     ctaSeeListings: 'Ver propiedades ↓',
     ctaPortal: 'Portal del inquilino ↗',
   },
