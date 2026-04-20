@@ -1129,16 +1129,29 @@ async function syncCashFlow(): Promise<SyncResult> {
 
 // Reconstruct historical MTD snapshots for af_cash_flow by replaying AppFolio
 // cash_flow_comparison with varying posted_on_to dates. For each target month
-// and each snapshot day within that month, calls AppFolio and inserts rows
-// with synced_at set to the simulated historical date.
+// and each snapshot day within that month, calls AppFolio, inserts rows with
+// synced_at set to the simulated historical date, and moves on.
 //
-// Invoked via GET ?report=cash_flow_backfill[&months=12][&days=7,14,21,28]
-async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14, 21, 28]): Promise<SyncResult> {
+// Inserts happen AFTER EACH SNAPSHOT so a Supabase worker timeout or memory
+// cap doesn't lose everything collected so far. Caller can also narrow scope
+// via `offset` to spread work across multiple invocations.
+//
+// Invoked via GET ?report=cash_flow_backfill[&months=12][&offset=0][&days=7,14,21,28]
+//   months  number of months to cover in this call (default 12)
+//   offset  number of months back the NEWEST target should be (default 0 = current month)
+//           window is [offset .. offset + months - 1] months back from today
+//   days    CSV of days-of-month to snapshot (default 7,14,21,28)
+async function backfillCashFlow(
+  monthsBack: number,
+  snapshotDays: number[],
+  offset = 0,
+): Promise<SyncResult> {
   try {
     const today = getTodayDate();
     const todayDate = new Date(today + 'T12:00:00Z');
-    const allRecords: any[] = [];
     let snapshotsTaken = 0;
+    let totalRowsInserted = 0;
+    const errors: string[] = [];
 
     // Property ID -> name map + COA map (same as syncCashFlow)
     const { data: propDir } = await supabase
@@ -1179,8 +1192,8 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
       return { rowType: 'income', accountType: 'Income', parentAccount: null };
     }
 
-    // Iterate months from oldest to current
-    for (let m = monthsBack; m >= 0; m--) {
+    // Iterate from oldest (offset + monthsBack - 1 months back) to newest (offset months back)
+    for (let m = offset + monthsBack - 1; m >= offset; m--) {
       const monthDate = new Date(todayDate);
       monthDate.setUTCMonth(monthDate.getUTCMonth() - m);
       const year = monthDate.getUTCFullYear();
@@ -1203,7 +1216,7 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
             posted_on_to: snapshotDateStr,
           });
         } catch (err: any) {
-          console.error(`[backfill] AppFolio fetch failed for ${snapshotDateStr}: ${err?.message}`);
+          errors.push(`fetch ${snapshotDateStr}: ${err?.message}`);
           await new Promise(resolve => setTimeout(resolve, 2200));
           continue;
         }
@@ -1216,7 +1229,7 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
         // synced_at = snapshot date at 23:59:59 UTC so the "latest snapshot"
         // ordering picks it over earlier snapshot-day rows for the same month.
         const syncedAt = `${snapshotDateStr}T23:59:59.999Z`;
-
+        const snapshotRecords: any[] = [];
         const incomeTotals = new Map<string, number>();
         const expenseTotals = new Map<string, number>();
         const otherTotals = new Map<string, number>();
@@ -1244,7 +1257,7 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
 
           const totalVal = row.total ? parseFloat(String(row.total).replace(/,/g, '')) : null;
           if (totalVal !== null && !isNaN(totalVal)) {
-            allRecords.push({ ...baseRecord, property_name: 'Total', amount: totalVal });
+            snapshotRecords.push({ ...baseRecord, property_name: 'Total', amount: totalVal });
             addToTotals('Total', totalVal);
           }
 
@@ -1256,7 +1269,7 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
               const val = prop.value ? parseFloat(String(prop.value).replace(/,/g, '')) : null;
               if (val === null || isNaN(val) || val === 0) continue;
 
-              allRecords.push({ ...baseRecord, property_name: propName, amount: val });
+              snapshotRecords.push({ ...baseRecord, property_name: propName, amount: val });
               addToTotals(propName, val);
             }
           }
@@ -1278,7 +1291,7 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
             { account_name: 'Net Other Items', row_type: 'net_other', amount: other },
             { account_name: 'Cash Flow', row_type: 'cash_flow', amount: cashFlow },
           ]) {
-            allRecords.push({
+            snapshotRecords.push({
               period_start: periodStart, period_end: periodEnd,
               account_name: sr.account_name, account_path: null, account_depth: 0,
               row_type: sr.row_type, property_name: prop, amount: sr.amount, synced_at: syncedAt,
@@ -1286,37 +1299,41 @@ async function backfillCashFlow(monthsBack = 12, snapshotDays: number[] = [7, 14
           }
         }
 
+        // Insert THIS snapshot's rows now, then drop them from memory. Upsert
+        // with ignoreDuplicates makes re-runs against the same snapshot days
+        // idempotent (the unique key is period_start,account_name,property_name,synced_at).
+        if (snapshotRecords.length > 0) {
+          const batchSize = 200;
+          for (let i = 0; i < snapshotRecords.length; i += batchSize) {
+            const batch = snapshotRecords.slice(i, i + batchSize);
+            const { error } = await supabase
+              .from('af_cash_flow')
+              .upsert(batch, {
+                onConflict: 'period_start,account_name,property_name,synced_at',
+                ignoreDuplicates: true,
+              });
+            if (error) {
+              errors.push(`insert ${snapshotDateStr}: ${error.message || JSON.stringify(error)}`);
+              break;
+            }
+          }
+          totalRowsInserted += snapshotRecords.length;
+        }
+
         snapshotsTaken++;
+        console.log(`[backfill] ${snapshotDateStr}: ${snapshotRecords.length} rows inserted (snapshot ${snapshotsTaken})`);
+
         // Rate limit before next AppFolio call
         await new Promise(resolve => setTimeout(resolve, 2200));
       }
     }
 
-    if (allRecords.length === 0) {
-      return { report: 'cash_flow_backfill', success: true, rowsProcessed: 0, error: `No snapshots taken` };
-    }
-
-    // Insert in batches. The unique constraint (period_start, account_name,
-    // property_name, synced_at) protects against re-running backfill with the
-    // same snapshot days — the second run's inserts will conflict and fail,
-    // so use upsert with ignoreDuplicates to make the op idempotent.
-    const batchSize = 100;
-    for (let i = 0; i < allRecords.length; i += batchSize) {
-      const batch = allRecords.slice(i, i + batchSize);
-      const { error } = await supabase
-        .from('af_cash_flow')
-        .upsert(batch, {
-          onConflict: 'period_start,account_name,property_name,synced_at',
-          ignoreDuplicates: true,
-        });
-      if (error) throw new Error(JSON.stringify(error));
-    }
-
+    const summary = `${snapshotsTaken} snapshots, ${totalRowsInserted} rows inserted, window=[${offset}..${offset + monthsBack - 1}] months back${errors.length ? `, ${errors.length} errors` : ''}`;
     return {
       report: 'cash_flow_backfill',
-      success: true,
-      rowsProcessed: allRecords.length,
-      error: `${snapshotsTaken} snapshots taken across ${monthsBack + 1} months`,
+      success: errors.length === 0,
+      rowsProcessed: totalRowsInserted,
+      error: errors.length > 0 ? `${summary}; first errors: ${errors.slice(0, 3).join(' | ')}` : summary,
     };
   } catch (error: any) {
     return { report: 'cash_flow_backfill', success: false, rowsProcessed: 0, error: error?.message || String(error) };
@@ -1422,14 +1439,17 @@ Deno.serve(async (req: Request) => {
       };
 
       // One-off backfill mode: replay AppFolio for historical MTD snapshots.
-      // Accepts ?months=12&days=7,14,21,28 (defaults are those values).
+      // Accepts ?months=3&offset=0&days=7,14,21,28. Default months=3 keeps a
+      // single invocation inside the edge function resource budget; run
+      // multiple times with increasing offset to cover 12+ months.
       if (reportParam === 'cash_flow_backfill') {
-        const monthsBack = parseInt(url.searchParams.get('months') || '12', 10);
+        const monthsBack = parseInt(url.searchParams.get('months') || '3', 10);
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10);
         const daysCsv = url.searchParams.get('days');
         const days = daysCsv
           ? daysCsv.split(',').map(d => parseInt(d.trim(), 10)).filter(d => d > 0 && d <= 31)
           : [7, 14, 21, 28];
-        results.push(await backfillCashFlow(monthsBack, days));
+        results.push(await backfillCashFlow(monthsBack, days, offset));
       } else {
         const syncFn = syncFunctions[reportParam];
         if (!syncFn) {
