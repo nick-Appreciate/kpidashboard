@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     while (true) {
       let query = supabase
         .from(viewName)
-        .select('period_start, period_end, account_name, account_number, account_type, account_depth, row_type, parent_account, property_name, amount')
+        .select('period_start, period_end, account_name, account_number, account_type, account_depth, row_type, parent_account, property_name, amount, synced_at')
         .gte('period_start', cutoffStr)
         .order('period_start', { ascending: true })
         .order('account_number', { ascending: true, nullsFirst: false })

@@ -21,6 +21,10 @@ interface CashFlowRow {
   parent_account: string | null;
   property_name: string;
   amount: number;
+  /** ISO timestamp of the snapshot this row was taken from. The view picks
+   *  one snapshot per (property, account, period), so all rows sharing a
+   *  period_start also share a synced_at (up to seconds). Used for labels. */
+  synced_at: string;
 }
 
 interface CoaEntry {
@@ -74,6 +78,28 @@ function formatMonth(dateStr: string): string {
   const [y, m] = dateStr.split('-');
   const d = new Date(parseInt(y), parseInt(m) - 1, 1);
   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+/**
+ * Format a snapshot date for labels. Given an ISO synced_at timestamp from
+ * the API (e.g. "2026-02-20T23:59:59.999Z"), return a short label like
+ * "Feb 20, 26" that communicates both the month and the day we snapshotted.
+ *
+ * Falls back to period-start month formatting if syncedAt is missing.
+ */
+function formatSnapshotDate(syncedAt: string | undefined, fallbackPeriodStart: string): string {
+  if (!syncedAt) return formatMonth(fallbackPeriodStart);
+  // Pull the calendar date in UTC (synced_at in our views is always
+  // 23:59:59 UTC on the target day). Displaying in UTC avoids accidental
+  // timezone drift that would make "Feb 20" render as "Feb 19" in some US
+  // locales.
+  const d = new Date(syncedAt);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: '2-digit',
+    timeZone: 'UTC',
+  });
 }
 
 interface TableRow {
@@ -135,7 +161,15 @@ export default function FinancialsDashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/financials/cash-flow?months=24&mode=${snapshotMode}`);
+      // `cache: 'no-store'` is important: Next.js App Router caches fetch
+      // responses by URL, and even though our URL changes by `mode`,
+      // same-URL hits from prior sessions shouldn't be served from a stale
+      // edge cache. This also guarantees flipping back to a previously-used
+      // mode re-hits the server and re-reads the view at CURRENT_DATE.
+      const res = await fetch(
+        `/api/financials/cash-flow?months=24&mode=${snapshotMode}`,
+        { cache: 'no-store' },
+      );
       if (res.ok) {
         const json: ApiResponse = await res.json();
         setData(json.data || []);
@@ -240,6 +274,23 @@ export default function FinancialsDashboard() {
     return m.startsWith('gl:') ? m.slice(3) : m;
   }, [metricOptions]);
 
+  // Map period_start -> synced_at (the snapshot date the view picked for
+  // that period). All rows in a period share one synced_at, so we build this
+  // once from the raw data and reuse it for chart axis / table header /
+  // stat-card captions.
+  const periodToSynced = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of data) {
+      if (!m.has(r.period_start) && r.synced_at) m.set(r.period_start, r.synced_at);
+    }
+    return m;
+  }, [data]);
+
+  const snapshotLabelFor = useCallback(
+    (periodStart: string) => formatSnapshotDate(periodToSynced.get(periodStart), periodStart),
+    [periodToSynced],
+  );
+
   // Chart data — supports multiple metrics
   const { chartData, chartKeys } = useMemo(() => {
     const CAP_RATE = 0.065;
@@ -310,7 +361,7 @@ export default function FinancialsDashboard() {
     const latestPeriod = periods[periods.length - 1];
     if (!latestPeriod) return null;
 
-    const label = formatMonth(latestPeriod);
+    const label = snapshotLabelFor(latestPeriod);
 
     if (ownerPropertyFilter) {
       const filtered = data.filter(r => r.period_start === latestPeriod && ownerPropertyFilter.includes(r.property_name));
@@ -321,7 +372,7 @@ export default function FinancialsDashboard() {
     const filtered = data.filter(r => r.period_start === latestPeriod && r.property_name === 'Total');
     const sum = (type: string) => filtered.filter(r => r.row_type === type).reduce((s, r) => s + r.amount, 0);
     return { periodLabel: label, noi: sum('noi'), totalIncome: sum('total_income'), totalExpense: sum('total_expense'), cashFlow: sum('cash_flow') };
-  }, [data, ownerPropertyFilter]);
+  }, [data, ownerPropertyFilter, snapshotLabelFor]);
 
 
   // Build the detail table
@@ -363,8 +414,8 @@ export default function FinancialsDashboard() {
         entry[row.period_start] = (entry[row.period_start] || 0) + row.amount;
       }
 
-      // Columns = each period
-      const columns = periods.map(p => ({ key: p, label: formatMonth(p) }));
+      // Columns = each period, labeled by the actual snapshot date for that period
+      const columns = periods.map(p => ({ key: p, label: snapshotLabelFor(p) }));
 
       // Use 'Total' property rows as the representative for row structure
       const repProp = ownerSumMode ? ownerPropertyFilter![0] : (targetProp || 'Total');
@@ -477,11 +528,11 @@ export default function FinancialsDashboard() {
     addSummaryRow('Cash Flow', 0, true);
 
     return { rows: tableRows, columns, title: 'Cash Flow — Property Comparison — Trailing 12 Months' };
-  }, [data, coa, ownerPropertyFilter, viewMode, selectedProperty]);
+  }, [data, coa, ownerPropertyFilter, viewMode, selectedProperty, snapshotLabelFor]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
-    const labelText = viewMode === 'byProperty' ? label : formatMonth(label);
+    const labelText = viewMode === 'byProperty' ? label : snapshotLabelFor(String(label));
     return (
       <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[200px]">
         <p className="font-medium text-slate-300 mb-1.5">{labelText}</p>
@@ -633,7 +684,7 @@ export default function FinancialsDashboard() {
               <ResponsiveContainer width="100%" aspect={3}>
                 <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
-                  <XAxis dataKey="period" tickFormatter={formatMonth} stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} />
+                  <XAxis dataKey="period" tickFormatter={snapshotLabelFor} stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} />
                   <YAxis tickFormatter={formatCurrency} stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} width={70} />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
