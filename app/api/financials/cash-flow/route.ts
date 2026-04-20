@@ -1,6 +1,21 @@
 import { requireAuth } from '../../../../lib/auth';
 import { NextResponse } from 'next/server';
 
+// Snapshot modes — map directly to Postgres views over af_cash_flow. Each
+// returns one row per (property, account, period_start) picked by a different
+// rule. Default mode is 'day_of_month' (apples-to-apples MTD comparisons).
+//
+//   day_of_month: snapshot taken on today's day-of-month for each month
+//                 (e.g. if today is the 20th, shows each month's 20th)
+//   month_end:    past months → final-day snapshot; current month → latest
+//   latest:       most recent snapshot period (including post-month re-syncs)
+const MODE_VIEWS: Record<string, string> = {
+  day_of_month: 'af_cash_flow_day_of_month',
+  month_end: 'af_cash_flow_month_end',
+  latest: 'af_cash_flow_latest',
+};
+const DEFAULT_MODE = 'day_of_month';
+
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if ('error' in auth) return auth.error;
@@ -11,22 +26,20 @@ export async function GET(request: Request) {
     const months = parseInt(searchParams.get('months') || '12', 10);
     const properties = searchParams.get('properties')?.split(',').filter(Boolean) || [];
     const rowTypes = searchParams.get('row_types')?.split(',').filter(Boolean) || [];
+    const modeParam = searchParams.get('mode') || DEFAULT_MODE;
+    const viewName = MODE_VIEWS[modeParam] ?? MODE_VIEWS[DEFAULT_MODE];
 
     const now = new Date();
     const cutoff = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
-    // Fetch all cash flow data in pages of 1000
+    // Fetch all cash flow data in pages of 1000 from the snapshot-mode view.
     let allData: any[] = [];
     let from = 0;
     const pageSize = 1000;
     while (true) {
-      // af_cash_flow_latest returns only the most recent snapshot per
-      // (property, account, period_start). The underlying af_cash_flow table
-      // now keeps full snapshot history — views that want historical MTD
-      // should query af_cash_flow directly with a synced_at filter.
       let query = supabase
-        .from('af_cash_flow_latest')
+        .from(viewName)
         .select('period_start, period_end, account_name, account_number, account_type, account_depth, row_type, parent_account, property_name, amount')
         .gte('period_start', cutoffStr)
         .order('period_start', { ascending: true })
@@ -44,9 +57,10 @@ export async function GET(request: Request) {
       from += pageSize;
     }
 
-    // Fetch distinct properties (also from the latest-snapshot view)
+    // Fetch distinct properties from the same snapshot-mode view so property
+    // filters only show properties that have data under the selected mode.
     const { data: propRows } = await supabase
-      .from('af_cash_flow_latest')
+      .from(viewName)
       .select('property_name')
       .neq('property_name', 'Total')
       .gte('period_start', cutoffStr);
@@ -69,7 +83,8 @@ export async function GET(request: Request) {
       data: allData,
       properties: uniqueProperties,
       coa: coaRows || [],
-      propertyOwners: propDirRows || []
+      propertyOwners: propDirRows || [],
+      mode: modeParam,
     });
   } catch (err: any) {
     console.error('Cash flow API error:', err);

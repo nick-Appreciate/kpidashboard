@@ -97,6 +97,14 @@ export default function FinancialsDashboard() {
   // View mode
   const [viewMode, setViewMode] = useState<'byMonth' | 'byProperty'>('byMonth');
 
+  // Snapshot mode — controls which historical snapshot of each month we read.
+  // 'day_of_month' (default): for each month, the snapshot taken on today's
+  //   day-of-month (e.g. if today is the 20th, shows each month's 20th).
+  //   Apples-to-apples MTD comparison.
+  // 'month_end': past months → final-day snapshot, current month → latest.
+  //   Useful for comparing completed-month finals against month-to-date.
+  const [snapshotMode, setSnapshotMode] = useState<'day_of_month' | 'month_end'>('day_of_month');
+
   // Filters
   const [selectedProperty, setSelectedProperty] = useState('Total');
   const [selectedOwner, setSelectedOwner] = useState('all');
@@ -127,7 +135,7 @@ export default function FinancialsDashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/financials/cash-flow?months=24`);
+      const res = await fetch(`/api/financials/cash-flow?months=24&mode=${snapshotMode}`);
       if (res.ok) {
         const json: ApiResponse = await res.json();
         setData(json.data || []);
@@ -140,7 +148,7 @@ export default function FinancialsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [snapshotMode]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -523,6 +531,24 @@ export default function FinancialsDashboard() {
               onClick={() => setViewMode('byProperty')}
               className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/10 ${viewMode === 'byProperty' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
             >By Property</button>
+          </div>
+          {/* Snapshot Mode Toggle */}
+          <div
+            className="inline-flex rounded-md border border-white/10 overflow-hidden"
+            title={
+              snapshotMode === 'day_of_month'
+                ? `Apples-to-apples: each month shown as of today's day-of-month`
+                : `Past months shown as of the last day of the month; current month shown as of today`
+            }
+          >
+            <button
+              onClick={() => setSnapshotMode('day_of_month')}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${snapshotMode === 'day_of_month' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
+            >Day of Month</button>
+            <button
+              onClick={() => setSnapshotMode('month_end')}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/10 ${snapshotMode === 'month_end' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
+            >Month End</button>
           </div>
           <DarkSelect value={selectedOwner} onChange={setSelectedOwner} options={ownerOptions} searchable />
           <DarkSelect value={selectedProperty} onChange={setSelectedProperty} options={propertyOptions} searchable />
