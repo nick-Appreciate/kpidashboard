@@ -57,15 +57,15 @@ export async function GET(request: Request) {
       from += pageSize;
     }
 
-    // Fetch distinct properties from the same snapshot-mode view so property
-    // filters only show properties that have data under the selected mode.
-    const { data: propRows } = await supabase
-      .from(viewName)
-      .select('property_name')
-      .neq('property_name', 'Total')
-      .gte('period_start', cutoffStr);
-
-    const uniqueProperties = Array.from(new Set((propRows || []).map((r: any) => r.property_name))).sort();
+    // Derive the distinct property list from the already-paginated allData
+    // rather than running a separate .select('property_name') query. That
+    // separate query hits PostgREST's default 1000-row response cap and
+    // silently drops properties alphabetically late in the list (e.g.
+    // Oakwood Gardens, Pioneer Apartments). Because `allData` is paginated
+    // above, it contains every row and therefore every distinct property.
+    const uniqueProperties = Array.from(
+      new Set(allData.map((r: any) => r.property_name).filter((p: string) => p && p !== 'Total'))
+    ).sort();
 
     // Fetch COA for ordering
     const { data: coaRows } = await supabase
