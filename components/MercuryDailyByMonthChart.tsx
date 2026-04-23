@@ -181,18 +181,26 @@ export default function MercuryDailyByMonthChart() {
                   strokeDasharray="4 4"
                   label={{ value: 'Today', fill: 'white', fontSize: 10, position: 'top' }}
                 />
-                {visibleMonths.map((_, idx) => (
-                  <Line
-                    key={`b${idx}`}
-                    type="monotone"
-                    dataKey={`b${idx}`}
-                    stroke={MONTH_COLORS[idx % MONTH_COLORS.length]}
-                    strokeWidth={idx === 0 ? 2.5 : 1.5}
-                    strokeDasharray={idx === 0 ? undefined : '5 3'}
-                    dot={idx === 0 ? { fill: MONTH_COLORS[0], r: 2 } : false}
-                    connectNulls
-                  />
-                ))}
+                {/* Render older months first so current month draws on top */}
+                {[...visibleMonths].reverse().map((_, reversedIdx) => {
+                  const idx = visibleMonths.length - 1 - reversedIdx;
+                  const color = MONTH_COLORS[idx % MONTH_COLORS.length];
+                  const isCurrent = idx === 0;
+                  return (
+                    <Line
+                      key={`b${idx}`}
+                      type="monotone"
+                      dataKey={`b${idx}`}
+                      stroke={color}
+                      strokeWidth={isCurrent ? 3 : 1}
+                      strokeDasharray={isCurrent ? undefined : '5 3'}
+                      strokeOpacity={isCurrent ? 1 : 0.45}
+                      dot={isCurrent ? { fill: color, r: 3, strokeWidth: 0 } : false}
+                      activeDot={isCurrent ? { r: 6, strokeWidth: 0 } : { r: 3 }}
+                      connectNulls
+                    />
+                  );
+                })}
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -200,10 +208,14 @@ export default function MercuryDailyByMonthChart() {
           {/* Legend */}
           <div className="flex items-center gap-4 mt-2 text-xs text-slate-400 justify-center flex-wrap">
             {visibleMonths.map((m, idx) => (
-              <span key={idx} className="flex items-center gap-1.5">
+              <span key={idx} className={`flex items-center gap-1.5 ${idx === 0 ? 'text-white font-semibold' : ''}`}>
                 <span
-                  className="inline-block w-4 h-0.5 rounded"
-                  style={{ backgroundColor: MONTH_COLORS[idx % MONTH_COLORS.length], opacity: idx === 0 ? 1 : 0.7 }}
+                  className="inline-block w-4 rounded"
+                  style={{
+                    backgroundColor: MONTH_COLORS[idx % MONTH_COLORS.length],
+                    opacity: idx === 0 ? 1 : 0.5,
+                    height: idx === 0 ? '2.5px' : '1.5px',
+                  }}
                 />
                 {m.label}
               </span>

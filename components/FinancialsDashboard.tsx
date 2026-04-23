@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine
+  Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import DarkSelect from './DarkSelect';
 import { CHART_PALETTE, RECHARTS_THEME } from '../lib/chartTheme';
@@ -106,37 +106,6 @@ function formatSnapshotDate(syncedAt: string | undefined, fallbackPeriodStart: s
   });
 }
 
-// --- Helpers ---
-
-/** Fill in missing days by linear interpolation between known points.
- *  Returns a map of { day -> value } for every day in allDays that falls
- *  between the first and last known data points. Days outside that range are
- *  not extrapolated. */
-function interpolateMonthData(
-  points: { day: number; [key: string]: number }[],
-  allDays: number[],
-  valueKey: string,
-): Record<number, number> {
-  if (points.length === 0) return {};
-  const known: Record<number, number> = {};
-  points.forEach(p => { known[p.day] = p[valueKey]; });
-  const knownDays = points.map(p => p.day).sort((a, b) => a - b);
-  const result: Record<number, number> = {};
-  allDays.forEach(day => {
-    if (known[day] !== undefined) { result[day] = known[day]; return; }
-    let lower: number | null = null, upper: number | null = null;
-    for (const kd of knownDays) {
-      if (kd <= day) lower = kd;
-      if (kd >= day && upper === null) upper = kd;
-    }
-    if (lower !== null && upper !== null && lower !== upper) {
-      const ratio = (day - lower) / (upper - lower);
-      result[day] = Math.round(known[lower] + ratio * (known[upper] - known[lower]));
-    }
-  });
-  return result;
-}
-
 interface TableRow {
   type: 'section' | 'account' | 'subtotal' | 'summary' | 'spacer';
   label: string;
@@ -154,8 +123,6 @@ export default function FinancialsDashboard() {
   const [coa, setCoa] = useState<CoaEntry[]>([]);
   const [propertyOwners, setPropertyOwners] = useState<PropertyOwner[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mercuryBalances, setMercuryBalances] = useState<any[]>([]);
-  const [mercuryLoading, setMercuryLoading] = useState(false);
 
   // View mode
   const [viewMode, setViewMode] = useState<'byMonth' | 'byProperty'>('byMonth');
@@ -223,24 +190,6 @@ export default function FinancialsDashboard() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Fetch Mercury daily balances for the Daily Cash by Month chart
-  useEffect(() => {
-    const fetchMercuryDaily = async () => {
-      setMercuryLoading(true);
-      try {
-        const res = await fetch('/api/admin/mercury/balances?days=400', { cache: 'no-store' });
-        if (res.ok) {
-          const json = await res.json();
-          setMercuryBalances(json.balances || []);
-        }
-      } catch (err) {
-        console.error('Error fetching Mercury balances:', err);
-      } finally {
-        setMercuryLoading(false);
-      }
-    };
-    fetchMercuryDaily();
-  }, []);
 
   // Build owner -> properties map
   const ownerOptions = useMemo(() => {
@@ -347,41 +296,6 @@ export default function FinancialsDashboard() {
     [periodToSynced],
   );
 
-  // Build Daily Cash by Month data from mercury_daily_balances.
-  // Groups daily total-balance snapshots by calendar month; most recent first.
-  const dailyCashData = useMemo(() => {
-    if (mercuryBalances.length === 0) return [];
-
-    // Sum all account balances for each day
-    const dailyTotals = new Map<string, number>();
-    for (const row of mercuryBalances) {
-      const date = row.snapshot_date as string; // 'YYYY-MM-DD'
-      dailyTotals.set(date, (dailyTotals.get(date) || 0) + (Number(row.current_balance) || 0));
-    }
-
-    // Group by month key 'YYYY-MM'
-    const monthMap = new Map<string, { day: number; balance: number }[]>();
-    for (const [date, total] of Array.from(dailyTotals)) {
-      const [y, m, d] = date.split('-');
-      const monthKey = `${y}-${m}`;
-      const dayNum = parseInt(d, 10);
-      if (!monthMap.has(monthKey)) monthMap.set(monthKey, []);
-      monthMap.get(monthKey)!.push({ day: dayNum, balance: total });
-    }
-
-    // Most recent month first (index 0 = solid line)
-    const sortedMonths = Array.from(monthMap.keys()).sort((a, b) => b.localeCompare(a));
-
-    return sortedMonths.map(key => {
-      const [y, m] = key.split('-');
-      const dt = new Date(parseInt(y), parseInt(m) - 1, 1);
-      const label = dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      return {
-        label,
-        points: monthMap.get(key)!.sort((a, b) => a.day - b.day),
-      };
-    });
-  }, [mercuryBalances]);
 
   // Chart data — supports multiple metrics
   const { chartData, chartKeys } = useMemo(() => {
@@ -799,114 +713,6 @@ export default function FinancialsDashboard() {
               <StatCard label="Cash Flow" value={stats.cashFlow} period={stats.periodLabel} color="text-amber-400" />
             </div>
           )}
-
-          {/* Daily Cash by Month Chart */}
-          {(mercuryLoading || dailyCashData.length > 0) && (() => {
-            const MONTH_COLORS = [
-              'rgb(56,189,248)',  'rgb(168,85,247)',  'rgb(251,146,60)',
-              'rgb(52,211,153)',  'rgb(251,113,133)', 'rgb(250,204,21)',
-              'rgb(147,51,234)',  'rgb(34,211,238)',  'rgb(244,114,182)',
-              'rgb(163,230,53)',  'rgb(249,115,22)',  'rgb(99,102,241)',
-            ];
-            const todayDay = new Date().getDate();
-            const visibleMonths = dailyCashData.filter(m => m.points.length > 0);
-            const allDaysSet = new Set<number>();
-            visibleMonths.forEach(m => m.points.forEach(p => allDaysSet.add(p.day)));
-            const sortedDays = Array.from(allDaysSet).sort((a, b) => a - b);
-            const interpolated = visibleMonths.map(m => interpolateMonthData(m.points, sortedDays, 'balance'));
-            const merged = sortedDays.map(day => {
-              const row: Record<string, any> = { day };
-              visibleMonths.forEach((_, idx) => {
-                if (interpolated[idx][day] !== undefined) row[`balance_${idx}`] = interpolated[idx][day];
-              });
-              return row;
-            });
-
-            const DailyCashTooltip = ({ active, payload, label }: any) => {
-              if (!active || !payload?.length) return null;
-              const sorted = [...payload].sort((a: any, b: any) =>
-                parseInt(a.dataKey.split('_')[1]) - parseInt(b.dataKey.split('_')[1])
-              );
-              return (
-                <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[180px]">
-                  <p className="font-semibold text-slate-200 mb-1">Day {label}</p>
-                  {sorted.map((entry: any, i: number) => {
-                    const idx = parseInt(entry.dataKey.split('_')[1]);
-                    return (
-                      <p key={i} style={{ color: entry.color }} className="tabular-nums flex justify-between gap-3">
-                        <span>{visibleMonths[idx]?.label}</span>
-                        <span>{formatCurrency(entry.value)}</span>
-                      </p>
-                    );
-                  })}
-                </div>
-              );
-            };
-
-            return (
-              <div className="glass-card p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Daily Cash by Month</h2>
-                {mercuryLoading && visibleMonths.length === 0 ? (
-                  <div className="flex items-center justify-center text-slate-500 text-sm h-64">
-                    Loading balance data…
-                  </div>
-                ) : (
-                  <>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={merged} margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
-                          <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                          <YAxis
-                            tickFormatter={formatCurrency}
-                            tick={{ fill: '#94a3b8', fontSize: 11 }}
-                            width={70}
-                          />
-                          <Tooltip content={<DailyCashTooltip />} />
-                          {todayDay && (
-                            <ReferenceLine
-                              x={todayDay}
-                              stroke="white"
-                              strokeWidth={1.5}
-                              strokeDasharray="4 4"
-                              label={{ value: 'Today', fill: 'white', fontSize: 10, position: 'top' }}
-                            />
-                          )}
-                          {visibleMonths.map((_, idx) => (
-                            <Line
-                              key={`balance_${idx}`}
-                              type="monotone"
-                              dataKey={`balance_${idx}`}
-                              stroke={MONTH_COLORS[idx % MONTH_COLORS.length]}
-                              strokeWidth={idx === 0 ? 2.5 : 1.5}
-                              strokeDasharray={idx === 0 ? undefined : '5 3'}
-                              dot={idx === 0 ? { fill: MONTH_COLORS[0], r: 2 } : false}
-                              connectNulls
-                            />
-                          ))}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-slate-400 justify-center flex-wrap">
-                      {visibleMonths.map((m, idx) => (
-                        <span key={idx} className="flex items-center gap-1.5">
-                          <span
-                            className="inline-block w-4 h-0.5 rounded"
-                            style={{ backgroundColor: MONTH_COLORS[idx % MONTH_COLORS.length], opacity: idx === 0 ? 1 : 0.7 }}
-                          />
-                          {m.label}
-                        </span>
-                      ))}
-                      <span className="flex items-center gap-1.5">
-                        <span className="inline-block w-4 border-t-2 border-dashed border-white opacity-60" />
-                        Today
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })()}
 
           {/* Detail Table */}
           {summaryTable.rows.length > 0 && (
