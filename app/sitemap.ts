@@ -25,7 +25,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Static grid pages — high priority, changes every hour as new listings
   // come and go.
-  const gridPages: MetadataRoute.Sitemap = [
+  // Note: `alternates` was added to MetadataRoute.Sitemap in Next.js 14.2+.
+  // We use an untyped intermediate array and cast at the return so the
+  // hreflang data is preserved in the output without TypeScript errors.
+  const gridPages = [
     {
       url: `${SITE_URL}/listings`,
       lastModified: now,
@@ -54,7 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Per-listing pages. Emit one entry per locale per listing so Google can
   // index each locale separately and cross-reference them via alternates.
-  const detailPages: MetadataRoute.Sitemap = listings.flatMap(l => [
+  const detailPages = listings.flatMap(l => [
     {
       url: `${SITE_URL}/listings/${l.id}`,
       lastModified: now,
@@ -81,5 +84,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ]);
 
-  return [...gridPages, ...detailPages];
+  return [...gridPages, ...detailPages] as unknown as MetadataRoute.Sitemap;
 }
