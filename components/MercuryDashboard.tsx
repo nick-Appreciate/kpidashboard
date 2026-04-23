@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Loader2, DollarSign, Landmark, RefreshCw } from 'lucide-react';
 import MercuryBalanceChart from './MercuryBalanceChart';
+import MercuryDailyByMonthChart from './MercuryDailyByMonthChart';
 import MercuryMonthOverMonthChart from './MercuryMonthOverMonthChart';
 
 export default function MercuryDashboard() {
@@ -116,6 +117,9 @@ export default function MercuryDashboard() {
 
       {/* Balance Chart */}
       <MercuryBalanceChart />
+
+      {/* Daily Cash by Month */}
+      <MercuryDailyByMonthChart />
 
       {/* Month-over-Month Chart */}
       <MercuryMonthOverMonthChart />
