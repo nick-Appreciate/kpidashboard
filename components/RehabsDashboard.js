@@ -373,7 +373,7 @@ export default function RehabsDashboard() {
                 onChange={setSelectedProperty}
                 options={[
                   { value: 'all', label: 'All Properties' },
-                  { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
+                  { value: 'farquhar', label: 'Farquhar' },
                   ...properties.map(prop => ({ value: prop, label: prop }))
                 ]}
                 compact

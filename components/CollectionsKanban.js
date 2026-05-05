@@ -602,7 +602,7 @@ export default function CollectionsKanban() {
   // Build DarkSelect options for property filter
   const propertyOptions = [
     { value: 'all', label: 'Portfolio' },
-    { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
+    { value: 'farquhar', label: 'Farquhar' },
     { group: 'Regions', options: [
       { value: 'region_kansas_city', label: 'Kansas City' },
       { value: 'region_columbia', label: 'Columbia' },

@@ -409,7 +409,7 @@ export default function InspectionsDashboard() {
                 className="w-48"
                 options={[
                   ...properties.map(p => ({ value: p, label: p === 'all' ? 'All Properties' : p })),
-                  { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
+                  { value: 'farquhar', label: 'Farquhar' },
                 ]}
               />
 

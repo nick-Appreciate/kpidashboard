@@ -456,7 +456,7 @@ export default function Dashboard() {
                 className="w-36"
                 options={[
                   { value: 'all', label: 'All Properties' },
-                  { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
+                  { value: 'farquhar', label: 'Farquhar' },
                   { group: 'Regions', options: [
                     { value: 'region_kansas_city', label: 'Kansas City' },
                     { value: 'region_columbia', label: 'Columbia' },

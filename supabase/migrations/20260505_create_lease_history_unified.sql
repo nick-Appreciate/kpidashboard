@@ -14,20 +14,38 @@
 --   divestiture_date         informational only — view does NOT clamp on it.
 --                            Per-period cutoffs are applied by
 --                            get_churn_metrics(cutoff_dates) for Farquhar.
---   move_in                  GREATEST(move_in_raw, acquisition_date) — the
---                            effective start under our ownership
---   move_out                 actual (AF) or audit-derived (DL)
+--   move_in                  GREATEST(move_in_raw, acquisition_date)
+--   move_out                 actual (AF) or audit-derived (DL).
+--                            Bulk admin-cleanup days where dozens of stale
+--                            DoorLoop leases were marked inactive at once
+--                            are filtered (see bulk_event_dates CTE).
 --   move_out_reason          end_of_lease | early | eviction | unknown | NULL
 --   is_eviction              boolean
 --   tenancy_status           lowercased status from each system
 --   original_status          raw status from each system
 --   tenancy_days             move_out − clamped move_in (when both present)
 --   rent                     monthly recurring rent (DoorLoop only for now)
+--
+-- Bulk-event date list:
+--   Days where DoorLoop had ≥25 deactivations on a single mid-month date
+--   with broad start-date spans = admin cleanup, not real churn. Adding
+--   to the list later: just append to the bulk_event_dates CTE.
 
 DROP VIEW IF EXISTS public.lease_history_unified CASCADE;
 
 CREATE VIEW public.lease_history_unified AS
 WITH
+bulk_event_dates AS (
+  SELECT unnest(ARRAY[
+    DATE '2023-08-09',  -- 47 deactivations, span 21yr
+    DATE '2023-09-10',  -- 28 deactivations
+    DATE '2023-09-26',  -- 25 deactivations
+    DATE '2023-11-28',  -- 33 deactivations
+    DATE '2023-12-10',  -- 13 deactivations, span 5.6yr
+    DATE '2024-08-25',  -- 308 deactivations
+    DATE '2024-08-27'   -- 284 deactivations
+  ]) AS d
+),
 appfolio_named AS (
   SELECT
     a.id, a.occupancy_id, a.tenant_id, a.property_id,
@@ -83,8 +101,8 @@ doorloop_moveout AS (
            LAG(active) OVER (PARTITION BY lease_id ORDER BY stamp) AS prev_active
     FROM leases.leases_audit
   ) t
-  WHERE prev_active=TRUE AND active=FALSE
-    AND stamp::date NOT IN (DATE '2024-08-25', DATE '2024-08-27')
+  WHERE prev_active = TRUE AND active = FALSE
+    AND stamp::date NOT IN (SELECT d FROM bulk_event_dates)
   GROUP BY lease_id
 ),
 doorloop_rows AS (
@@ -102,8 +120,15 @@ doorloop_rows AS (
     l.start_date::date AS lease_start,
     l.end_date::date AS lease_end,
     l.start_date::date AS move_in_raw,
-    COALESCE(mo.move_out_date,
-             CASE WHEN l.status IN ('expired','inactive') THEN l.end_date::date END) AS move_out,
+    -- For expired/inactive leases without an audit-derived move-out, fall
+    -- back to end_date — but skip the fallback if end_date is itself a
+    -- bulk-event date (those are bookkeeping stamps, not real moves).
+    COALESCE(
+      mo.move_out_date,
+      CASE WHEN l.status IN ('expired','inactive')
+            AND l.end_date::date NOT IN (SELECT d FROM bulk_event_dates)
+           THEN l.end_date::date END
+    ) AS move_out,
     l.status AS tenancy_status,
     l.status AS original_status,
     l.eviction_pending AS is_eviction,
@@ -159,4 +184,4 @@ FROM combined c
 LEFT JOIN public.property_acquisitions pa ON pa.property_name = c.property_name;
 
 COMMENT ON VIEW public.lease_history_unified IS
-  'Unified lease history across DoorLoop and AppFolio. move_in clamped to acquisition_date. divestiture_date is informational only; the view does NOT clamp on it. Per-period cutoffs come from get_churn_metrics(cutoff_dates), used by Farquhar-style filters.';
+  'Unified lease history. move_in clamped to acquisition_date. move_out filtered for bulk admin-cleanup dates (DoorLoop ops where dozens of stale leases got marked inactive on a single day) — both audit-log and end_date fallback paths.';
