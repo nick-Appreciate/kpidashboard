@@ -23,7 +23,11 @@ interface BalanceRecord {
   available_balance: number | null;
 }
 
-export default function MercuryMonthOverMonthChart() {
+interface Props {
+  period?: 'month' | 'quarter';
+}
+
+export default function MercuryMonthOverMonthChart({ period = 'month' }: Props) {
   const [timeRange, setTimeRange] = useState('6');
   const [balances, setBalances] = useState<BalanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -88,25 +92,40 @@ export default function MercuryMonthOverMonthChart() {
 
     if (totalCashByDate.size === 0) return [];
 
-    const byMonth = new Map<string, string[]>();
+    // Bucket dates: by year-month for monthly, by year-quarter for quarterly.
+    const buckets = new Map<string, string[]>();
     totalCashByDate.forEach((_, date) => {
-      const ym = date.substring(0, 7);
-      if (!byMonth.has(ym)) byMonth.set(ym, []);
-      byMonth.get(ym)!.push(date);
+      let key: string;
+      if (period === 'quarter') {
+        const dt = new Date(date + 'T12:00:00');
+        const q = Math.floor(dt.getUTCMonth() / 3) + 1;
+        key = `${dt.getUTCFullYear()}-Q${q}`;
+      } else {
+        key = date.substring(0, 7);
+      }
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(date);
     });
 
     const points: ChartPoint[] = [];
-    byMonth.forEach((dates) => {
+    buckets.forEach((dates) => {
+      // Pick a representative snapshot for the bucket.
+      // Monthly: snapshot closest to today's day-of-month (apples-to-apples MoM).
+      // Quarterly: latest snapshot in the quarter.
       let bestDate = dates[0];
-      const exactMatch = dates.find(d => parseInt(d.split('-')[2]) === dayOfMonth);
-      if (exactMatch) {
-        bestDate = exactMatch;
+      if (period === 'quarter') {
+        bestDate = dates.reduce((latest, d) => (d > latest ? d : latest), dates[0]);
       } else {
-        let bestDiff = Math.abs(parseInt(bestDate.split('-')[2]) - dayOfMonth);
-        dates.forEach(d => {
-          const diff = Math.abs(parseInt(d.split('-')[2]) - dayOfMonth);
-          if (diff < bestDiff) { bestDate = d; bestDiff = diff; }
-        });
+        const exactMatch = dates.find(d => parseInt(d.split('-')[2]) === dayOfMonth);
+        if (exactMatch) {
+          bestDate = exactMatch;
+        } else {
+          let bestDiff = Math.abs(parseInt(bestDate.split('-')[2]) - dayOfMonth);
+          dates.forEach(d => {
+            const diff = Math.abs(parseInt(d.split('-')[2]) - dayOfMonth);
+            if (diff < bestDiff) { bestDate = d; bestDiff = diff; }
+          });
+        }
       }
       const entry = totalCashByDate.get(bestDate)!;
 
@@ -121,9 +140,12 @@ export default function MercuryMonthOverMonthChart() {
       });
 
       const d = new Date(bestDate + 'T12:00:00');
+      const label = period === 'quarter'
+        ? `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`
+        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       points.push({
         date: bestDate,
-        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        label,
         balance: entry.total,
         high,
         low,
@@ -152,7 +174,7 @@ export default function MercuryMonthOverMonthChart() {
     }
 
     return points;
-  }, [balances, timeRange, customStart, customEnd]);
+  }, [balances, timeRange, customStart, customEnd, period]);
 
   const formatCurrency = (value: number) =>
     `$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -221,9 +243,13 @@ export default function MercuryMonthOverMonthChart() {
     <div className="glass-card p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-white">Month-over-Month</h3>
+          <h3 className="text-lg font-semibold text-white">
+            {period === 'quarter' ? 'Quarter-over-Quarter' : 'Month-over-Month'}
+          </h3>
           <p className="text-xs text-slate-400">
-            Total cash on the {dayOfMonth}{suffix} of each month
+            {period === 'quarter'
+              ? 'Total cash at the end of each quarter'
+              : `Total cash on the ${dayOfMonth}${suffix} of each month`}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -277,6 +303,9 @@ export default function MercuryMonthOverMonthChart() {
                 dataKey="date"
                 tickFormatter={(d: string) => {
                   const dt = new Date(d + 'T12:00:00');
+                  if (period === 'quarter') {
+                    return `Q${Math.floor(dt.getUTCMonth() / 3) + 1} ${String(dt.getUTCFullYear()).slice(2)}`;
+                  }
                   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 }}
                 tick={{ fontSize: 11, fill: '#94a3b8' }}
@@ -326,7 +355,7 @@ export default function MercuryMonthOverMonthChart() {
 
       {chartData.length > 0 && (
         <p className="text-xs text-slate-500 mt-2 text-center">
-          Showing {chartData.length} month{chartData.length !== 1 ? 's' : ''} of data
+          Showing {chartData.length} {period === 'quarter' ? 'quarter' : 'month'}{chartData.length !== 1 ? 's' : ''} of data
         </p>
       )}
     </div>

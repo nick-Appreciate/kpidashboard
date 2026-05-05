@@ -7,11 +7,17 @@ import { Loader2, DollarSign, Landmark, RefreshCw } from 'lucide-react';
 import MercuryBalanceChart from './MercuryBalanceChart';
 import MercuryDailyByMonthChart from './MercuryDailyByMonthChart';
 import MercuryMonthOverMonthChart from './MercuryMonthOverMonthChart';
+import MercuryCashFlowChart from './MercuryCashFlowChart';
 
 export default function MercuryDashboard() {
   const { appUser, loading: authLoading } = useAuth();
   const router = useRouter();
   const [lastSync, setLastSync] = useState<string | null>(null);
+
+  // Period granularity for charts that aggregate over time. Inherently-daily
+  // charts (Balance, Daily-by-Month) ignore this; charts that bucket into
+  // months/quarters (Month-over-Month, Cash Flow) use it.
+  const [period, setPeriod] = useState<'month' | 'quarter'>('month');
 
   // Stats from balance chart
   const [totalCash, setTotalCash] = useState<number | null>(null);
@@ -72,6 +78,24 @@ export default function MercuryDashboard() {
           <h1 className="text-2xl font-bold text-white">Cash</h1>
           <p className="text-sm text-slate-400 mt-1">Mercury bank account balance tracking</p>
         </div>
+        <div className="inline-flex rounded-lg border border-[var(--glass-border)] bg-surface-overlay/60 p-0.5 text-xs">
+          {[
+            { value: 'month',   label: 'Monthly' },
+            { value: 'quarter', label: 'Quarterly' },
+          ].map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setPeriod(value as 'month' | 'quarter')}
+              className={`px-3 py-1 rounded-md transition-colors ${
+                period === value
+                  ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Stats */}
@@ -121,8 +145,11 @@ export default function MercuryDashboard() {
       {/* Daily Cash by Month */}
       <MercuryDailyByMonthChart />
 
-      {/* Month-over-Month Chart */}
-      <MercuryMonthOverMonthChart />
+      {/* Month-over-Month Chart (respects period toggle) */}
+      <MercuryMonthOverMonthChart period={period} />
+
+      {/* Cash In / Out / Net (respects period toggle) */}
+      <MercuryCashFlowChart period={period} />
     </div>
   );
 }
