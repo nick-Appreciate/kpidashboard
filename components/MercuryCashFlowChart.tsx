@@ -76,37 +76,14 @@ export default function MercuryCashFlowChart({ period }: Props) {
           <span>NOI</span>
           <span className="tabular-nums">{formatCurrencyFull(p.noi)}</span>
         </p>
-        {(p.capex !== 0 || p.owner_contributions !== 0 || p.owner_distributions !== 0 || p.other_other !== 0) && (
-          <div className="mt-1 pt-1 border-t border-white/10 space-y-0.5">
-            <p className="text-slate-500 text-[10px] uppercase tracking-wide">Other items</p>
-            {p.capex !== 0 && (
-              <p className="flex justify-between gap-4 text-slate-400 text-[11px]">
-                <span>CapEx (labor + materials)</span>
-                <span className="tabular-nums">{formatCurrencyFull(p.capex)}</span>
-              </p>
-            )}
-            {p.owner_contributions !== 0 && (
-              <p className="flex justify-between gap-4 text-emerald-400 text-[11px]">
-                <span>Owner contributions</span>
-                <span className="tabular-nums">+{formatCurrencyFull(p.owner_contributions)}</span>
-              </p>
-            )}
-            {p.owner_distributions !== 0 && (
-              <p className="flex justify-between gap-4 text-rose-400 text-[11px]">
-                <span>Owner distributions</span>
-                <span className="tabular-nums">{formatCurrencyFull(p.owner_distributions)}</span>
-              </p>
-            )}
-            {p.other_other !== 0 && (
-              <p className="flex justify-between gap-4 text-slate-400 text-[11px]">
-                <span>Other</span>
-                <span className="tabular-nums">{formatCurrencyFull(p.other_other)}</span>
-              </p>
-            )}
-          </div>
+        {p.capex !== 0 && (
+          <p className="flex justify-between gap-4 mt-0.5 text-slate-400">
+            <span>CapEx (labor + materials)</span>
+            <span className="tabular-nums">{formatCurrencyFull(p.capex)}</span>
+          </p>
         )}
         <p className={`flex justify-between gap-4 mt-1.5 pt-1.5 border-t border-white/10 font-semibold ${p.net >= 0 ? 'text-cyan-400' : 'text-rose-400'}`}>
-          <span>Cash Flow (net)</span>
+          <span>Net (after CapEx)</span>
           <span className="tabular-nums">{p.net >= 0 ? '+' : '-'}{formatCurrencyFull(Math.abs(p.net))}</span>
         </p>
       </div>
@@ -119,8 +96,8 @@ export default function MercuryCashFlowChart({ period }: Props) {
         <div>
           <h3 className="text-lg font-semibold text-white">Portfolio Cash Flow</h3>
           <p className="text-xs text-slate-400">
-            Net cash flow per {period === 'quarter' ? 'quarter' : 'month'} from AppFolio
-            (NOI + capex + owner equity, matches AppFolio&apos;s &quot;Cash Flow&quot; line)
+            NOI minus CapEx per {period === 'quarter' ? 'quarter' : 'month'}
+            (operating cash flow after capital improvements; owner equity flows excluded)
           </p>
         </div>
       </div>
@@ -160,7 +137,7 @@ export default function MercuryCashFlowChart({ period }: Props) {
             </BarChart>
           </ResponsiveContainer>
           <p className="text-[11px] text-slate-500 mt-2">
-            ⓘ Bars show the AppFolio &quot;Cash Flow&quot; line — NOI minus CapEx minus owner distributions plus owner contributions.
+            ⓘ Bars show NOI minus CapEx. Owner contributions and distributions are excluded — they&apos;re equity flows, not operations.
             Hover for the full breakdown. In-progress current {period === 'quarter' ? 'quarter' : 'month'} is excluded.
           </p>
         </>

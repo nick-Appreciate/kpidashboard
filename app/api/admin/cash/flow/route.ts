@@ -2,18 +2,20 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
 
 // Portfolio cash flow per period, from af_cash_flow_auto.
-// Returns the same bottom-line "Cash Flow" number AppFolio's report shows,
-// plus a component breakdown for tooltips:
 //
-//   noi              = Operating Income − Operating Expense
-//   capex            = SUM of CapEx Labor + CapEx Materials (negative)
-//   owner_equity     = Owner Contributions − Owner Distributions
-//   net              = NOI + capex + owner_equity (matches cash_flow row)
+// Tracks operating cash flow plus capital expenditures only — owner
+// contributions and distributions are EXCLUDED. Those are equity flows
+// (cash moving between the business and its owners), not operations,
+// and the user's mental model for this chart is "did the properties
+// generate cash this period." Including them swung the bars by tens
+// of thousands per month based on payout timing, which obscured trends.
 //
-// We also surface the operating gross (income, expense) for a fuller picture
-// in the tooltip — but the chart's primary bar is `net`, so it visually
-// matches AppFolio's "Cash Flow" line rather than dwarfing it with gross
-// income/expense bars.
+//   noi   = Operating Income − Operating Expense
+//   capex = CapEx Labor + CapEx Materials (negative)
+//   net   = NOI + capex
+//
+// Note: this means our `net` will NOT match AppFolio's "Cash Flow" line
+// for periods where owner equity flows were nonzero. That's intentional.
 //
 // Query params: period=month|quarter, months=24
 export async function GET(request: Request) {
@@ -113,11 +115,12 @@ export async function GET(request: Request) {
   };
 
   function buildOut(period_start: string, b: Bucket, label: string): Out {
+    const noi = b.operating_income - b.operating_expense;
     return {
       period_start,
       period_label: label,
-      net: b.net,
-      noi: b.operating_income - b.operating_expense,
+      net: noi + b.capex,  // operating cash flow after capex, excluding owner equity
+      noi,
       operating_income: b.operating_income,
       operating_expense: b.operating_expense,
       capex: b.capex,
