@@ -1,33 +1,28 @@
 -- Churn metrics aggregator over public.lease_history_unified.
 -- Supports month or quarter grain. Returns one row per period with:
---   move_outs, early_moveouts, evictions
---     — counted as DISTINCT (property, unit) so renewals or transfers
---       represented as separate occupancy_id rows in AppFolio don't
---       double-count.
---   occupied_at_period_start
---     — DISTINCT (property, unit) where any tenancy overlaps the period
---   total_units (current portfolio size — latest rent_roll_snapshots count)
---   churn_rate_pct                 = move_outs / occupied_at_period_start
---   eviction_rate_pct              = evictions / total_units
---   median_tenancy_at_exit_months  median tenancy of tenancies that ENDED
---   mean_tenancy_at_exit_months    mean tenancy of tenancies that ENDED
---   mean_tenancy_existing_months   mean tenancy of STILL OCCUPYING tenants
---                                  (one row per (property, unit), most
---                                  recent move_in)
+--   move_outs, early_moveouts, evictions  (DISTINCT (property, unit))
+--   occupied_at_period_start              (DISTINCT (property, unit))
+--   total_units                            current portfolio (latest snapshot)
+--   churn_rate_pct                  = move_outs / occupied_at_period_start
+--   eviction_rate_pct               = evictions / total_units
+--   median_tenancy_at_exit_months   median tenancy of completed tenancies,
+--                                   clamped to acquisition_date (ownership-tenure)
+--   mean_tenancy_at_exit_months     mean tenancy clamped to acquisition_date
+--   mean_tenancy_at_exit_raw_months mean tenancy IGNORING acquisition_date
+--                                   — true full-history lease length, can be
+--                                   much higher when long-tenured inherited
+--                                   tenants leave
+--   mean_tenancy_existing_months    mean tenancy of still-occupying tenants
 --
 -- Filters:
 --   property_filter — list of property_name to include (NULL = all).
 --   cutoff_dates    — JSONB { property: 'YYYY-MM-DD' } for properties that
---                     leave the filter on a specific date (e.g. Hilltop
---                     leaves Farquhar on 2026-04-22 because we sold
---                     ownership but kept the management contract).
---                     Periods at or after the cutoff exclude that property
---                     entirely; move_outs at or before the cutoff still
---                     count as real churn for the in-window period.
+--                     leave the filter on a specific date.
 
 DROP FUNCTION IF EXISTS public.get_churn_metrics_monthly(date, date);
 DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date);
 DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date, text[]);
+DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date, text[], jsonb);
 
 CREATE OR REPLACE FUNCTION public.get_churn_metrics(
   grain           text   DEFAULT 'month',
@@ -37,18 +32,19 @@ CREATE OR REPLACE FUNCTION public.get_churn_metrics(
   cutoff_dates    jsonb  DEFAULT NULL
 )
 RETURNS TABLE (
-  period_start                    date,
-  period_label                    text,
-  move_outs                       integer,
-  early_moveouts                  integer,
-  evictions                       integer,
-  occupied_at_period_start        integer,
-  total_units                     integer,
-  churn_rate_pct                  numeric,
-  eviction_rate_pct               numeric,
-  median_tenancy_at_exit_months   numeric,
-  mean_tenancy_at_exit_months     numeric,
-  mean_tenancy_existing_months    numeric
+  period_start                       date,
+  period_label                       text,
+  move_outs                          integer,
+  early_moveouts                     integer,
+  evictions                          integer,
+  occupied_at_period_start           integer,
+  total_units                        integer,
+  churn_rate_pct                     numeric,
+  eviction_rate_pct                  numeric,
+  median_tenancy_at_exit_months      numeric,
+  mean_tenancy_at_exit_months        numeric,
+  mean_tenancy_at_exit_raw_months    numeric,
+  mean_tenancy_existing_months       numeric
 )
 LANGUAGE sql
 STABLE
@@ -82,7 +78,12 @@ AS $$
   ),
   unified AS MATERIALIZED (
     SELECT property_name, unit_name,
-           move_in, move_out, move_out_reason, is_eviction, tenancy_days,
+           move_in, move_in_raw, move_out, move_out_reason, is_eviction,
+           tenancy_days,
+           CASE WHEN move_in_raw IS NOT NULL AND move_out IS NOT NULL
+                 AND move_out >= move_in_raw
+                THEN (move_out - move_in_raw)
+                ELSE NULL END AS tenancy_days_raw,
            CASE WHEN cutoff_dates IS NOT NULL AND cutoff_dates ? property_name
                 THEN (cutoff_dates ->> property_name)::date
                 ELSE NULL END AS cutoff_date
@@ -101,7 +102,8 @@ AS $$
                           THEN property_name || '|' || unit_name END)::int  AS evictions,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tenancy_days)
         FILTER (WHERE tenancy_days IS NOT NULL)                              AS median_tenancy_days,
-      AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)              AS avg_exit_tenancy_days
+      AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)              AS avg_exit_tenancy_days,
+      AVG(tenancy_days_raw) FILTER (WHERE tenancy_days_raw IS NOT NULL)      AS avg_exit_tenancy_days_raw
     FROM unified
     WHERE move_out IS NOT NULL
       AND (cutoff_date IS NULL OR move_out <= cutoff_date)
@@ -147,6 +149,8 @@ AS $$
          THEN ROUND((mb.median_tenancy_days / 30.44)::numeric, 1) END,
     CASE WHEN mb.avg_exit_tenancy_days IS NOT NULL
          THEN ROUND((mb.avg_exit_tenancy_days / 30.44)::numeric, 1) END,
+    CASE WHEN mb.avg_exit_tenancy_days_raw IS NOT NULL
+         THEN ROUND((mb.avg_exit_tenancy_days_raw / 30.44)::numeric, 1) END,
     CASE WHEN o.avg_existing_tenancy_days IS NOT NULL
          THEN ROUND((o.avg_existing_tenancy_days / 30.44)::numeric, 1) END
   FROM periods p
