@@ -1,13 +1,20 @@
 -- Churn metrics aggregator over public.lease_history_unified.
 -- Supports month or quarter grain. Returns one row per period with:
 --   move_outs, early_moveouts, evictions
---   occupied_at_period_start (count of tenancies overlapping the period start)
+--     — counted as DISTINCT (property, unit) so renewals or transfers
+--       represented as separate occupancy_id rows in AppFolio don't
+--       double-count.
+--   occupied_at_period_start
+--     — DISTINCT (property, unit) where any tenancy overlaps the
+--       period start. Coalesces AppFolio renewal duplicates and
+--       stale DoorLoop "active" leases at AF properties.
 --   total_units (current portfolio size — latest rent_roll_snapshots count)
 --   churn_rate_pct                 = move_outs / occupied_at_period_start
 --   eviction_rate_pct              = evictions / total_units
 --   median_tenancy_at_exit_months  median tenancy of tenancies that ENDED in the period
 --   mean_tenancy_at_exit_months    mean tenancy of tenancies that ENDED in the period
 --   mean_tenancy_existing_months   mean tenancy of tenants STILL OCCUPYING at period_start
+--                                  (one row per (property, unit), most recent move_in)
 
 DROP FUNCTION IF EXISTS public.get_churn_metrics_monthly(date, date);
 DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date);
@@ -57,18 +64,21 @@ AS $$
     FROM bounds b
   ),
   unified AS MATERIALIZED (
-    SELECT move_in, move_out, move_out_reason, is_eviction, tenancy_days
+    SELECT property_name, unit_name,
+           move_in, move_out, move_out_reason, is_eviction, tenancy_days
     FROM public.lease_history_unified
   ),
   moveouts_by_period AS (
     SELECT
       date_trunc((SELECT g FROM bounds), move_out)::date AS period_start,
-      COUNT(*)::int                                                AS move_outs,
-      COUNT(*) FILTER (WHERE move_out_reason = 'early')::int        AS early_moveouts,
-      COUNT(*) FILTER (WHERE is_eviction)::int                      AS evictions,
+      COUNT(DISTINCT property_name || '|' || unit_name)::int                AS move_outs,
+      COUNT(DISTINCT CASE WHEN move_out_reason = 'early'
+                          THEN property_name || '|' || unit_name END)::int  AS early_moveouts,
+      COUNT(DISTINCT CASE WHEN is_eviction
+                          THEN property_name || '|' || unit_name END)::int  AS evictions,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tenancy_days)
-        FILTER (WHERE tenancy_days IS NOT NULL)                     AS median_tenancy_days,
-      AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)     AS avg_exit_tenancy_days
+        FILTER (WHERE tenancy_days IS NOT NULL)                              AS median_tenancy_days,
+      AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)              AS avg_exit_tenancy_days
     FROM unified
     WHERE move_out IS NOT NULL
     GROUP BY 1
@@ -76,15 +86,20 @@ AS $$
   occupied_at AS (
     SELECT
       p.period_start,
-      (SELECT COUNT(*)::int FROM unified u
+      (SELECT COUNT(DISTINCT u.property_name || '|' || u.unit_name)::int FROM unified u
         WHERE u.move_in IS NOT NULL
           AND u.move_in <= p.period_start
           AND (u.move_out IS NULL OR u.move_out >= p.period_start)
       ) AS occupied,
-      (SELECT AVG(p.period_start - u.move_in) FROM unified u
-        WHERE u.move_in IS NOT NULL
-          AND u.move_in <= p.period_start
-          AND (u.move_out IS NULL OR u.move_out >= p.period_start)
+      (SELECT AVG(p.period_start - u.move_in)
+       FROM (
+         SELECT DISTINCT ON (u.property_name, u.unit_name) u.move_in
+         FROM unified u
+         WHERE u.move_in IS NOT NULL
+           AND u.move_in <= p.period_start
+           AND (u.move_out IS NULL OR u.move_out >= p.period_start)
+         ORDER BY u.property_name, u.unit_name, u.move_in DESC
+       ) u
       ) AS avg_existing_tenancy_days
     FROM periods p
   )
