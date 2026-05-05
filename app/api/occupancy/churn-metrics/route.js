@@ -7,10 +7,13 @@ export async function GET(request) {
   const supabase = auth.supabase;
 
   const { searchParams } = new URL(request.url);
+  const grainParam = searchParams.get('grain');
+  const grain = grainParam === 'quarter' ? 'quarter' : 'month';
   const startDate = searchParams.get('startDate') || null;
   const endDate = searchParams.get('endDate') || null;
 
-  const { data, error } = await supabase.rpc('get_churn_metrics_monthly', {
+  const { data, error } = await supabase.rpc('get_churn_metrics', {
+    grain,
     start_date: startDate,
     end_date: endDate,
   });
@@ -19,5 +22,5 @@ export async function GET(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ months: data || [] });
+  return NextResponse.json({ grain, periods: data || [] });
 }
