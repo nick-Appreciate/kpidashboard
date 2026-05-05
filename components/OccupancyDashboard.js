@@ -231,7 +231,7 @@ export default function OccupancyDashboard() {
       });
     }
 
-    // Tenancy chart: median months at exit
+    // Tenancy chart: two lines — mean at exit + mean of existing tenants
     if (tenancyChartRef.current && rows.length) {
       const ctx = tenancyChartRef.current.getContext('2d');
       if (tenancyChartRef.current.chart) tenancyChartRef.current.chart.destroy();
@@ -241,14 +241,23 @@ export default function OccupancyDashboard() {
           labels,
           datasets: [
             {
-              label: 'Median tenancy at exit (months)',
-              data: rows.map(r => r.median_tenancy_months),
+              label: 'Mean tenancy at exit (months)',
+              data: rows.map(r => r.mean_tenancy_at_exit_months),
               borderColor: CHART_COLORS.amber,
               backgroundColor: CHART_COLORS.amber + '20',
               tension: 0.3,
               borderWidth: 2,
               pointRadius: 3,
-              fill: true,
+              spanGaps: true,
+            },
+            {
+              label: 'Mean tenancy of existing tenants (months)',
+              data: rows.map(r => r.mean_tenancy_existing_months),
+              borderColor: CHART_COLORS.teal,
+              backgroundColor: CHART_COLORS.teal + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              pointRadius: 3,
               spanGaps: true,
             },
           ],
@@ -276,7 +285,8 @@ export default function OccupancyDashboard() {
                   const r = rows[items[0].dataIndex];
                   return [
                     `Move-outs in period: ${r.move_outs}`,
-                    `Mean tenancy at exit: ${r.avg_tenancy_months ?? '—'} mo`,
+                    `Median tenancy at exit: ${r.median_tenancy_at_exit_months ?? '—'} mo`,
+                    `Occupied at period start: ${r.occupied_at_period_start}`,
                   ];
                 },
               },
@@ -1310,8 +1320,8 @@ export default function OccupancyDashboard() {
                 </div>
                 <div className="glass-card p-6">
                   <div className="flex items-baseline justify-between mb-4 pb-2 border-b border-[var(--glass-border)]">
-                    <h3 className="text-sm font-semibold text-slate-200">Median tenancy at exit</h3>
-                    <span className="text-[10px] text-slate-500">Median months from move-in to move-out</span>
+                    <h3 className="text-sm font-semibold text-slate-200">Tenancy length</h3>
+                    <span className="text-[10px] text-slate-500">At-exit (closed tenancies) vs existing (current tenants)</span>
                   </div>
                   {churn?.periods?.length ? (
                     <canvas ref={tenancyChartRef}></canvas>

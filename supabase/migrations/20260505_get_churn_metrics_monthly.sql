@@ -3,11 +3,11 @@
 --   move_outs, early_moveouts, evictions
 --   occupied_at_period_start (count of tenancies overlapping the period start)
 --   total_units (current portfolio size — latest rent_roll_snapshots count)
---   churn_rate_pct      = move_outs / occupied_at_period_start
---   eviction_rate_pct   = evictions / total_units
---   median_tenancy_months for tenancies that ended in that period (robust
---                         at small per-period n; preferred over mean)
---   avg_tenancy_months    kept for context but expect monthly volatility
+--   churn_rate_pct                 = move_outs / occupied_at_period_start
+--   eviction_rate_pct              = evictions / total_units
+--   median_tenancy_at_exit_months  median tenancy of tenancies that ENDED in the period
+--   mean_tenancy_at_exit_months    mean tenancy of tenancies that ENDED in the period
+--   mean_tenancy_existing_months   mean tenancy of tenants STILL OCCUPYING at period_start
 
 DROP FUNCTION IF EXISTS public.get_churn_metrics_monthly(date, date);
 DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date);
@@ -18,17 +18,18 @@ CREATE OR REPLACE FUNCTION public.get_churn_metrics(
   end_date   date DEFAULT NULL
 )
 RETURNS TABLE (
-  period_start              date,
-  period_label              text,
-  move_outs                 integer,
-  early_moveouts            integer,
-  evictions                 integer,
-  occupied_at_period_start  integer,
-  total_units               integer,
-  churn_rate_pct            numeric,
-  eviction_rate_pct         numeric,
-  median_tenancy_months     numeric,
-  avg_tenancy_months        numeric
+  period_start                    date,
+  period_label                    text,
+  move_outs                       integer,
+  early_moveouts                  integer,
+  evictions                       integer,
+  occupied_at_period_start        integer,
+  total_units                     integer,
+  churn_rate_pct                  numeric,
+  eviction_rate_pct               numeric,
+  median_tenancy_at_exit_months   numeric,
+  mean_tenancy_at_exit_months     numeric,
+  mean_tenancy_existing_months    numeric
 )
 LANGUAGE sql
 STABLE
@@ -67,7 +68,7 @@ AS $$
       COUNT(*) FILTER (WHERE is_eviction)::int                      AS evictions,
       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tenancy_days)
         FILTER (WHERE tenancy_days IS NOT NULL)                     AS median_tenancy_days,
-      AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)     AS avg_tenancy_days
+      AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)     AS avg_exit_tenancy_days
     FROM unified
     WHERE move_out IS NOT NULL
     GROUP BY 1
@@ -79,7 +80,12 @@ AS $$
         WHERE u.move_in IS NOT NULL
           AND u.move_in <= p.period_start
           AND (u.move_out IS NULL OR u.move_out >= p.period_start)
-      ) AS occupied
+      ) AS occupied,
+      (SELECT AVG(p.period_start - u.move_in) FROM unified u
+        WHERE u.move_in IS NOT NULL
+          AND u.move_in <= p.period_start
+          AND (u.move_out IS NULL OR u.move_out >= p.period_start)
+      ) AS avg_existing_tenancy_days
     FROM periods p
   )
   SELECT
@@ -98,14 +104,13 @@ AS $$
          THEN ROUND(100.0 * COALESCE(mb.evictions,0)::numeric / tu.total_units, 2) END,
     CASE WHEN mb.median_tenancy_days IS NOT NULL
          THEN ROUND((mb.median_tenancy_days / 30.44)::numeric, 1) END,
-    CASE WHEN mb.avg_tenancy_days IS NOT NULL
-         THEN ROUND((mb.avg_tenancy_days / 30.44)::numeric, 1) END
+    CASE WHEN mb.avg_exit_tenancy_days IS NOT NULL
+         THEN ROUND((mb.avg_exit_tenancy_days / 30.44)::numeric, 1) END,
+    CASE WHEN o.avg_existing_tenancy_days IS NOT NULL
+         THEN ROUND((o.avg_existing_tenancy_days / 30.44)::numeric, 1) END
   FROM periods p
   CROSS JOIN total_units_cte tu
   LEFT JOIN moveouts_by_period mb ON mb.period_start = p.period_start
   LEFT JOIN occupied_at        o  ON o.period_start  = p.period_start
   ORDER BY p.period_start;
 $$;
-
-COMMENT ON FUNCTION public.get_churn_metrics(text, date, date) IS
-  'Churn metrics from lease_history_unified at month or quarter grain.';
