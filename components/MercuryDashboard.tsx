@@ -8,6 +8,7 @@ import MercuryBalanceChart from './MercuryBalanceChart';
 import MercuryDailyByMonthChart from './MercuryDailyByMonthChart';
 import MercuryMonthOverMonthChart from './MercuryMonthOverMonthChart';
 import MercuryCashFlowChart from './MercuryCashFlowChart';
+import MercuryBankFlowChart from './MercuryBankFlowChart';
 
 export default function MercuryDashboard() {
   const { appUser, loading: authLoading } = useAuth();
@@ -148,8 +149,11 @@ export default function MercuryDashboard() {
       {/* Month-over-Month Chart (respects period toggle) */}
       <MercuryMonthOverMonthChart period={period} />
 
-      {/* Cash In / Out / Net (respects period toggle) */}
+      {/* Cash In / Out / Net — from AppFolio property cash flow */}
       <MercuryCashFlowChart period={period} />
+
+      {/* Banking Cash In / Out / Net — from Mercury transactions + Simmons deposits */}
+      <MercuryBankFlowChart period={period} />
     </div>
   );
 }
