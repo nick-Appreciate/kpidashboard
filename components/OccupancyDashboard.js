@@ -276,7 +276,7 @@ export default function OccupancyDashboard() {
                   const r = rows[items[0].dataIndex];
                   return [
                     `Move-outs in period: ${r.move_outs}`,
-                    `Mean tenancy: ${r.avg_tenancy_months ?? '—'} mo`,
+                    `Mean tenancy at exit: ${r.avg_tenancy_months ?? '—'} mo`,
                   ];
                 },
               },
