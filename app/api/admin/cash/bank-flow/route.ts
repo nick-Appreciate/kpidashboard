@@ -176,13 +176,25 @@ export async function GET(request: Request) {
     prevClosing = closing;
   }
 
-  // Trim to last `months` periods of output (we kept the extra one only to
-  // produce an opening balance for the first reported period).
-  const trimmed = result.slice(-months);
+  // Drop the in-progress current period — its "closing" is just today's
+  // balance, not month-end, so showing it as a complete period misleads.
+  const today = new Date();
+  let currentPeriodStartStr: string;
+  if (period === 'quarter') {
+    const q = Math.floor(today.getMonth() / 3);
+    currentPeriodStartStr = new Date(today.getFullYear(), q * 3, 1).toISOString().split('T')[0];
+  } else {
+    currentPeriodStartStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+  }
+  const closedOnly = result.filter(r => r.period_start < currentPeriodStartStr);
+
+  // Trim to last `months` periods of output (we kept extras only to provide
+  // opening balances for the chain).
+  const trimmed = closedOnly.slice(-months);
 
   return NextResponse.json({
     period,
     periods: trimmed,
-    note: 'Net = total bank balance at period end − at prior period end. Mercury detail (in/out) is shown when transaction data is available; otherwise tooltip shows net only.',
+    note: 'Net = total bank balance at period end − at prior period end. In-progress current period is excluded. Mercury detail (in/out) is shown when transaction data is available; otherwise tooltip shows net only.',
   });
 }

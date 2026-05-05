@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
 
-// Portfolio cash in / out / net per period, from af_cash_flow_auto.
-// Includes ALL GLs that move cash:
-//   income      → operating income (rent + reimbursements + fees)
-//   expense     → operating expense
-//   other       → equity / capex flows (Owner Contributions/Distributions,
-//                 CapEx Labor, CapEx Materials)
+// Portfolio cash flow per period, from af_cash_flow_auto.
+// Returns the same bottom-line "Cash Flow" number AppFolio's report shows,
+// plus a component breakdown for tooltips:
 //
-// cash_in  = SUM(income) + SUM(other > 0)         e.g. owner contributions
-// cash_out = SUM(expense) + SUM(|other < 0|)      e.g. owner distributions, capex
-// net      = cash_flow row directly (matches AppFolio's "Cash Flow" line —
-//            NOI + Net Other Items, after capex and equity).
+//   noi              = Operating Income − Operating Expense
+//   capex            = SUM of CapEx Labor + CapEx Materials (negative)
+//   owner_equity     = Owner Contributions − Owner Distributions
+//   net              = NOI + capex + owner_equity (matches cash_flow row)
 //
-// Validation: net should equal cash_in − cash_out within a few cents.
+// We also surface the operating gross (income, expense) for a fuller picture
+// in the tooltip — but the chart's primary bar is `net`, so it visually
+// matches AppFolio's "Cash Flow" line rather than dwarfing it with gross
+// income/expense bars.
 //
 // Query params: period=month|quarter, months=24
 export async function GET(request: Request) {
@@ -30,13 +30,25 @@ export async function GET(request: Request) {
   cutoff.setDate(1);
   const cutoffStr = cutoff.toISOString().split('T')[0];
 
-  // Pull every detail + summary row for Total. We need detail rows (income,
-  // expense, other) to decompose in/out, and the cash_flow summary row
-  // for net.
+  // Drop the in-progress current period (month or quarter). The latest
+  // snapshot for it is partial — only what's posted so far this period —
+  // and showing it alongside closed periods makes the partial number
+  // look like it represents a full month/quarter.
+  const today = new Date();
+  let currentPeriodStart: Date;
+  if (period === 'quarter') {
+    const q = Math.floor(today.getMonth() / 3);
+    currentPeriodStart = new Date(today.getFullYear(), q * 3, 1);
+  } else {
+    currentPeriodStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  }
+  const currentPeriodStartStr = currentPeriodStart.toISOString().split('T')[0];
+
   const { data, error } = await supabase
     .from('af_cash_flow_auto')
-    .select('period_start, row_type, amount')
+    .select('period_start, row_type, account_name, amount')
     .gte('period_start', cutoffStr)
+    .lt('period_start', currentPeriodStartStr)
     .eq('property_name', 'Total')
     .in('row_type', ['income', 'expense', 'other', 'cash_flow']);
 
@@ -44,39 +56,91 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  type Bucket = { cash_in: number; cash_out: number; net: number };
+  type Bucket = {
+    operating_income: number;
+    operating_expense: number;
+    capex: number;          // negative
+    owner_contributions: number;
+    owner_distributions: number;
+    other_other: number;    // any other 'other' row that isn't capex or owner equity
+    net: number;            // from the cash_flow row directly
+  };
   const monthly = new Map<string, Bucket>();
-  for (const row of data || []) {
-    const key = row.period_start as string;
-    const entry = monthly.get(key) ?? { cash_in: 0, cash_out: 0, net: 0 };
-    const amt = Number(row.amount);
-    if (row.row_type === 'income') entry.cash_in += amt;
-    else if (row.row_type === 'expense') entry.cash_out += amt;
-    else if (row.row_type === 'other') {
-      if (amt > 0) entry.cash_in += amt;
-      else if (amt < 0) entry.cash_out += -amt;
-    } else if (row.row_type === 'cash_flow') {
-      entry.net += amt;
-    }
-    monthly.set(key, entry);
+  function ensure(key: string): Bucket {
+    if (!monthly.has(key)) monthly.set(key, {
+      operating_income: 0, operating_expense: 0,
+      capex: 0, owner_contributions: 0, owner_distributions: 0, other_other: 0,
+      net: 0,
+    });
+    return monthly.get(key)!;
   }
 
-  type Out = { period_start: string; period_label: string; cash_in: number; cash_out: number; net: number };
+  for (const row of data || []) {
+    const key = row.period_start as string;
+    const e = ensure(key);
+    const amt = Number(row.amount);
+    const name = (row.account_name as string) || '';
+    if (row.row_type === 'income') {
+      e.operating_income += amt;
+    } else if (row.row_type === 'expense') {
+      e.operating_expense += amt;
+    } else if (row.row_type === 'other') {
+      if (/CapEx/i.test(name)) {
+        e.capex += amt; // already negative
+      } else if (/Owner Contribution/i.test(name)) {
+        e.owner_contributions += amt;
+      } else if (/Owner Distribution/i.test(name)) {
+        e.owner_distributions += amt; // typically negative
+      } else {
+        e.other_other += amt;
+      }
+    } else if (row.row_type === 'cash_flow') {
+      e.net += amt;
+    }
+  }
+
+  type Out = {
+    period_start: string;
+    period_label: string;
+    net: number;
+    noi: number;
+    operating_income: number;
+    operating_expense: number;
+    capex: number;
+    owner_contributions: number;
+    owner_distributions: number;
+    other_other: number;
+  };
+
+  function buildOut(period_start: string, b: Bucket, label: string): Out {
+    return {
+      period_start,
+      period_label: label,
+      net: b.net,
+      noi: b.operating_income - b.operating_expense,
+      operating_income: b.operating_income,
+      operating_expense: b.operating_expense,
+      capex: b.capex,
+      owner_contributions: b.owner_contributions,
+      owner_distributions: b.owner_distributions,
+      other_other: b.other_other,
+    };
+  }
+
   const out: Out[] = [];
 
   if (period === 'month') {
     for (const [period_start, v] of monthly) {
       const d = new Date(period_start + 'T12:00:00');
-      out.push({
+      out.push(buildOut(
         period_start,
-        period_label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        cash_in: v.cash_in,
-        cash_out: v.cash_out,
-        net: v.net,
-      });
+        v,
+        d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      ));
     }
   } else {
-    const quarterly = new Map<string, Bucket & { period_start: string }>();
+    type QBucket = Bucket & { period_start: string };
+    const quarterly = new Map<string, QBucket>();
     for (const [period_start, v] of monthly) {
       const d = new Date(period_start + 'T12:00:00');
       const q = Math.floor(d.getUTCMonth() / 3) + 1;
@@ -84,25 +148,24 @@ export async function GET(request: Request) {
       const key = `${y}-Q${q}`;
       const qStartMonth = (q - 1) * 3;
       const qStartDate = `${y}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
-      const entry = quarterly.get(key) ?? { cash_in: 0, cash_out: 0, net: 0, period_start: qStartDate };
-      entry.cash_in  += v.cash_in;
-      entry.cash_out += v.cash_out;
-      entry.net      += v.net;
-      if (qStartDate < entry.period_start) entry.period_start = qStartDate;
-      quarterly.set(key, entry);
+      const cur = quarterly.get(key) ?? { ...v, period_start: qStartDate };
+      if (quarterly.has(key)) {
+        cur.operating_income     += v.operating_income;
+        cur.operating_expense    += v.operating_expense;
+        cur.capex                += v.capex;
+        cur.owner_contributions  += v.owner_contributions;
+        cur.owner_distributions  += v.owner_distributions;
+        cur.other_other          += v.other_other;
+        cur.net                  += v.net;
+        if (qStartDate < cur.period_start) cur.period_start = qStartDate;
+      }
+      quarterly.set(key, cur);
     }
     for (const [label, v] of quarterly) {
-      out.push({
-        period_start: v.period_start,
-        period_label: label,
-        cash_in: v.cash_in,
-        cash_out: v.cash_out,
-        net: v.net,
-      });
+      out.push(buildOut(v.period_start, v, label));
     }
   }
 
   out.sort((a, b) => a.period_start.localeCompare(b.period_start));
-
   return NextResponse.json({ period, periods: out });
 }
