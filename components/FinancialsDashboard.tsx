@@ -128,12 +128,14 @@ export default function FinancialsDashboard() {
   const [viewMode, setViewMode] = useState<'byMonth' | 'byProperty'>('byMonth');
 
   // Snapshot mode — controls which historical snapshot of each month we read.
-  // 'day_of_month' (default): for each month, the snapshot taken on today's
-  //   day-of-month (e.g. if today is the 20th, shows each month's 20th).
-  //   Apples-to-apples MTD comparison.
+  // 'auto' (default): current month → latest snapshot, past months → month_end
+  //   snapshot. Matches AppFolio's cash flow report behavior.
+  // 'day_of_month': for each month, the snapshot taken on today's day-of-month
+  //   (e.g. if today is the 20th, shows each month's 20th). Useful for
+  //   apples-to-apples MTD comparisons across months.
   // 'month_end': past months → final-day snapshot, current month → latest.
-  //   Useful for comparing completed-month finals against month-to-date.
-  const [snapshotMode, setSnapshotMode] = useState<'day_of_month' | 'month_end'>('day_of_month');
+  //   Same as auto except current month also uses month_end (capped at today).
+  const [snapshotMode, setSnapshotMode] = useState<'auto' | 'day_of_month' | 'month_end'>('auto');
 
   // Filters
   const [selectedProperty, setSelectedProperty] = useState('Total');

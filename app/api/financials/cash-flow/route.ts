@@ -3,18 +3,22 @@ import { NextResponse } from 'next/server';
 
 // Snapshot modes — map directly to Postgres views over af_cash_flow. Each
 // returns one row per (property, account, period_start) picked by a different
-// rule. Default mode is 'day_of_month' (apples-to-apples MTD comparisons).
+// rule. Default mode is 'auto' (matches AppFolio's report behavior).
 //
+//   auto:         current month → latest snapshot; past months → month_end
+//                 snapshot. Matches the AppFolio cash flow report by default.
 //   day_of_month: snapshot taken on today's day-of-month for each month
-//                 (e.g. if today is the 20th, shows each month's 20th)
+//                 (e.g. if today is the 20th, shows each month's 20th).
+//                 Useful for apples-to-apples MTD comparisons.
 //   month_end:    past months → final-day snapshot; current month → latest
 //   latest:       most recent snapshot period (including post-month re-syncs)
 const MODE_VIEWS: Record<string, string> = {
+  auto: 'af_cash_flow_auto',
   day_of_month: 'af_cash_flow_day_of_month',
   month_end: 'af_cash_flow_month_end',
   latest: 'af_cash_flow_latest',
 };
-const DEFAULT_MODE = 'day_of_month';
+const DEFAULT_MODE = 'auto';
 
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
