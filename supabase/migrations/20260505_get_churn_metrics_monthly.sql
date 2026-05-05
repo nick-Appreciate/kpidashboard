@@ -9,10 +9,12 @@
 --                                   clamped to acquisition_date (ownership-tenure)
 --   mean_tenancy_at_exit_months     mean tenancy clamped to acquisition_date
 --   mean_tenancy_at_exit_raw_months mean tenancy IGNORING acquisition_date
---                                   — true full-history lease length, can be
---                                   much higher when long-tenured inherited
---                                   tenants leave
---   mean_tenancy_existing_months    mean tenancy of still-occupying tenants
+--                                   — true full-history lease length at exit
+--   mean_tenancy_existing_months    mean tenure of still-occupying tenants,
+--                                   clamped to acquisition_date
+--   mean_tenancy_existing_raw_months mean tenure of still-occupying tenants
+--                                   IGNORING acquisition_date — includes
+--                                   pre-acquisition tenure
 --
 -- Filters:
 --   property_filter — list of property_name to include (NULL = all).
@@ -44,7 +46,8 @@ RETURNS TABLE (
   median_tenancy_at_exit_months      numeric,
   mean_tenancy_at_exit_months        numeric,
   mean_tenancy_at_exit_raw_months    numeric,
-  mean_tenancy_existing_months       numeric
+  mean_tenancy_existing_months       numeric,
+  mean_tenancy_existing_raw_months   numeric
 )
 LANGUAGE sql
 STABLE
@@ -128,7 +131,20 @@ AS $$
            AND (u.cutoff_date IS NULL OR u.cutoff_date > p.period_start)
          ORDER BY u.property_name, u.unit_name, u.move_in DESC
        ) u
-      ) AS avg_existing_tenancy_days
+      ) AS avg_existing_tenancy_days,
+      -- Same population (still occupying at period_start) but using move_in_raw —
+      -- includes time spent at the property before we acquired it.
+      (SELECT AVG(p.period_start - u.move_in_raw)
+       FROM (
+         SELECT DISTINCT ON (u.property_name, u.unit_name) u.move_in_raw
+         FROM unified u
+         WHERE u.move_in_raw IS NOT NULL
+           AND u.move_in_raw <= p.period_start
+           AND (u.move_out IS NULL OR u.move_out >= p.period_start)
+           AND (u.cutoff_date IS NULL OR u.cutoff_date > p.period_start)
+         ORDER BY u.property_name, u.unit_name, u.move_in_raw DESC
+       ) u
+      ) AS avg_existing_tenancy_days_raw
     FROM periods p
   )
   SELECT
@@ -152,7 +168,9 @@ AS $$
     CASE WHEN mb.avg_exit_tenancy_days_raw IS NOT NULL
          THEN ROUND((mb.avg_exit_tenancy_days_raw / 30.44)::numeric, 1) END,
     CASE WHEN o.avg_existing_tenancy_days IS NOT NULL
-         THEN ROUND((o.avg_existing_tenancy_days / 30.44)::numeric, 1) END
+         THEN ROUND((o.avg_existing_tenancy_days / 30.44)::numeric, 1) END,
+    CASE WHEN o.avg_existing_tenancy_days_raw IS NOT NULL
+         THEN ROUND((o.avg_existing_tenancy_days_raw / 30.44)::numeric, 1) END
   FROM periods p
   CROSS JOIN total_units_cte tu
   LEFT JOIN moveouts_by_period mb ON mb.period_start = p.period_start
