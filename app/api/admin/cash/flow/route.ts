@@ -32,10 +32,8 @@ export async function GET(request: Request) {
   cutoff.setDate(1);
   const cutoffStr = cutoff.toISOString().split('T')[0];
 
-  // Drop the in-progress current period (month or quarter). The latest
-  // snapshot for it is partial — only what's posted so far this period —
-  // and showing it alongside closed periods makes the partial number
-  // look like it represents a full month/quarter.
+  // Identify the in-progress current period so the chart can render it
+  // with a different style (lighter color) — but still include it.
   const today = new Date();
   let currentPeriodStart: Date;
   if (period === 'quarter') {
@@ -50,7 +48,6 @@ export async function GET(request: Request) {
     .from('af_cash_flow_auto')
     .select('period_start, row_type, account_name, amount')
     .gte('period_start', cutoffStr)
-    .lt('period_start', currentPeriodStartStr)
     .eq('property_name', 'Total')
     .in('row_type', ['income', 'expense', 'other', 'cash_flow']);
 
@@ -112,6 +109,7 @@ export async function GET(request: Request) {
     owner_contributions: number;
     owner_distributions: number;
     other_other: number;
+    is_partial: boolean;
   };
 
   function buildOut(period_start: string, b: Bucket, label: string): Out {
@@ -127,6 +125,7 @@ export async function GET(request: Request) {
       owner_contributions: b.owner_contributions,
       owner_distributions: b.owner_distributions,
       other_other: b.other_other,
+      is_partial: period_start === currentPeriodStartStr,
     };
   }
 

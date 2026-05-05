@@ -8,6 +8,7 @@ import MercuryBalanceChart from './MercuryBalanceChart';
 import MercuryDailyByMonthChart from './MercuryDailyByMonthChart';
 import MercuryMonthOverMonthChart from './MercuryMonthOverMonthChart';
 import MercuryCashFlowChart from './MercuryCashFlowChart';
+import MercuryCashFlowMTDChart from './MercuryCashFlowMTDChart';
 import MercuryBankFlowChart from './MercuryBankFlowChart';
 
 export default function MercuryDashboard() {
@@ -149,10 +150,14 @@ export default function MercuryDashboard() {
       {/* Month-over-Month Chart (respects period toggle) */}
       <MercuryMonthOverMonthChart period={period} />
 
-      {/* Cash In / Out / Net — from AppFolio property cash flow */}
+      {/* Portfolio Cash Flow — NOI minus CapEx, from AppFolio */}
       <MercuryCashFlowChart period={period} />
 
-      {/* Banking Cash In / Out / Net — from Mercury transactions + Simmons deposits */}
+      {/* MTD Comparison — same day-of-month across the last 12 months
+          (period toggle doesn't apply here, it's always monthly) */}
+      <MercuryCashFlowMTDChart />
+
+      {/* Banking Net Cash Flow — actual bank balance deltas */}
       <MercuryBankFlowChart period={period} />
     </div>
   );

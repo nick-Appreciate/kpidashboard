@@ -1,23 +1,19 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, ReferenceLine, Cell,
 } from 'recharts';
 
-interface CashFlowPeriod {
+interface MTDPeriod {
   period_start: string;
   period_label: string;
-  net: number;
-  noi: number;
   operating_income: number;
   operating_expense: number;
   capex: number;
-  owner_contributions: number;
-  owner_distributions: number;
-  other_other: number;
-  is_partial: boolean;
+  noi: number;
+  net: number;
 }
 
 function formatCurrencyShort(value: number) {
@@ -33,40 +29,50 @@ function formatCurrencyFull(value: number) {
   return `${sign}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-interface Props {
-  period: 'month' | 'quarter';
+function ordinalSuffix(n: number) {
+  if (n % 100 >= 11 && n % 100 <= 13) return 'th';
+  switch (n % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
 }
 
-export default function MercuryCashFlowChart({ period }: Props) {
-  const [periods, setPeriods] = useState<CashFlowPeriod[]>([]);
+export default function MercuryCashFlowMTDChart() {
+  const [periods, setPeriods] = useState<MTDPeriod[]>([]);
+  const [dayOfMonth, setDayOfMonth] = useState<number>(0);
   const [loading, setLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/cash/flow?period=${period}&months=24`);
+      const res = await fetch('/api/admin/cash/flow-mtd?months=12');
       if (res.ok) {
         const j = await res.json();
         setPeriods(j.periods || []);
+        setDayOfMonth(j.day_of_month || 0);
       }
     } catch (err) {
-      console.error('Error fetching cash flow:', err);
+      console.error('Error fetching MTD comparison:', err);
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
-    const p = payload[0]?.payload as CashFlowPeriod | undefined;
+    const p = payload[0]?.payload as MTDPeriod | undefined;
     if (!p) return null;
+    const d = new Date(p.period_start + 'T12:00:00');
+    const dayLabel = `${d.toLocaleDateString('en-US', { month: 'short' })} ${dayOfMonth}, ${d.getFullYear()}`;
     return (
-      <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[260px]">
+      <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[240px]">
         <p className="font-medium text-slate-300 mb-1.5">
           {p.period_label}
-          {p.is_partial && <span className="ml-2 text-amber-400 font-normal">(in progress)</span>}
+          <span className="ml-2 text-slate-500 font-normal">(thru {dayLabel})</span>
         </p>
         <p className="flex justify-between gap-4 text-slate-300">
           <span>Operating income</span>
@@ -82,7 +88,7 @@ export default function MercuryCashFlowChart({ period }: Props) {
         </p>
         {p.capex !== 0 && (
           <p className="flex justify-between gap-4 mt-0.5 text-slate-400">
-            <span>CapEx (labor + materials)</span>
+            <span>CapEx</span>
             <span className="tabular-nums">{formatCurrencyFull(p.capex)}</span>
           </p>
         )}
@@ -98,21 +104,24 @@ export default function MercuryCashFlowChart({ period }: Props) {
     <div className="glass-card p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-white">Portfolio Cash Flow</h3>
+          <h3 className="text-lg font-semibold text-white">MTD Comparison</h3>
           <p className="text-xs text-slate-400">
-            NOI minus CapEx per {period === 'quarter' ? 'quarter' : 'month'}
-            (operating cash flow after capital improvements; owner equity flows excluded)
+            {dayOfMonth > 0 ? (
+              <>Each month&apos;s cash flow as of the {dayOfMonth}{ordinalSuffix(dayOfMonth)} — apples-to-apples MTD vs prior months</>
+            ) : (
+              'Each month\'s cash flow at today\'s day-of-month'
+            )}
           </p>
         </div>
       </div>
 
       {loading && periods.length === 0 ? (
         <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: 3 }}>
-          Loading cash flow…
+          Loading MTD comparison…
         </div>
       ) : periods.length === 0 ? (
         <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: 3 }}>
-          No cash flow data available.
+          No data available.
         </div>
       ) : (
         <>
@@ -133,30 +142,16 @@ export default function MercuryCashFlowChart({ period }: Props) {
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
               <ReferenceLine y={0} stroke="#475569" strokeWidth={1} />
-              <Bar dataKey="net" name="Cash Flow" radius={[3, 3, 0, 0]}>
-                {periods.map((p, i) => {
-                  // Partial (in-progress) periods get a lighter, hatched-like
-                  // appearance: lower opacity + matching stroke. Closed periods
-                  // stay solid green/red.
-                  const baseColor = p.net >= 0 ? '#10b981' : '#f43f5e';
-                  return (
-                    <Cell
-                      key={i}
-                      fill={baseColor}
-                      fillOpacity={p.is_partial ? 0.35 : 1}
-                      stroke={p.is_partial ? baseColor : 'none'}
-                      strokeDasharray={p.is_partial ? '4 3' : undefined}
-                      strokeWidth={p.is_partial ? 1.5 : 0}
-                    />
-                  );
-                })}
+              <Bar dataKey="net" name="Cash Flow MTD" radius={[3, 3, 0, 0]}>
+                {periods.map((p, i) => (
+                  <Cell key={i} fill={p.net >= 0 ? '#10b981' : '#f43f5e'} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
           <p className="text-[11px] text-slate-500 mt-2">
-            ⓘ Bars show NOI minus CapEx. Owner contributions and distributions are excluded — they&apos;re equity flows, not operations.
-            The in-progress current {period === 'quarter' ? 'quarter' : 'month'} is rendered with reduced opacity and a dashed outline since it isn&apos;t closed yet.
-            Hover for the full breakdown.
+            ⓘ Each bar shows what cash flow looked like {dayOfMonth} day{dayOfMonth === 1 ? '' : 's'} into that month —
+            so you can spot whether this month is tracking ahead or behind prior months at the same point.
           </p>
         </>
       )}

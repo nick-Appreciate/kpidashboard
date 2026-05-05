@@ -176,8 +176,9 @@ export async function GET(request: Request) {
     prevClosing = closing;
   }
 
-  // Drop the in-progress current period — its "closing" is just today's
-  // balance, not month-end, so showing it as a complete period misleads.
+  // Identify the in-progress current period so the chart can render it
+  // with a different style — but include it in the output. Its "closing"
+  // is the latest balance we have (which is today's, not month-end).
   const today = new Date();
   let currentPeriodStartStr: string;
   if (period === 'quarter') {
@@ -186,15 +187,15 @@ export async function GET(request: Request) {
   } else {
     currentPeriodStartStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
   }
-  const closedOnly = result.filter(r => r.period_start < currentPeriodStartStr);
+  const tagged = result.map(r => ({ ...r, is_partial: r.period_start === currentPeriodStartStr }));
 
   // Trim to last `months` periods of output (we kept extras only to provide
   // opening balances for the chain).
-  const trimmed = closedOnly.slice(-months);
+  const trimmed = tagged.slice(-months);
 
   return NextResponse.json({
     period,
     periods: trimmed,
-    note: 'Net = total bank balance at period end − at prior period end. In-progress current period is excluded. Mercury detail (in/out) is shown when transaction data is available; otherwise tooltip shows net only.',
+    note: 'Net = total bank balance at period end − at prior period end. The current period is partial (closing = today\'s balance) and is flagged is_partial so the chart can highlight it.',
   });
 }

@@ -15,6 +15,7 @@ interface BankFlowPeriod {
   mercury_in: number | null;
   mercury_out: number | null;
   simmons_in: number | null;
+  is_partial: boolean;
 }
 
 function formatCurrencyShort(value: number) {
@@ -62,7 +63,10 @@ export default function MercuryBankFlowChart({ period }: Props) {
     const hasDetail = p.mercury_in !== null || p.simmons_in !== null;
     return (
       <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
-        <p className="font-medium text-slate-300 mb-1.5">{p.period_label}</p>
+        <p className="font-medium text-slate-300 mb-1.5">
+          {p.period_label}
+          {p.is_partial && <span className="ml-2 text-amber-400 font-normal">(in progress)</span>}
+        </p>
         <p className="flex justify-between gap-4 text-slate-500">
           <span>Opening</span>
           <span className="tabular-nums">{formatCurrencyFull(p.opening)}</span>
@@ -141,9 +145,19 @@ export default function MercuryBankFlowChart({ period }: Props) {
               <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
               <ReferenceLine y={0} stroke="#475569" strokeWidth={1} />
               <Bar dataKey="net" name="Net cash change" radius={[3, 3, 0, 0]}>
-                {periods.map((p, i) => (
-                  <Cell key={i} fill={p.net >= 0 ? '#10b981' : '#f43f5e'} />
-                ))}
+                {periods.map((p, i) => {
+                  const baseColor = p.net >= 0 ? '#10b981' : '#f43f5e';
+                  return (
+                    <Cell
+                      key={i}
+                      fill={baseColor}
+                      fillOpacity={p.is_partial ? 0.35 : 1}
+                      stroke={p.is_partial ? baseColor : 'none'}
+                      strokeDasharray={p.is_partial ? '4 3' : undefined}
+                      strokeWidth={p.is_partial ? 1.5 : 0}
+                    />
+                  );
+                })}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
