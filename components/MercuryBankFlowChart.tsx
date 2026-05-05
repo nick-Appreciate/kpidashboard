@@ -3,26 +3,18 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend, ComposedChart, Line, ReferenceLine,
+  Tooltip, ResponsiveContainer, Legend, ReferenceLine, Cell,
 } from 'recharts';
 
 interface BankFlowPeriod {
   period_start: string;
   period_label: string;
-  mercury_in: number;
-  mercury_out: number;
-  simmons_in: number;
-  cash_in: number;
-  cash_out: number;
+  opening: number;
+  closing: number;
   net: number;
-}
-
-interface Coverage {
-  mercury_first: string | null;
-  mercury_last: string | null;
-  simmons_first: string | null;
-  simmons_last: string | null;
-  note: string;
+  mercury_in: number | null;
+  mercury_out: number | null;
+  simmons_in: number | null;
 }
 
 function formatCurrencyShort(value: number) {
@@ -44,7 +36,6 @@ interface Props {
 
 export default function MercuryBankFlowChart({ period }: Props) {
   const [periods, setPeriods] = useState<BankFlowPeriod[]>([]);
-  const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [loading, setLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -54,7 +45,6 @@ export default function MercuryBankFlowChart({ period }: Props) {
       if (res.ok) {
         const j = await res.json();
         setPeriods(j.periods || []);
-        setCoverage(j.coverage || null);
       }
     } catch (err) {
       console.error('Error fetching bank flow:', err);
@@ -65,47 +55,49 @@ export default function MercuryBankFlowChart({ period }: Props) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const chartData = useMemo(
-    () => periods.map(p => ({
-      ...p,
-      cash_out_neg: -p.cash_out,
-    })),
-    [periods],
-  );
-
   const CustomTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
-    const p = payload[0]?.payload as (BankFlowPeriod & { cash_out_neg: number }) | undefined;
+    const p = payload[0]?.payload as BankFlowPeriod | undefined;
     if (!p) return null;
+    const hasDetail = p.mercury_in !== null || p.simmons_in !== null;
     return (
       <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg shadow-lg px-3 py-2 text-xs min-w-[220px]">
         <p className="font-medium text-slate-300 mb-1.5">{p.period_label}</p>
-        <p className="flex justify-between gap-4 text-emerald-400">
-          <span>Cash in</span>
-          <span className="tabular-nums">{formatCurrencyFull(p.cash_in)}</span>
+        <p className="flex justify-between gap-4 text-slate-500">
+          <span>Opening</span>
+          <span className="tabular-nums">{formatCurrencyFull(p.opening)}</span>
         </p>
-        <div className="ml-3 space-y-0.5">
-          <p className="flex justify-between gap-4 text-slate-500 text-[11px]">
-            <span>· Mercury</span>
-            <span className="tabular-nums">{formatCurrencyFull(p.mercury_in)}</span>
-          </p>
-          <p className="flex justify-between gap-4 text-slate-500 text-[11px]">
-            <span>· Simmons</span>
-            <span className="tabular-nums">{formatCurrencyFull(p.simmons_in)}</span>
-          </p>
-        </div>
-        <p className="flex justify-between gap-4 text-rose-400 mt-1">
-          <span>Cash out</span>
-          <span className="tabular-nums">-{formatCurrencyFull(p.cash_out)}</span>
-        </p>
-        <p className="ml-3 flex justify-between gap-4 text-slate-500 text-[11px]">
-          <span>· Mercury</span>
-          <span className="tabular-nums">-{formatCurrencyFull(p.mercury_out)}</span>
+        <p className="flex justify-between gap-4 text-slate-500">
+          <span>Closing</span>
+          <span className="tabular-nums">{formatCurrencyFull(p.closing)}</span>
         </p>
         <p className={`flex justify-between gap-4 mt-1 pt-1 border-t border-white/10 font-semibold ${p.net >= 0 ? 'text-cyan-400' : 'text-rose-400'}`}>
-          <span>Net</span>
-          <span className="tabular-nums">{p.net >= 0 ? '' : '-'}{formatCurrencyFull(Math.abs(p.net))}</span>
+          <span>Net change</span>
+          <span className="tabular-nums">{p.net >= 0 ? '+' : '-'}{formatCurrencyFull(Math.abs(p.net))}</span>
         </p>
+        {hasDetail && (
+          <div className="mt-1.5 pt-1.5 border-t border-white/10 space-y-0.5">
+            <p className="text-slate-500 text-[10px] uppercase tracking-wide">Transaction detail (where available)</p>
+            {p.mercury_in !== null && (
+              <p className="flex justify-between gap-4 text-emerald-400 text-[11px]">
+                <span>Mercury inflows</span>
+                <span className="tabular-nums">{formatCurrencyFull(p.mercury_in)}</span>
+              </p>
+            )}
+            {p.mercury_out !== null && (
+              <p className="flex justify-between gap-4 text-rose-400 text-[11px]">
+                <span>Mercury outflows</span>
+                <span className="tabular-nums">-{formatCurrencyFull(p.mercury_out)}</span>
+              </p>
+            )}
+            {p.simmons_in !== null && (
+              <p className="flex justify-between gap-4 text-emerald-400 text-[11px]">
+                <span>Simmons deposits</span>
+                <span className="tabular-nums">{formatCurrencyFull(p.simmons_in)}</span>
+              </p>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -114,25 +106,25 @@ export default function MercuryBankFlowChart({ period }: Props) {
     <div className="glass-card p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-white">Banking Cash In / Out / Net</h3>
+          <h3 className="text-lg font-semibold text-white">Banking Net Cash Flow</h3>
           <p className="text-xs text-slate-400">
-            Real bank flows per {period === 'quarter' ? 'quarter' : 'month'}: Mercury transactions + Simmons deposits
+            {period === 'quarter' ? 'Quarterly' : 'Monthly'} change in total bank cash (Mercury + Simmons), from end-of-period balance deltas
           </p>
         </div>
       </div>
 
-      {loading && chartData.length === 0 ? (
+      {loading && periods.length === 0 ? (
         <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: 3 }}>
           Loading bank flow…
         </div>
-      ) : chartData.length === 0 ? (
+      ) : periods.length === 0 ? (
         <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: 3 }}>
           No bank flow data available.
         </div>
       ) : (
         <>
           <ResponsiveContainer width="100%" aspect={3}>
-            <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }} stackOffset="sign">
+            <BarChart data={periods} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
                 dataKey="period_label"
@@ -148,23 +140,16 @@ export default function MercuryBankFlowChart({ period }: Props) {
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
               <ReferenceLine y={0} stroke="#475569" strokeWidth={1} />
-              <Bar dataKey="simmons_in" name="Simmons in" stackId="in" fill="#34d399" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="mercury_in" name="Mercury in" stackId="in" fill="#10b981" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="cash_out_neg" name="Mercury out" fill="#f43f5e" radius={[0, 0, 3, 3]} />
-              <Line
-                type="monotone"
-                dataKey="net"
-                name="Net"
-                stroke="#6366f1"
-                strokeWidth={2.5}
-                dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: '#1e293b' }}
-              />
-            </ComposedChart>
+              <Bar dataKey="net" name="Net cash change" radius={[3, 3, 0, 0]}>
+                {periods.map((p, i) => (
+                  <Cell key={i} fill={p.net >= 0 ? '#10b981' : '#f43f5e'} />
+                ))}
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
           <p className="text-[11px] text-slate-500 mt-2">
-            ⓘ Mercury transactions cover {coverage?.mercury_first ?? '—'} → {coverage?.mercury_last ?? '—'};
-            Simmons deposits cover {coverage?.simmons_first ?? '—'} → {coverage?.simmons_last ?? '—'}.
-            Simmons withdrawals are not yet scraped, so periods outside the Mercury window show inflows only.
+            ⓘ Net = total bank balance at period end − at prior period end. Tooltip shows transaction detail when available
+            (Mercury transactions ~1 month back; Simmons deposit history ~18 months back).
           </p>
         </>
       )}

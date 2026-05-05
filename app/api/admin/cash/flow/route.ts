@@ -1,18 +1,21 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
 
-// Cash in / out / net per period, aggregated from af_cash_flow_auto
-// (which is the same view the Financials dashboard reads — matches AppFolio).
+// Portfolio cash in / out / net per period, from af_cash_flow_auto.
+// Includes ALL GLs that move cash:
+//   income      → operating income (rent + reimbursements + fees)
+//   expense     → operating expense
+//   other       → equity / capex flows (Owner Contributions/Distributions,
+//                 CapEx Labor, CapEx Materials)
 //
-// Query params:
-//   period=month|quarter   how to bucket results (default month)
-//   months=24              months of history to include (default 24)
+// cash_in  = SUM(income) + SUM(other > 0)         e.g. owner contributions
+// cash_out = SUM(expense) + SUM(|other < 0|)      e.g. owner distributions, capex
+// net      = cash_flow row directly (matches AppFolio's "Cash Flow" line —
+//            NOI + Net Other Items, after capex and equity).
 //
-// Response: { periods: [{ period_start, period_label, cash_in, cash_out, net }] }
+// Validation: net should equal cash_in − cash_out within a few cents.
 //
-// cash_in  = SUM(amount) WHERE row_type='total_income'  AND property_name='Total'
-// cash_out = SUM(amount) WHERE row_type='total_expense' AND property_name='Total'
-// net      = cash_in − cash_out  (matches the af_cash_flow NOI)
+// Query params: period=month|quarter, months=24
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if ('error' in auth) return auth.error;
@@ -27,29 +30,39 @@ export async function GET(request: Request) {
   cutoff.setDate(1);
   const cutoffStr = cutoff.toISOString().split('T')[0];
 
+  // Pull every detail + summary row for Total. We need detail rows (income,
+  // expense, other) to decompose in/out, and the cash_flow summary row
+  // for net.
   const { data, error } = await supabase
     .from('af_cash_flow_auto')
-    .select('period_start, row_type, amount, property_name')
+    .select('period_start, row_type, amount')
     .gte('period_start', cutoffStr)
     .eq('property_name', 'Total')
-    .in('row_type', ['total_income', 'total_expense']);
+    .in('row_type', ['income', 'expense', 'other', 'cash_flow']);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Aggregate per period_start (already month-keyed in the view), then roll
-  // up into quarters if requested.
-  const monthly = new Map<string, { cash_in: number; cash_out: number }>();
+  type Bucket = { cash_in: number; cash_out: number; net: number };
+  const monthly = new Map<string, Bucket>();
   for (const row of data || []) {
     const key = row.period_start as string;
-    const entry = monthly.get(key) ?? { cash_in: 0, cash_out: 0 };
-    if (row.row_type === 'total_income')  entry.cash_in  += Number(row.amount);
-    if (row.row_type === 'total_expense') entry.cash_out += Number(row.amount);
+    const entry = monthly.get(key) ?? { cash_in: 0, cash_out: 0, net: 0 };
+    const amt = Number(row.amount);
+    if (row.row_type === 'income') entry.cash_in += amt;
+    else if (row.row_type === 'expense') entry.cash_out += amt;
+    else if (row.row_type === 'other') {
+      if (amt > 0) entry.cash_in += amt;
+      else if (amt < 0) entry.cash_out += -amt;
+    } else if (row.row_type === 'cash_flow') {
+      entry.net += amt;
+    }
     monthly.set(key, entry);
   }
 
-  const out: { period_start: string; period_label: string; cash_in: number; cash_out: number; net: number }[] = [];
+  type Out = { period_start: string; period_label: string; cash_in: number; cash_out: number; net: number };
+  const out: Out[] = [];
 
   if (period === 'month') {
     for (const [period_start, v] of monthly) {
@@ -59,12 +72,11 @@ export async function GET(request: Request) {
         period_label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
         cash_in: v.cash_in,
         cash_out: v.cash_out,
-        net: v.cash_in - v.cash_out,
+        net: v.net,
       });
     }
   } else {
-    // Quarter: bucket by year-quarter
-    const quarterly = new Map<string, { cash_in: number; cash_out: number; period_start: string }>();
+    const quarterly = new Map<string, Bucket & { period_start: string }>();
     for (const [period_start, v] of monthly) {
       const d = new Date(period_start + 'T12:00:00');
       const q = Math.floor(d.getUTCMonth() / 3) + 1;
@@ -72,10 +84,10 @@ export async function GET(request: Request) {
       const key = `${y}-Q${q}`;
       const qStartMonth = (q - 1) * 3;
       const qStartDate = `${y}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
-      const entry = quarterly.get(key) ?? { cash_in: 0, cash_out: 0, period_start: qStartDate };
+      const entry = quarterly.get(key) ?? { cash_in: 0, cash_out: 0, net: 0, period_start: qStartDate };
       entry.cash_in  += v.cash_in;
       entry.cash_out += v.cash_out;
-      // Use the earliest month-start of the quarter as the period_start
+      entry.net      += v.net;
       if (qStartDate < entry.period_start) entry.period_start = qStartDate;
       quarterly.set(key, entry);
     }
@@ -85,7 +97,7 @@ export async function GET(request: Request) {
         period_label: label,
         cash_in: v.cash_in,
         cash_out: v.cash_out,
-        net: v.cash_in - v.cash_out,
+        net: v.net,
       });
     }
   }
