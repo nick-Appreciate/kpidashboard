@@ -49,12 +49,18 @@ export async function GET(request) {
     if (region) {
       const kcProperties = REGION_PROPERTIES.region_kansas_city;
       if (region === 'region_kansas_city') {
-        currentUnits = currentUnits?.filter(u => 
+        currentUnits = currentUnits?.filter(u =>
           kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
         ) || [];
       } else if (region === 'region_columbia') {
-        currentUnits = currentUnits?.filter(u => 
+        currentUnits = currentUnits?.filter(u =>
           !kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
+        ) || [];
+      } else if (region === 'farquhar') {
+        const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+        currentUnits = currentUnits?.filter(u =>
+          u.property !== 'Glen Oaks' &&
+          !(hilltopGone && u.property === 'Hilltop Townhomes')
         ) || [];
       }
     }
@@ -113,12 +119,18 @@ export async function GET(request) {
     if (region) {
       const kcProperties = REGION_PROPERTIES.region_kansas_city;
       if (region === 'region_kansas_city') {
-        rawFutureEvents = rawFutureEvents?.filter(e => 
+        rawFutureEvents = rawFutureEvents?.filter(e =>
           kcProperties.some(kc => e.property?.toLowerCase().includes(kc))
         ) || [];
       } else if (region === 'region_columbia') {
-        rawFutureEvents = rawFutureEvents?.filter(e => 
+        rawFutureEvents = rawFutureEvents?.filter(e =>
           !kcProperties.some(kc => e.property?.toLowerCase().includes(kc))
+        ) || [];
+      } else if (region === 'farquhar') {
+        const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+        rawFutureEvents = rawFutureEvents?.filter(e =>
+          e.property !== 'Glen Oaks' &&
+          !(hilltopGone && e.property === 'Hilltop Townhomes')
         ) || [];
       }
     }
@@ -322,6 +334,10 @@ export async function GET(request) {
           if (!kcProperties.some(kc => parsed.property.toLowerCase().includes(kc))) return false;
         } else if (region === 'region_columbia') {
           if (kcProperties.some(kc => parsed.property.toLowerCase().includes(kc))) return false;
+        } else if (region === 'farquhar') {
+          const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+          if (parsed.property === 'Glen Oaks') return false;
+          if (hilltopGone && parsed.property === 'Hilltop Townhomes') return false;
         }
       }
       return true;

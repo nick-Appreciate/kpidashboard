@@ -5,24 +5,36 @@
 --       represented as separate occupancy_id rows in AppFolio don't
 --       double-count.
 --   occupied_at_period_start
---     — DISTINCT (property, unit) where any tenancy overlaps the
---       period start. Coalesces AppFolio renewal duplicates and
---       stale DoorLoop "active" leases at AF properties.
+--     — DISTINCT (property, unit) where any tenancy overlaps the period
 --   total_units (current portfolio size — latest rent_roll_snapshots count)
 --   churn_rate_pct                 = move_outs / occupied_at_period_start
 --   eviction_rate_pct              = evictions / total_units
---   median_tenancy_at_exit_months  median tenancy of tenancies that ENDED in the period
---   mean_tenancy_at_exit_months    mean tenancy of tenancies that ENDED in the period
---   mean_tenancy_existing_months   mean tenancy of tenants STILL OCCUPYING at period_start
---                                  (one row per (property, unit), most recent move_in)
+--   median_tenancy_at_exit_months  median tenancy of tenancies that ENDED
+--   mean_tenancy_at_exit_months    mean tenancy of tenancies that ENDED
+--   mean_tenancy_existing_months   mean tenancy of STILL OCCUPYING tenants
+--                                  (one row per (property, unit), most
+--                                  recent move_in)
+--
+-- Filters:
+--   property_filter — list of property_name to include (NULL = all).
+--   cutoff_dates    — JSONB { property: 'YYYY-MM-DD' } for properties that
+--                     leave the filter on a specific date (e.g. Hilltop
+--                     leaves Farquhar on 2026-04-22 because we sold
+--                     ownership but kept the management contract).
+--                     Periods at or after the cutoff exclude that property
+--                     entirely; move_outs at or before the cutoff still
+--                     count as real churn for the in-window period.
 
 DROP FUNCTION IF EXISTS public.get_churn_metrics_monthly(date, date);
 DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date);
+DROP FUNCTION IF EXISTS public.get_churn_metrics(text, date, date, text[]);
 
 CREATE OR REPLACE FUNCTION public.get_churn_metrics(
-  grain      text DEFAULT 'month',
-  start_date date DEFAULT NULL,
-  end_date   date DEFAULT NULL
+  grain           text   DEFAULT 'month',
+  start_date      date   DEFAULT NULL,
+  end_date        date   DEFAULT NULL,
+  property_filter text[] DEFAULT NULL,
+  cutoff_dates    jsonb  DEFAULT NULL
 )
 RETURNS TABLE (
   period_start                    date,
@@ -54,6 +66,11 @@ AS $$
     SELECT COUNT(DISTINCT property || '|' || unit)::int AS total_units
     FROM public.rent_roll_snapshots
     WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM public.rent_roll_snapshots)
+      AND (property_filter IS NULL OR cardinality(property_filter) = 0
+           OR property = ANY(property_filter))
+      AND (cutoff_dates IS NULL
+           OR NOT (cutoff_dates ? property)
+           OR (cutoff_dates ->> property)::date >= CURRENT_DATE)
   ),
   periods AS (
     SELECT
@@ -65,8 +82,14 @@ AS $$
   ),
   unified AS MATERIALIZED (
     SELECT property_name, unit_name,
-           move_in, move_out, move_out_reason, is_eviction, tenancy_days
+           move_in, move_out, move_out_reason, is_eviction, tenancy_days,
+           CASE WHEN cutoff_dates IS NOT NULL AND cutoff_dates ? property_name
+                THEN (cutoff_dates ->> property_name)::date
+                ELSE NULL END AS cutoff_date
     FROM public.lease_history_unified
+    WHERE property_filter IS NULL
+       OR cardinality(property_filter) = 0
+       OR property_name = ANY(property_filter)
   ),
   moveouts_by_period AS (
     SELECT
@@ -81,6 +104,7 @@ AS $$
       AVG(tenancy_days) FILTER (WHERE tenancy_days IS NOT NULL)              AS avg_exit_tenancy_days
     FROM unified
     WHERE move_out IS NOT NULL
+      AND (cutoff_date IS NULL OR move_out <= cutoff_date)
     GROUP BY 1
   ),
   occupied_at AS (
@@ -90,6 +114,7 @@ AS $$
         WHERE u.move_in IS NOT NULL
           AND u.move_in <= p.period_start
           AND (u.move_out IS NULL OR u.move_out >= p.period_start)
+          AND (u.cutoff_date IS NULL OR u.cutoff_date > p.period_start)
       ) AS occupied,
       (SELECT AVG(p.period_start - u.move_in)
        FROM (
@@ -98,6 +123,7 @@ AS $$
          WHERE u.move_in IS NOT NULL
            AND u.move_in <= p.period_start
            AND (u.move_out IS NULL OR u.move_out >= p.period_start)
+           AND (u.cutoff_date IS NULL OR u.cutoff_date > p.period_start)
          ORDER BY u.property_name, u.unit_name, u.move_in DESC
        ) u
       ) AS avg_existing_tenancy_days

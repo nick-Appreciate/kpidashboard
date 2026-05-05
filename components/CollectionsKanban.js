@@ -555,6 +555,12 @@ export default function CollectionsKanban() {
     filteredItems = filteredItems.filter(item => isKCProperty(item.property_name));
   } else if (selectedFilter === 'region_columbia') {
     filteredItems = filteredItems.filter(item => !isKCProperty(item.property_name));
+  } else if (selectedFilter === 'farquhar') {
+    const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+    filteredItems = filteredItems.filter(item =>
+      item.property_name !== 'Glen Oaks' &&
+      !(hilltopGone && item.property_name === 'Hilltop Townhomes')
+    );
   }
   if (agingFilter !== 'all') {
     filteredItems = filteredItems.filter(item => {
@@ -596,6 +602,7 @@ export default function CollectionsKanban() {
   // Build DarkSelect options for property filter
   const propertyOptions = [
     { value: 'all', label: 'Portfolio' },
+    { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
     { group: 'Regions', options: [
       { value: 'region_kansas_city', label: 'Kansas City' },
       { value: 'region_columbia', label: 'Columbia' },

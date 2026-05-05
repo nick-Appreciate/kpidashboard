@@ -6,27 +6,23 @@
 --   source                   'doorloop' | 'appfolio'
 --   external_id              lease_id (DL) or occupancy_id (AF)
 --   tenant_name              raw name from each system
---   tenant_name_normalized   primary tenant only — strips parenthesized
---                            notes, anything after "&" or " and ", lowercased
+--   tenant_name_normalized   primary tenant only
 --   property_name, unit_name unit identifiers (aligned between systems)
---   lease_start, lease_end   scheduled dates (DoorLoop only; AF nulls)
+--   lease_start, lease_end   scheduled dates (DoorLoop only)
 --   move_in_raw              actual move-in (AF) or lease start (DL)
 --   acquisition_date         from public.property_acquisitions when known
+--   divestiture_date         informational only — view does NOT clamp on it.
+--                            Per-period cutoffs are applied by
+--                            get_churn_metrics(cutoff_dates) for Farquhar.
 --   move_in                  GREATEST(move_in_raw, acquisition_date) — the
---                            effective start of tenancy under our ownership
---   move_out                 actual (AF) or audit-derived (DL); the bulk-
---                            update days 2024-08-25 and 2024-08-27 are
---                            excluded from the DL move-out proxy
+--                            effective start under our ownership
+--   move_out                 actual (AF) or audit-derived (DL)
 --   move_out_reason          end_of_lease | early | eviction | unknown | NULL
 --   is_eviction              boolean
 --   tenancy_status           lowercased status from each system
 --   original_status          raw status from each system
 --   tenancy_days             move_out − clamped move_in (when both present)
 --   rent                     monthly recurring rent (DoorLoop only for now)
---
--- Dedup: a DoorLoop lease is suppressed when AppFolio has a row with the
--- same normalized primary tenant name AND a date window that overlaps the
--- DoorLoop lease window. AppFolio always wins on collision.
 
 DROP VIEW IF EXISTS public.lease_history_unified CASCADE;
 
@@ -146,6 +142,7 @@ SELECT
   c.lease_end,
   c.move_in_raw,
   pa.acquisition_date,
+  pa.divestiture_date,
   GREATEST(c.move_in_raw, pa.acquisition_date) AS move_in,
   c.move_out,
   c.move_out_reason,
@@ -162,4 +159,4 @@ FROM combined c
 LEFT JOIN public.property_acquisitions pa ON pa.property_name = c.property_name;
 
 COMMENT ON VIEW public.lease_history_unified IS
-  'Unified lease history across DoorLoop and AppFolio. move_in is clamped to property acquisition_date when known; tenancy_days reflects ownership tenure only. Raw move_in available as move_in_raw.';
+  'Unified lease history across DoorLoop and AppFolio. move_in clamped to acquisition_date. divestiture_date is informational only; the view does NOT clamp on it. Per-period cutoffs come from get_churn_metrics(cutoff_dates), used by Farquhar-style filters.';

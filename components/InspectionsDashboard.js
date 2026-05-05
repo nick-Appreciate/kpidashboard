@@ -168,9 +168,13 @@ export default function InspectionsDashboard() {
   }, [inspections]);
 
   const filteredInspections = useMemo(() => {
+    const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
     return inspections.filter(i => {
-      if (selectedProperty !== 'all' && i.property_name !== selectedProperty) return false;
-      return true;
+      if (selectedProperty === 'all') return true;
+      if (selectedProperty === 'farquhar') {
+        return i.property_name !== 'Glen Oaks' && !(hilltopGone && i.property_name === 'Hilltop Townhomes');
+      }
+      return i.property_name === selectedProperty;
     });
   }, [inspections, selectedProperty]);
 
@@ -403,7 +407,10 @@ export default function InspectionsDashboard() {
                 value={selectedProperty}
                 onChange={setSelectedProperty}
                 className="w-48"
-                options={properties.map(p => ({ value: p, label: p === 'all' ? 'All Properties' : p }))}
+                options={[
+                  ...properties.map(p => ({ value: p, label: p === 'all' ? 'All Properties' : p })),
+                  { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
+                ]}
               />
 
               <div className="flex border border-[var(--glass-border)] rounded-lg">

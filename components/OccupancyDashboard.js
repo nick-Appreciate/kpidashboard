@@ -102,7 +102,7 @@ export default function OccupancyDashboard() {
   const buildStatsKey = () => {
     const params = new URLSearchParams();
     if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-      if (selectedProperty.startsWith('region_')) {
+      if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
         params.append('region', selectedProperty);
       } else {
         params.append('property', selectedProperty);
@@ -116,7 +116,7 @@ export default function OccupancyDashboard() {
   const buildProjectionsKey = () => {
     const params = new URLSearchParams();
     if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-      if (selectedProperty.startsWith('region_')) {
+      if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
         params.append('region', selectedProperty);
       } else {
         params.append('property', selectedProperty);
@@ -132,7 +132,15 @@ export default function OccupancyDashboard() {
   const { data: projections } = useSWR(buildProjectionsKey(), fetcher, {
     revalidateOnMount: true,
   });
-  const { data: churn } = useSWR(`/api/occupancy/churn-metrics?grain=${churnGrain}`, fetcher, {
+  const buildChurnKey = () => {
+    const params = new URLSearchParams();
+    params.append('grain', churnGrain);
+    if (selectedProperty && selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
+      params.append('property', selectedProperty);
+    }
+    return `/api/occupancy/churn-metrics?${params}`;
+  };
+  const { data: churn } = useSWR(buildChurnKey(), fetcher, {
     revalidateOnMount: true,
   });
 
@@ -249,6 +257,7 @@ export default function OccupancyDashboard() {
               borderWidth: 2,
               pointRadius: 3,
               spanGaps: true,
+              yAxisID: 'yMonths',
             },
             {
               label: 'Mean tenancy of existing tenants (months)',
@@ -259,6 +268,19 @@ export default function OccupancyDashboard() {
               borderWidth: 2,
               pointRadius: 3,
               spanGaps: true,
+              yAxisID: 'yMonths',
+            },
+            {
+              label: 'Move-outs in period',
+              data: rows.map(r => r.move_outs),
+              borderColor: CHART_COLORS.violet,
+              backgroundColor: CHART_COLORS.violet + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              borderDash: [4, 4],
+              pointRadius: 3,
+              spanGaps: true,
+              yAxisID: 'yCount',
             },
           ],
         },
@@ -294,11 +316,19 @@ export default function OccupancyDashboard() {
           },
           scales: {
             x: DARK_CHART_DEFAULTS.scales.x,
-            y: {
+            yMonths: {
+              position: 'left',
               beginAtZero: true,
               grid: DARK_CHART_DEFAULTS.scales.y.grid,
               ticks: DARK_CHART_DEFAULTS.scales.y.ticks,
               title: { display: true, text: 'Months', color: '#64748b', font: { size: 11 } },
+            },
+            yCount: {
+              position: 'right',
+              beginAtZero: true,
+              grid: { display: false },
+              ticks: DARK_CHART_DEFAULTS.scales.y.ticks,
+              title: { display: true, text: 'Move-outs', color: '#64748b', font: { size: 11 } },
             },
           },
         },
@@ -995,6 +1025,7 @@ export default function OccupancyDashboard() {
                   options={[
                     { value: 'portfolio', label: 'Portfolio' },
                     { value: 'all', label: 'All Properties' },
+                    { value: 'farquhar', label: 'Farquhar (excl. Glen Oaks)' },
                     { group: 'Regions', options: [
                       { value: 'region_kansas_city', label: 'Kansas City' },
                       { value: 'region_columbia', label: 'Columbia' },
@@ -1320,8 +1351,8 @@ export default function OccupancyDashboard() {
                 </div>
                 <div className="glass-card p-6">
                   <div className="flex items-baseline justify-between mb-4 pb-2 border-b border-[var(--glass-border)]">
-                    <h3 className="text-sm font-semibold text-slate-200">Tenancy length</h3>
-                    <span className="text-[10px] text-slate-500">At-exit (closed tenancies) vs existing (current tenants)</span>
+                    <h3 className="text-sm font-semibold text-slate-200">Tenancy length &amp; move-outs</h3>
+                    <span className="text-[10px] text-slate-500">Months on left · move-out count on right</span>
                   </div>
                   {churn?.periods?.length ? (
                     <canvas ref={tenancyChartRef}></canvas>

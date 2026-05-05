@@ -57,13 +57,20 @@ export async function GET(request) {
       const kcProperties = REGION_PROPERTIES.region_kansas_city;
       if (region === 'region_kansas_city') {
         // Kansas City = properties that match KC list
-        currentData = currentData.filter(u => 
+        currentData = currentData.filter(u =>
           kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
         );
       } else if (region === 'region_columbia') {
         // Columbia = everything NOT in Kansas City
-        currentData = currentData.filter(u => 
+        currentData = currentData.filter(u =>
           !kcProperties.some(kc => u.property?.toLowerCase().includes(kc))
+        );
+      } else if (region === 'farquhar') {
+        // Farquhar = no Glen Oaks ever, no Hilltop after 2026-04-22 sale
+        const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+        currentData = currentData.filter(u =>
+          u.property !== 'Glen Oaks' &&
+          !(hilltopGone && u.property === 'Hilltop Townhomes')
         );
       }
     }
@@ -210,48 +217,45 @@ export async function GET(request) {
     const dailyStats = {};
     const dailyStatsKC = {};
     const dailyStatsColumbia = {};
+    const dailyStatsFarquhar = {};
     const dataToProcess = historyData || [];
-    
+
     dataToProcess.forEach(record => {
       const date = record.snapshot_date;
       const isKC = isKCProperty(record.property);
-      
+      const isOccupied = record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented';
+      const isVacant = record.status?.startsWith('Vacant');
+
       // Portfolio stats
       if (!dailyStats[date]) {
         dailyStats[date] = { total: 0, occupied: 0, vacant: 0, pastDue: 0 };
       }
       dailyStats[date].total++;
-      if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
-        dailyStats[date].occupied++;
-      }
-      if (record.status?.startsWith('Vacant')) {
-        dailyStats[date].vacant++;
-      }
-      
+      if (isOccupied) dailyStats[date].occupied++;
+      if (isVacant) dailyStats[date].vacant++;
+
       // Kansas City regional stats
       if (isKC) {
-        if (!dailyStatsKC[date]) {
-          dailyStatsKC[date] = { total: 0, occupied: 0, vacant: 0 };
-        }
+        if (!dailyStatsKC[date]) dailyStatsKC[date] = { total: 0, occupied: 0, vacant: 0 };
         dailyStatsKC[date].total++;
-        if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
-          dailyStatsKC[date].occupied++;
-        }
-        if (record.status?.startsWith('Vacant')) {
-          dailyStatsKC[date].vacant++;
-        }
+        if (isOccupied) dailyStatsKC[date].occupied++;
+        if (isVacant) dailyStatsKC[date].vacant++;
       } else {
         // Columbia regional stats (everything not KC)
-        if (!dailyStatsColumbia[date]) {
-          dailyStatsColumbia[date] = { total: 0, occupied: 0, vacant: 0 };
-        }
+        if (!dailyStatsColumbia[date]) dailyStatsColumbia[date] = { total: 0, occupied: 0, vacant: 0 };
         dailyStatsColumbia[date].total++;
-        if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
-          dailyStatsColumbia[date].occupied++;
-        }
-        if (record.status?.startsWith('Vacant')) {
-          dailyStatsColumbia[date].vacant++;
-        }
+        if (isOccupied) dailyStatsColumbia[date].occupied++;
+        if (isVacant) dailyStatsColumbia[date].vacant++;
+      }
+
+      // Farquhar = no Glen Oaks ever, no Hilltop on/after 2026-04-22 sale
+      const inFarquhar = record.property !== 'Glen Oaks'
+        && !(record.property === 'Hilltop Townhomes' && date >= '2026-04-22');
+      if (inFarquhar) {
+        if (!dailyStatsFarquhar[date]) dailyStatsFarquhar[date] = { total: 0, occupied: 0, vacant: 0 };
+        dailyStatsFarquhar[date].total++;
+        if (isOccupied) dailyStatsFarquhar[date].occupied++;
+        if (isVacant) dailyStatsFarquhar[date].vacant++;
       }
     });
     
@@ -273,6 +277,8 @@ export async function GET(request) {
       occupancyTrend = buildTrend(dailyStatsKC);
     } else if (region === 'region_columbia') {
       occupancyTrend = buildTrend(dailyStatsColumbia);
+    } else if (region === 'farquhar') {
+      occupancyTrend = buildTrend(dailyStatsFarquhar);
     } else {
       occupancyTrend = buildTrend(dailyStats);
     }
@@ -389,6 +395,11 @@ export async function GET(request) {
         filteredDataToProcess = dataToProcess.filter(record => isKCProperty(record.property));
       } else if (region === 'region_columbia') {
         filteredDataToProcess = dataToProcess.filter(record => !isKCProperty(record.property));
+      } else if (region === 'farquhar') {
+        filteredDataToProcess = dataToProcess.filter(record =>
+          record.property !== 'Glen Oaks' &&
+          !(record.property === 'Hilltop Townhomes' && record.snapshot_date >= '2026-04-22')
+        );
       }
     }
     
@@ -883,12 +894,20 @@ export async function GET(request) {
     if (region) {
       const kcProperties = REGION_PROPERTIES.region_kansas_city;
       if (region === 'region_kansas_city') {
-        filteredRenewalData = renewalData.filter(r => 
+        filteredRenewalData = renewalData.filter(r =>
           kcProperties.some(kc => r.property_name?.toLowerCase().includes(kc))
         );
       } else if (region === 'region_columbia') {
-        filteredRenewalData = renewalData.filter(r => 
+        filteredRenewalData = renewalData.filter(r =>
           !kcProperties.some(kc => r.property_name?.toLowerCase().includes(kc))
+        );
+      } else if (region === 'farquhar') {
+        // Renewal data is current (no per-snapshot date), so apply today's
+        // cutoff: Hilltop is out of Farquhar after 2026-04-22.
+        const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+        filteredRenewalData = renewalData.filter(r =>
+          r.property_name !== 'Glen Oaks' &&
+          !(hilltopGone && r.property_name === 'Hilltop Townhomes')
         );
       }
     }

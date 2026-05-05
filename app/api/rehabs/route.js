@@ -11,6 +11,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const includeCompleted = searchParams.get('includeCompleted') === 'true';
     const property = searchParams.get('property');
+    const region = searchParams.get('region');
 
     // Fetch existing rehabs
     let rehabQuery = supabase
@@ -24,6 +25,15 @@ export async function GET(request) {
 
     if (property && property !== 'all' && property !== 'portfolio') {
       rehabQuery = rehabQuery.eq('property', property);
+    }
+    if (region === 'farquhar') {
+      rehabQuery = rehabQuery.neq('property', 'Glen Oaks');
+      // Hilltop sold to another group on 2026-04-22 — exclude it from
+      // Farquhar after that date. (We still manage Hilltop, so it stays
+      // in Portfolio / individual filters elsewhere.)
+      if (new Date() >= new Date('2026-04-22T00:00:00')) {
+        rehabQuery = rehabQuery.neq('property', 'Hilltop Townhomes');
+      }
     }
 
     const { data: rehabsData, error: rehabError } = await rehabQuery;
