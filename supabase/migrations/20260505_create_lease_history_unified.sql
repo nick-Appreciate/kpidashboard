@@ -10,23 +10,27 @@
 --                            notes, anything after "&" or " and ", lowercased
 --   property_name, unit_name unit identifiers (aligned between systems)
 --   lease_start, lease_end   scheduled dates (DoorLoop only; AF nulls)
---   move_in, move_out        actual dates. AF move_out comes from
---                            af_tenant_directory; DL move_out is a proxy from
---                            leases_audit (first active=true→false transition)
---                            with the 2024-08-25 and 2024-08-27 bulk-update
---                            days excluded
+--   move_in_raw              actual move-in (AF) or lease start (DL)
+--   acquisition_date         from public.property_acquisitions when known
+--   move_in                  GREATEST(move_in_raw, acquisition_date) — the
+--                            effective start of tenancy under our ownership
+--   move_out                 actual (AF) or audit-derived (DL); the bulk-
+--                            update days 2024-08-25 and 2024-08-27 are
+--                            excluded from the DL move-out proxy
 --   move_out_reason          end_of_lease | early | eviction | unknown | NULL
 --   is_eviction              boolean
 --   tenancy_status           lowercased status from each system
 --   original_status          raw status from each system
---   tenancy_days             move_out − move_in (when both present)
+--   tenancy_days             move_out − clamped move_in (when both present)
 --   rent                     monthly recurring rent (DoorLoop only for now)
 --
 -- Dedup: a DoorLoop lease is suppressed when AppFolio has a row with the
 -- same normalized primary tenant name AND a date window that overlaps the
 -- DoorLoop lease window. AppFolio always wins on collision.
 
-CREATE OR REPLACE VIEW public.lease_history_unified AS
+DROP VIEW IF EXISTS public.lease_history_unified CASCADE;
+
+CREATE VIEW public.lease_history_unified AS
 WITH
 appfolio_named AS (
   SELECT
@@ -58,23 +62,21 @@ appfolio_rows AS (
     unit AS unit_name,
     NULL::date AS lease_start,
     NULL::date AS lease_end,
-    move_in,
+    move_in AS move_in_raw,
     move_out,
+    LOWER(status) AS tenancy_status,
+    status AS original_status,
+    (status='Evict') AS is_eviction,
     CASE WHEN status='Evict' THEN 'eviction'
          WHEN status='Past'  THEN 'unknown'
          ELSE NULL END AS move_out_reason,
-    (status='Evict') AS is_eviction,
-    LOWER(status) AS tenancy_status,
-    status AS original_status,
-    CASE WHEN move_in IS NOT NULL AND move_out IS NOT NULL AND move_out>=move_in
-         THEN (move_out - move_in) END AS tenancy_days,
     NULL::numeric AS rent
   FROM appfolio_named
 ),
 appfolio_name_index AS (
   SELECT DISTINCT
     TRIM(tenant_name_normalized) AS tenant_name_normalized,
-    move_in, move_out
+    move_in_raw AS move_in, move_out
   FROM appfolio_rows
   WHERE TRIM(tenant_name_normalized) <> ''
 ),
@@ -103,38 +105,61 @@ doorloop_rows AS (
     u.name AS unit_name,
     l.start_date::date AS lease_start,
     l.end_date::date AS lease_end,
-    l.start_date::date AS move_in,
+    l.start_date::date AS move_in_raw,
     COALESCE(mo.move_out_date,
              CASE WHEN l.status IN ('expired','inactive') THEN l.end_date::date END) AS move_out,
+    l.status AS tenancy_status,
+    l.status AS original_status,
+    l.eviction_pending AS is_eviction,
     CASE WHEN l.eviction_pending THEN 'eviction'
          WHEN l.status='inactive' AND mo.move_out_date IS NOT NULL
               AND l.end_date IS NOT NULL
               AND mo.move_out_date < l.end_date::date THEN 'early'
          WHEN l.status IN ('inactive','expired') THEN 'end_of_lease'
          ELSE NULL END AS move_out_reason,
-    l.eviction_pending AS is_eviction,
-    l.status AS tenancy_status,
-    l.status AS original_status,
-    CASE WHEN l.start_date IS NOT NULL
-              AND COALESCE(mo.move_out_date, l.end_date::date) IS NOT NULL
-              AND COALESCE(mo.move_out_date, l.end_date::date) >= l.start_date::date
-         THEN COALESCE(mo.move_out_date, l.end_date::date) - l.start_date::date END AS tenancy_days,
     l.total_recurring_rent AS rent
   FROM leases.leases l
   LEFT JOIN properties.properties p ON p.property_id = l.property_id
   LEFT JOIN properties.units u ON u.unit_id = l.unit_id
   LEFT JOIN doorloop_moveout mo ON mo.lease_id = l.lease_id
+),
+combined AS (
+  SELECT * FROM appfolio_rows
+  UNION ALL
+  SELECT d.* FROM doorloop_rows d
+  WHERE TRIM(d.tenant_name_normalized) = ''
+     OR NOT EXISTS (
+          SELECT 1 FROM appfolio_name_index ai
+          WHERE ai.tenant_name_normalized = TRIM(d.tenant_name_normalized)
+            AND ai.move_in <= COALESCE(d.move_out, d.lease_end, CURRENT_DATE)
+            AND COALESCE(ai.move_out, CURRENT_DATE) >= d.move_in_raw
+        )
 )
-SELECT * FROM appfolio_rows
-UNION ALL
-SELECT d.* FROM doorloop_rows d
-WHERE TRIM(d.tenant_name_normalized) = ''
-   OR NOT EXISTS (
-        SELECT 1 FROM appfolio_name_index ai
-        WHERE ai.tenant_name_normalized = TRIM(d.tenant_name_normalized)
-          AND ai.move_in <= COALESCE(d.move_out, d.lease_end, CURRENT_DATE)
-          AND COALESCE(ai.move_out, CURRENT_DATE) >= d.move_in
-      );
+SELECT
+  c.source,
+  c.external_id,
+  c.tenant_name,
+  c.tenant_name_normalized,
+  c.property_name,
+  c.unit_name,
+  c.lease_start,
+  c.lease_end,
+  c.move_in_raw,
+  pa.acquisition_date,
+  GREATEST(c.move_in_raw, pa.acquisition_date) AS move_in,
+  c.move_out,
+  c.move_out_reason,
+  c.is_eviction,
+  c.tenancy_status,
+  c.original_status,
+  CASE
+    WHEN c.move_in_raw IS NOT NULL AND c.move_out IS NOT NULL
+     AND c.move_out >= GREATEST(c.move_in_raw, pa.acquisition_date)
+    THEN c.move_out - GREATEST(c.move_in_raw, pa.acquisition_date)
+  END AS tenancy_days,
+  c.rent
+FROM combined c
+LEFT JOIN public.property_acquisitions pa ON pa.property_name = c.property_name;
 
 COMMENT ON VIEW public.lease_history_unified IS
-  'Unified lease history across DoorLoop (leases.leases) and AppFolio (af_tenant_directory). Tenant names normalized to the primary tenant (strips co-tenants after "&" or " and ", and parenthesized notes). DoorLoop leases are suppressed when AppFolio has the same primary tenant within an overlapping date window. DoorLoop move_out is a proxy from leases_audit (first active=true→false transition); the 2024-08-25 and 2024-08-27 bulk-update days are excluded.';
+  'Unified lease history across DoorLoop and AppFolio. move_in is clamped to property acquisition_date when known; tenancy_days reflects ownership tenure only. Raw move_in available as move_in_raw.';
