@@ -26,7 +26,10 @@ export default function CollectionsDashboard() {
   // SWR data fetching — cached across navigations
   const buildCollectionsKey = () => {
     const params = new URLSearchParams();
-    if (selectedProperty !== 'all') params.append('property', selectedProperty);
+    if (selectedProperty !== 'all') {
+      if (selectedProperty === 'farquhar') params.append('region', selectedProperty);
+      else params.append('property', selectedProperty);
+    }
     return `/api/collections?${params}`;
   };
   const { data, error, isLoading: loading, isValidating, mutate } = useSWR(buildCollectionsKey(), fetcher, {
@@ -258,12 +261,20 @@ export default function CollectionsDashboard() {
   };
 
   // Filter items based on selected aging buckets (using PRIMARY bucket only)
-  const filteredItems = selectedAgingBuckets.length === 0
+  // and client-side Farquhar filter (server doesn't support it for collections yet).
+  const farquharFilter = (item) => {
+    if (selectedProperty !== 'farquhar') return true;
+    if (item.property_name === 'Glen Oaks') return false;
+    const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+    if (hilltopGone && item.property_name === 'Hilltop Townhomes') return false;
+    return true;
+  };
+  const filteredItems = (selectedAgingBuckets.length === 0
     ? allItems
     : allItems.filter(item => {
         const primaryBucket = getPrimaryAgingBucket(item);
         return selectedAgingBuckets.includes(primaryBucket);
-      });
+      })).filter(farquharFilter);
 
   // Group by property
   const groupedByProperty = filteredItems.reduce((acc, item) => {
@@ -299,6 +310,7 @@ export default function CollectionsDashboard() {
   // Build DarkSelect options
   const propertyOptions = [
     { value: 'all', label: 'All Properties' },
+    { value: 'farquhar', label: 'Farquhar' },
     ...properties.map(prop => ({ value: prop, label: prop })),
   ];
 

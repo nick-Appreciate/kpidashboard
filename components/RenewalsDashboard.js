@@ -142,7 +142,7 @@ export default function RenewalsDashboard() {
   const buildStatsKey = () => {
     const params = new URLSearchParams();
     if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-      if (selectedProperty.startsWith('region_')) {
+      if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
         params.append('region', selectedProperty);
       } else {
         params.append('property', selectedProperty);
@@ -669,6 +669,7 @@ export default function RenewalsDashboard() {
                   options={[
                     { value: 'portfolio', label: 'Portfolio' },
                     { value: 'all', label: 'All Properties' },
+                    { value: 'farquhar', label: 'Farquhar' },
                     { group: 'Regions', options: [
                       { value: 'region_kansas_city', label: 'Kansas City' },
                       { value: 'region_columbia', label: 'Columbia' },

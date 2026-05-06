@@ -135,7 +135,7 @@ export default function Dashboard() {
   // Build SWR cache keys from current filters
   const buildFilterParams = () => {
     const params = new URLSearchParams();
-    if (selectedProperty.startsWith('region_')) {
+    if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
       params.append('region', selectedProperty);
     } else if (selectedProperty !== 'all') {
       params.append('property', selectedProperty);
@@ -176,7 +176,7 @@ export default function Dashboard() {
     if (selectedStages.length === 0) return null;
     const params = new URLSearchParams();
     params.append('stages', selectedStages.join(','));
-    if (selectedProperty.startsWith('region_')) {
+    if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
       params.append('region', selectedProperty);
     } else if (selectedProperty !== 'all') {
       params.append('property', selectedProperty);
@@ -456,6 +456,7 @@ export default function Dashboard() {
                 className="w-36"
                 options={[
                   { value: 'all', label: 'All Properties' },
+                  { value: 'farquhar', label: 'Farquhar' },
                   { group: 'Regions', options: [
                     { value: 'region_kansas_city', label: 'Kansas City' },
                     { value: 'region_columbia', label: 'Columbia' },

@@ -1,10 +1,7 @@
-import MercuryDashboard from '../../../components/MercuryDashboard';
+import { redirect } from 'next/navigation';
 
-export const metadata = {
-  title: 'Cash - Appreciate Dashboard',
-  description: 'Mercury bank account balance tracking',
-};
-
-export default function MercuryPage() {
-  return <MercuryDashboard />;
+// Permanent redirect: /admin/mercury was renamed to /admin/cash.
+// Keeps any old bookmarks / external links working.
+export default function MercuryRedirect() {
+  redirect('/admin/cash');
 }

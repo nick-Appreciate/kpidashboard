@@ -86,7 +86,11 @@ export default function RehabsDashboard() {
       setLoading(true);
       const params = new URLSearchParams();
       if (selectedProperty && selectedProperty !== 'all') {
-        params.append('property', selectedProperty);
+        if (selectedProperty === 'farquhar') {
+          params.append('region', selectedProperty);
+        } else {
+          params.append('property', selectedProperty);
+        }
       }
 
       const response = await fetch(`/api/rehabs?${params}`);
@@ -284,7 +288,14 @@ export default function RehabsDashboard() {
 
   // Filter rehabs by selected property and status
   const filteredRehabs = rehabs
-    .filter(r => selectedProperty === 'all' || r.property === selectedProperty)
+    .filter(r => {
+      if (selectedProperty === 'all') return true;
+      if (selectedProperty === 'farquhar') {
+        const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+        return r.property !== 'Glen Oaks' && !(hilltopGone && r.property === 'Hilltop Townhomes');
+      }
+      return r.property === selectedProperty;
+    })
     .filter(r => selectedStatus === 'all' || (r.rehab_status || 'Not Started') === selectedStatus);
 
   // All units for the table view (newVacancies are now auto-created as rehabs with 'Not Started' status)
@@ -362,6 +373,7 @@ export default function RehabsDashboard() {
                 onChange={setSelectedProperty}
                 options={[
                   { value: 'all', label: 'All Properties' },
+                  { value: 'farquhar', label: 'Farquhar' },
                   ...properties.map(prop => ({ value: prop, label: prop }))
                 ]}
                 compact

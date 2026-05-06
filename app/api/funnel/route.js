@@ -12,6 +12,12 @@ function filterByRegion(records, region) {
     const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc) || unit.includes(kc));
     if (region === 'region_kansas_city') return matchesKC;
     if (region === 'region_columbia') return !matchesKC;
+    if (region === 'farquhar') {
+      const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+      const isGlenOaks = prop.includes('glen oaks') || unit.includes('glen oaks');
+      const isHilltop = prop.includes('hilltop') || unit.includes('hilltop');
+      return !isGlenOaks && !(hilltopGone && isHilltop);
+    }
     return true;
   });
 }

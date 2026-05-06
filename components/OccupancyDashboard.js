@@ -84,7 +84,10 @@ export default function OccupancyDashboard() {
   const healthyLeaseCanvasRef = useRef(null);
   const healthyLeaseChartRef = useRef(null);
   const healthyLeaseRenderedRef = useRef(null);
+  const churnRateChartRef = useRef(null);
+  const tenancyChartRef = useRef(null);
   const headerRef = useRef(null);
+  const [churnGrain, setChurnGrain] = useState('month'); // 'month' | 'quarter'
   
   // Update dates when preset changes
   useEffect(() => {
@@ -99,7 +102,7 @@ export default function OccupancyDashboard() {
   const buildStatsKey = () => {
     const params = new URLSearchParams();
     if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-      if (selectedProperty.startsWith('region_')) {
+      if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
         params.append('region', selectedProperty);
       } else {
         params.append('property', selectedProperty);
@@ -113,7 +116,7 @@ export default function OccupancyDashboard() {
   const buildProjectionsKey = () => {
     const params = new URLSearchParams();
     if (selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
-      if (selectedProperty.startsWith('region_')) {
+      if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
         params.append('region', selectedProperty);
       } else {
         params.append('property', selectedProperty);
@@ -127,6 +130,17 @@ export default function OccupancyDashboard() {
     revalidateOnMount: true,
   });
   const { data: projections } = useSWR(buildProjectionsKey(), fetcher, {
+    revalidateOnMount: true,
+  });
+  const buildChurnKey = () => {
+    const params = new URLSearchParams();
+    params.append('grain', churnGrain);
+    if (selectedProperty && selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
+      params.append('property', selectedProperty);
+    }
+    return `/api/occupancy/churn-metrics?${params}`;
+  };
+  const { data: churn } = useSWR(buildChurnKey(), fetcher, {
     revalidateOnMount: true,
   });
 
@@ -144,6 +158,195 @@ export default function OccupancyDashboard() {
       return () => clearTimeout(timer);
     }
   }, [projections, stats, loading, occupiedOverride, selectedProperty]);
+
+  // Churn metrics — two split charts: rates (%) and tenancy (months)
+  useEffect(() => {
+    const rows = churn?.periods || [];
+    const labels = rows.map(r => r.period_label);
+
+    // Rates chart: churn % + eviction %
+    if (churnRateChartRef.current && rows.length) {
+      const ctx = churnRateChartRef.current.getContext('2d');
+      if (churnRateChartRef.current.chart) churnRateChartRef.current.chart.destroy();
+      churnRateChartRef.current.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Churn rate (%)',
+              data: rows.map(r => r.churn_rate_pct),
+              borderColor: CHART_COLORS.cyan,
+              backgroundColor: CHART_COLORS.cyan + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: true,
+            },
+            {
+              label: 'Eviction rate (%)',
+              data: rows.map(r => r.eviction_rate_pct),
+              borderColor: CHART_COLORS.rose,
+              backgroundColor: CHART_COLORS.rose + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: true,
+            },
+          ],
+        },
+        options: {
+          ...DARK_CHART_DEFAULTS,
+          responsive: true,
+          maintainAspectRatio: true,
+          aspectRatio: 2.2,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            ...DARK_CHART_DEFAULTS.plugins,
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 16, usePointStyle: true },
+            },
+            tooltip: {
+              ...DARK_CHART_DEFAULTS.plugins.tooltip,
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                afterBody: (items) => {
+                  if (!items?.length) return '';
+                  const r = rows[items[0].dataIndex];
+                  return [
+                    `Move-outs: ${r.move_outs}`,
+                    `Evictions: ${r.evictions}`,
+                    `Occupied at period start: ${r.occupied_at_period_start}`,
+                    `Total units: ${r.total_units}`,
+                  ];
+                },
+              },
+            },
+          },
+          scales: {
+            x: DARK_CHART_DEFAULTS.scales.x,
+            y: {
+              beginAtZero: true,
+              grid: DARK_CHART_DEFAULTS.scales.y.grid,
+              ticks: { ...DARK_CHART_DEFAULTS.scales.y.ticks, callback: (v) => v + '%' },
+              title: { display: true, text: 'Rate (%)', color: '#64748b', font: { size: 11 } },
+            },
+          },
+        },
+      });
+    }
+
+    // Tenancy chart: two lines — mean at exit + mean of existing tenants
+    if (tenancyChartRef.current && rows.length) {
+      const ctx = tenancyChartRef.current.getContext('2d');
+      if (tenancyChartRef.current.chart) tenancyChartRef.current.chart.destroy();
+      tenancyChartRef.current.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Mean tenancy at exit (months)',
+              data: rows.map(r => r.mean_tenancy_at_exit_months),
+              borderColor: CHART_COLORS.amber,
+              backgroundColor: CHART_COLORS.amber + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: true,
+              yAxisID: 'yMonths',
+            },
+            {
+              label: 'Mean tenancy of existing tenants — under our ownership (months)',
+              data: rows.map(r => r.mean_tenancy_existing_months),
+              borderColor: CHART_COLORS.teal,
+              backgroundColor: CHART_COLORS.teal + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              pointRadius: 3,
+              spanGaps: true,
+              yAxisID: 'yMonths',
+            },
+            {
+              label: 'Mean tenancy of existing tenants — full lease history (months)',
+              data: rows.map(r => r.mean_tenancy_existing_raw_months),
+              borderColor: CHART_COLORS.lime,
+              backgroundColor: CHART_COLORS.lime + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              borderDash: [2, 4],
+              pointRadius: 3,
+              spanGaps: true,
+              yAxisID: 'yMonths',
+            },
+            {
+              label: 'Move-outs in period',
+              data: rows.map(r => r.move_outs),
+              borderColor: CHART_COLORS.violet,
+              backgroundColor: CHART_COLORS.violet + '20',
+              tension: 0.3,
+              borderWidth: 2,
+              borderDash: [4, 4],
+              pointRadius: 3,
+              spanGaps: true,
+              yAxisID: 'yCount',
+            },
+          ],
+        },
+        options: {
+          ...DARK_CHART_DEFAULTS,
+          responsive: true,
+          maintainAspectRatio: true,
+          aspectRatio: 2.2,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            ...DARK_CHART_DEFAULTS.plugins,
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 16, usePointStyle: true },
+            },
+            tooltip: {
+              ...DARK_CHART_DEFAULTS.plugins.tooltip,
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                afterBody: (items) => {
+                  if (!items?.length) return '';
+                  const r = rows[items[0].dataIndex];
+                  return [
+                    `Move-outs in period: ${r.move_outs}`,
+                    `Median tenancy at exit: ${r.median_tenancy_at_exit_months ?? '—'} mo`,
+                    `Occupied at period start: ${r.occupied_at_period_start}`,
+                  ];
+                },
+              },
+            },
+          },
+          scales: {
+            x: DARK_CHART_DEFAULTS.scales.x,
+            yMonths: {
+              position: 'left',
+              beginAtZero: true,
+              grid: DARK_CHART_DEFAULTS.scales.y.grid,
+              ticks: DARK_CHART_DEFAULTS.scales.y.ticks,
+              title: { display: true, text: 'Months', color: '#64748b', font: { size: 11 } },
+            },
+            yCount: {
+              position: 'right',
+              beginAtZero: true,
+              grid: { display: false },
+              ticks: DARK_CHART_DEFAULTS.scales.y.ticks,
+              title: { display: true, text: 'Move-outs', color: '#64748b', font: { size: 11 } },
+            },
+          },
+        },
+      });
+    }
+  }, [churn]);
 
 
   // Define region mappings - KC properties, Columbia is everything else
@@ -834,6 +1037,7 @@ export default function OccupancyDashboard() {
                   options={[
                     { value: 'portfolio', label: 'Portfolio' },
                     { value: 'all', label: 'All Properties' },
+                    { value: 'farquhar', label: 'Farquhar' },
                     { group: 'Regions', options: [
                       { value: 'region_kansas_city', label: 'Kansas City' },
                       { value: 'region_columbia', label: 'Columbia' },
@@ -1122,7 +1326,55 @@ export default function OccupancyDashboard() {
               </div>
             </div>
 
-            
+            {/* Churn Metrics */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-slate-100">Churn Metrics</h2>
+                <div className="inline-flex rounded-lg border border-[var(--glass-border)] bg-surface-overlay/60 p-0.5 text-xs">
+                  {[
+                    { value: 'month', label: 'Monthly' },
+                    { value: 'quarter', label: 'Quarterly' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setChurnGrain(value)}
+                      className={`px-3 py-1 rounded-md transition-colors ${
+                        churnGrain === value
+                          ? 'bg-cyan-500/20 text-cyan-300 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="glass-card p-6">
+                  <div className="flex items-baseline justify-between mb-4 pb-2 border-b border-[var(--glass-border)]">
+                    <h3 className="text-sm font-semibold text-slate-200">Churn rate &amp; Eviction rate</h3>
+                    <span className="text-[10px] text-slate-500">Churn = move-outs ÷ occupied · Eviction = evictions ÷ total units</span>
+                  </div>
+                  {churn?.periods?.length ? (
+                    <canvas ref={churnRateChartRef}></canvas>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500 text-sm">Loading…</div>
+                  )}
+                </div>
+                <div className="glass-card p-6">
+                  <div className="flex items-baseline justify-between mb-4 pb-2 border-b border-[var(--glass-border)]">
+                    <h3 className="text-sm font-semibold text-slate-200">Tenancy length &amp; move-outs</h3>
+                    <span className="text-[10px] text-slate-500">Months on left · move-out count on right</span>
+                  </div>
+                  {churn?.periods?.length ? (
+                    <canvas ref={tenancyChartRef}></canvas>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500 text-sm">Loading…</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Property Stats Table */}
             <div className="glass-card p-6 mb-6">
               <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Property Breakdown</h2>
