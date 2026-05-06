@@ -558,17 +558,49 @@ export async function GET(request) {
     let trailingNetChangeByWeek = [];
     if (trailingWeeksCount > 0 && weekTargets.length > 0) {
       const earliestStr = weekTargetStrs[0];
-      const newestStr = latestDate;
 
-      const { data: dateRows } = await supabase
-        .from('rent_roll_snapshots')
-        .select('snapshot_date')
-        .gte('snapshot_date', earliestStr)
-        .lt('snapshot_date', newestStr)
-        .order('snapshot_date', { ascending: true })
-        .range(0, 99999);
+      // Fetch every snapshot row in the trailing window. Pagination must
+      // include .order(); without a stable sort, Supabase's range() can
+      // return inconsistent slices across pages and silently lose rows.
+      // Group rows into per-date buckets in JS — cheaper than running
+      // a second .in() query and avoids the silent 1000-row cap.
+      const occupiedByDate = new Map(); // snapshot_date → { total, occupied: Map<unitKey, tenant> }
+      const PAGE = 1000;
+      let page = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data: snapRows, error: snapErr } = await supabase
+          .from('rent_roll_snapshots')
+          .select('snapshot_date, property, unit, status, tenant_name')
+          .gte('snapshot_date', earliestStr)
+          .lte('snapshot_date', latestDate)
+          .order('snapshot_date', { ascending: true })
+          .order('property', { ascending: true })
+          .order('unit', { ascending: true })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (snapErr) throw snapErr;
+        const filtered = filterByPropertyRegion(snapRows);
+        for (const row of filtered) {
+          let bucket = occupiedByDate.get(row.snapshot_date);
+          if (!bucket) {
+            bucket = { total: 0, occupied: new Map() };
+            occupiedByDate.set(row.snapshot_date, bucket);
+          }
+          bucket.total++;
+          if (row.status === 'Current' || row.status === 'Evict' || row.status === 'Notice-Unrented') {
+            bucket.occupied.set(`${row.property}||${row.unit}`.toLowerCase(), row.tenant_name || null);
+          }
+        }
+        if (!snapRows || snapRows.length < PAGE) break;
+        page++;
+        // Safety bail-out — well above the realistic 250 pages for 5y of daily data.
+        if (page > 500) break;
+      }
 
-      const availableDates = Array.from(new Set((dateRows || []).map(r => r.snapshot_date))).sort();
+      // Snapshot dates we actually have data for (including today).
+      const availableDates = Array.from(occupiedByDate.keys())
+        .filter(d => d < latestDate)
+        .sort();
 
       // For each weekly target, pick the closest available date <= target.
       const targetToSnapshot = weekTargetStrs.map(target => {
@@ -579,43 +611,6 @@ export async function GET(request) {
         }
         return { target, snapshot: chosen };
       });
-
-      const neededSnapshots = Array.from(
-        new Set(targetToSnapshot.map(t => t.snapshot).filter(Boolean))
-      );
-
-      // Fetch snapshot rows for the dates we need. Supabase silently caps at
-      // 1000 rows per query, so paginate explicitly — 52 weeks × hundreds of
-      // units easily exceeds that and the truncation produces phantom
-      // move-outs at the boundary between full and partial snapshots.
-      const occupiedByDate = new Map(); // snapshot_date → { total, occupied: Map<unitKey, tenant> }
-      if (neededSnapshots.length > 0) {
-        const PAGE = 1000;
-        let from = 0;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { data: snapRows, error: snapErr } = await supabase
-            .from('rent_roll_snapshots')
-            .select('snapshot_date, property, unit, status, tenant_name')
-            .in('snapshot_date', neededSnapshots)
-            .range(from, from + PAGE - 1);
-          if (snapErr) throw snapErr;
-          const filtered = filterByPropertyRegion(snapRows);
-          for (const row of filtered) {
-            let bucket = occupiedByDate.get(row.snapshot_date);
-            if (!bucket) {
-              bucket = { total: 0, occupied: new Map() };
-              occupiedByDate.set(row.snapshot_date, bucket);
-            }
-            bucket.total++;
-            if (row.status === 'Current' || row.status === 'Evict' || row.status === 'Notice-Unrented') {
-              bucket.occupied.set(`${row.property}||${row.unit}`.toLowerCase(), row.tenant_name || null);
-            }
-          }
-          if (!snapRows || snapRows.length < PAGE) break;
-          from += PAGE;
-        }
-      }
 
       // Build the line + bars from snapshot deltas. Each week's bar diffs the
       // current snapshot's occupied set against the previous week's; the first
