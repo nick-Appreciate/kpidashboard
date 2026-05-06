@@ -16,6 +16,28 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const property = searchParams.get('property');
     const region = searchParams.get('region');
+    const startDateParam = searchParams.get('startDate');
+
+    // Helper: apply property/region filter to a list of unit-shaped rows.
+    // Mirrors the inline filtering used elsewhere in this route.
+    const filterByPropertyRegion = (rows) => {
+      let out = rows || [];
+      if (property && property !== 'all') {
+        out = out.filter(u => u.property === property);
+      }
+      if (region) {
+        const kcProperties = REGION_PROPERTIES.region_kansas_city;
+        if (region === 'region_kansas_city') {
+          out = out.filter(u => kcProperties.some(kc => u.property?.toLowerCase().includes(kc)));
+        } else if (region === 'region_columbia') {
+          out = out.filter(u => !kcProperties.some(kc => u.property?.toLowerCase().includes(kc)));
+        } else if (region === 'farquhar') {
+          const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+          out = out.filter(u => u.property !== 'Glen Oaks' && !(hilltopGone && u.property === 'Hilltop Townhomes'));
+        }
+      }
+      return out;
+    };
 
     // Get current occupancy from rent_roll_snapshots (source of truth)
     const { data: latestSnapshot } = await supabase
@@ -490,65 +512,160 @@ export async function GET(request) {
       });
     }
     
-    // Trailing weekly data (past 4 weeks)
-    const trailingNetChangeByWeek = [];
-    for (let i = 4; i >= 1; i--) {
-      const weekEnd = new Date(Date.now() - (i - 1) * 7 * 24 * 60 * 60 * 1000);
-      const weekStart = new Date(Date.now() - i * 7 * 24 * 60 * 60 * 1000);
-      const weekStartStr = weekStart.toISOString().split('T')[0];
-      const weekEndStr = weekEnd.toISOString().split('T')[0];
-
-      let weekMoveIns = 0;
-      let weekMoveOuts = 0;
-      const weekMoveInDetails = [];
-      const weekMoveOutDetails = [];
-
-      trailingEvents.forEach(event => {
-        if (event.event_date >= weekStartStr && event.event_date < weekEndStr) {
-          const detail = {
-            tenant: event.tenant_name || 'Unknown',
-            unit: event.unit,
-            property: event.property,
-            date: event.event_date,
-            type: event.event_type
-          };
-          if (event.event_type === 'Move-in') {
-            weekMoveIns++;
-            weekMoveInDetails.push(detail);
-          } else {
-            weekMoveOuts++;
-            weekMoveOutDetails.push(detail);
-          }
-        }
-      });
-
-      const weekLabel = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      trailingNetChangeByWeek.push({
-        weekStart: weekStartStr,
-        weekLabel,
-        moveIns: weekMoveIns,
-        moveOuts: weekMoveOuts,
-        netChange: weekMoveIns - weekMoveOuts,
-        moveInDetails: weekMoveInDetails,
-        moveOutDetails: weekMoveOutDetails,
-        isTrailing: true
-      });
+    // ── Trailing window driven by the dashboard date selector ──────────────
+    // The page-level dropdown (Today / Last 7 / 30 / 90 Days / Last Year /
+    // All Time / Custom Range) sets startDateParam. Use it to size the
+    // trailing portion of the chart. Cap at 52 weeks so very long ranges
+    // stay readable. Without a startDate (All Time), default to 52 weeks.
+    let requestedTrailingWeeks = 52;
+    if (startDateParam) {
+      const startMs = new Date(startDateParam + 'T12:00:00').getTime();
+      const days = Math.floor((Date.now() - startMs) / 86400000);
+      requestedTrailingWeeks = Math.max(0, Math.min(52, Math.ceil(days / 7)));
     }
 
-    // Trailing occupancy projections (work backward from current)
-    // Calculate what occupancy was at each trailing week start
-    const trailingProjections = [];
-    // Sum up all trailing net changes to find occupancy 4 weeks ago
-    const totalTrailingNet = trailingNetChangeByWeek.reduce((sum, w) => sum + w.netChange, 0);
-    let trailingOccupied = currentOccupied - totalTrailingNet;
+    // Hard-cap by the earliest available snapshot — pre-snapshot weeks would
+    // otherwise render as 0% (which clamps to the chart's y-axis floor).
+    let earliestSnapshotDate = null;
+    if (requestedTrailingWeeks > 0) {
+      const { data: earliestRows } = await supabase
+        .from('rent_roll_snapshots')
+        .select('snapshot_date')
+        .order('snapshot_date', { ascending: true })
+        .limit(1);
+      earliestSnapshotDate = earliestRows?.[0]?.snapshot_date || null;
+    }
+    let trailingWeeksCount = requestedTrailingWeeks;
+    if (earliestSnapshotDate) {
+      const earliestMs = new Date(earliestSnapshotDate + 'T12:00:00').getTime();
+      const weeksAvailable = Math.floor((Date.now() - earliestMs) / (7 * 86400000));
+      trailingWeeksCount = Math.min(trailingWeeksCount, weeksAvailable);
+    } else {
+      trailingWeeksCount = 0;
+    }
 
-    for (const week of trailingNetChangeByWeek) {
-      trailingProjections.push({
-        date: week.weekStart,
-        occupied: Math.max(0, Math.min(totalUnits, trailingOccupied)),
-        occupancyRate: totalUnits > 0 ? ((Math.max(0, Math.min(totalUnits, trailingOccupied)) / totalUnits) * 100).toFixed(1) : 0
+    // Build trailing week boundaries — each entry is a target date for which
+    // we want the occupancy snapshot. weekTargets[0] is the oldest.
+    const weekTargets = [];
+    for (let i = trailingWeeksCount; i >= 1; i--) {
+      weekTargets.push(new Date(Date.now() - i * 7 * 86400000));
+    }
+    const weekTargetStrs = weekTargets.map(d => d.toISOString().split('T')[0]);
+
+    let trailingProjections = [];
+    let trailingNetChangeByWeek = [];
+    if (trailingWeeksCount > 0 && weekTargets.length > 0) {
+      const earliestStr = weekTargetStrs[0];
+      const newestStr = latestDate;
+
+      const { data: dateRows } = await supabase
+        .from('rent_roll_snapshots')
+        .select('snapshot_date')
+        .gte('snapshot_date', earliestStr)
+        .lt('snapshot_date', newestStr)
+        .order('snapshot_date', { ascending: true })
+        .range(0, 99999);
+
+      const availableDates = Array.from(new Set((dateRows || []).map(r => r.snapshot_date))).sort();
+
+      // For each weekly target, pick the closest available date <= target.
+      const targetToSnapshot = weekTargetStrs.map(target => {
+        let chosen = null;
+        for (const d of availableDates) {
+          if (d <= target) chosen = d;
+          else break;
+        }
+        return { target, snapshot: chosen };
       });
-      trailingOccupied += week.netChange;
+
+      const neededSnapshots = Array.from(
+        new Set(targetToSnapshot.map(t => t.snapshot).filter(Boolean))
+      );
+
+      // Fetch snapshot rows for the dates we need. Supabase silently caps at
+      // 1000 rows per query, so paginate explicitly — 52 weeks × hundreds of
+      // units easily exceeds that and the truncation produces phantom
+      // move-outs at the boundary between full and partial snapshots.
+      const occupiedByDate = new Map(); // snapshot_date → { total, occupied: Map<unitKey, tenant> }
+      if (neededSnapshots.length > 0) {
+        const PAGE = 1000;
+        let from = 0;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { data: snapRows, error: snapErr } = await supabase
+            .from('rent_roll_snapshots')
+            .select('snapshot_date, property, unit, status, tenant_name')
+            .in('snapshot_date', neededSnapshots)
+            .range(from, from + PAGE - 1);
+          if (snapErr) throw snapErr;
+          const filtered = filterByPropertyRegion(snapRows);
+          for (const row of filtered) {
+            let bucket = occupiedByDate.get(row.snapshot_date);
+            if (!bucket) {
+              bucket = { total: 0, occupied: new Map() };
+              occupiedByDate.set(row.snapshot_date, bucket);
+            }
+            bucket.total++;
+            if (row.status === 'Current' || row.status === 'Evict' || row.status === 'Notice-Unrented') {
+              bucket.occupied.set(`${row.property}||${row.unit}`.toLowerCase(), row.tenant_name || null);
+            }
+          }
+          if (!snapRows || snapRows.length < PAGE) break;
+          from += PAGE;
+        }
+      }
+
+      // Build the line + bars from snapshot deltas. Each week's bar diffs the
+      // current snapshot's occupied set against the previous week's; the first
+      // week has no previous data, so its bar is 0 (correct edge behavior).
+      let prevBucket = null;
+      for (let i = 0; i < targetToSnapshot.length; i++) {
+        const { target, snapshot } = targetToSnapshot[i];
+        const bucket = snapshot ? occupiedByDate.get(snapshot) : null;
+        if (bucket && bucket.total > 0) {
+          trailingProjections.push({
+            date: target,
+            occupied: bucket.occupied.size,
+            occupancyRate: ((bucket.occupied.size / bucket.total) * 100).toFixed(1)
+          });
+        } else {
+          // No snapshot for this week — emit null so the line draws a gap.
+          trailingProjections.push({ date: target, occupied: null, occupancyRate: null });
+        }
+
+        let moveIns = 0;
+        let moveOuts = 0;
+        const moveInDetails = [];
+        const moveOutDetails = [];
+        if (prevBucket && bucket) {
+          bucket.occupied.forEach((tenant, key) => {
+            if (!prevBucket.occupied.has(key)) {
+              moveIns++;
+              const [prop, unit] = key.split('||');
+              moveInDetails.push({ tenant: tenant || 'Unknown', unit, property: prop, date: target, type: 'Move-in' });
+            }
+          });
+          prevBucket.occupied.forEach((tenant, key) => {
+            if (!bucket.occupied.has(key)) {
+              moveOuts++;
+              const [prop, unit] = key.split('||');
+              moveOutDetails.push({ tenant: tenant || 'Unknown', unit, property: prop, date: target, type: 'Move-out' });
+            }
+          });
+        }
+        const d = new Date(target + 'T12:00:00');
+        trailingNetChangeByWeek.push({
+          weekStart: target,
+          weekLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          moveIns,
+          moveOuts,
+          netChange: moveIns - moveOuts,
+          moveInDetails,
+          moveOutDetails,
+          isTrailing: true
+        });
+        if (bucket) prevBucket = bucket;
+      }
     }
 
     // Trailing summary (past 30 days)

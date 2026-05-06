@@ -122,6 +122,7 @@ export default function OccupancyDashboard() {
         params.append('property', selectedProperty);
       }
     }
+    if (startDate) params.append('startDate', startDate);
     return `/api/rent-roll/projections?${params}`;
   };
 
@@ -403,8 +404,9 @@ export default function OccupancyDashboard() {
     const todayIndex = trailingWeeks.length; // index of the "Today" point
     const occupancyByWeek = weeklyData.map((week, i) => {
       if (i < trailingWeeks.length) {
-        // Trailing week — use trailing projection data
-        if (trailingProjs[i]) return parseFloat(trailingProjs[i].occupancyRate);
+        // Trailing week — use trailing projection data (null = gap in line)
+        const p = trailingProjs[i];
+        if (p && p.occupancyRate != null) return parseFloat(p.occupancyRate);
         return null;
       }
       if (i === todayIndex) {
@@ -1114,7 +1116,15 @@ export default function OccupancyDashboard() {
                   <h2 className="text-lg font-semibold text-slate-100">Occupancy Projections</h2>
                   <div className="flex items-center gap-4 text-xs flex-wrap">
                     {[
-                      { label: 'Past 30d', data: projections.trailingSummary },
+                      { label: ({
+                        today: 'Today',
+                        last_week: 'Past 7d',
+                        last_month: 'Past 30d',
+                        last_quarter: 'Past 90d',
+                        last_year: 'Past 1y',
+                        all_time: 'Trailing',
+                        custom: 'Trailing',
+                      })[dateRange] || 'Past 30d', data: projections.trailingSummary },
                       { label: '0-30d', data: projections.summary?.days0_30 },
                       { label: '30-60d', data: projections.summary?.days30_60 },
                       { label: '60-90d', data: projections.summary?.days60_90 },
