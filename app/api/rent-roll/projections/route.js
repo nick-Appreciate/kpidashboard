@@ -515,13 +515,15 @@ export async function GET(request) {
     // ── Trailing window driven by the dashboard date selector ──────────────
     // The page-level dropdown (Today / Last 7 / 30 / 90 Days / Last Year /
     // All Time / Custom Range) sets startDateParam. Use it to size the
-    // trailing portion of the chart. Cap at 52 weeks so very long ranges
-    // stay readable. Without a startDate (All Time), default to 52 weeks.
-    let requestedTrailingWeeks = 52;
+    // trailing portion of the chart. Cap at 156 weeks (3 years) so very
+    // long ranges stay readable. Without a startDate (All Time), default
+    // to the full cap.
+    const MAX_TRAILING_WEEKS = 156;
+    let requestedTrailingWeeks = MAX_TRAILING_WEEKS;
     if (startDateParam) {
       const startMs = new Date(startDateParam + 'T12:00:00').getTime();
       const days = Math.floor((Date.now() - startMs) / 86400000);
-      requestedTrailingWeeks = Math.max(0, Math.min(52, Math.ceil(days / 7)));
+      requestedTrailingWeeks = Math.max(0, Math.min(MAX_TRAILING_WEEKS, Math.ceil(days / 7)));
     }
 
     // Hard-cap by the earliest available snapshot — pre-snapshot weeks would
