@@ -527,17 +527,30 @@ export async function scrapeUsageData(
       console.log(`[scrape] Service type: ${serviceTypeChanged.reason}`);
     }
 
-    // 4c: Check ALL column checkboxes using Playwright's check() method
-    const columnCheckboxes = await page.$$('.columnSelection, input[id^="ColumnOptions"][id$="__Checked"]');
-    let newlyChecked = 0;
-    for (const cb of columnCheckboxes) {
-      const isChecked = await cb.isChecked().catch(() => true);
-      if (!isChecked) {
-        await cb.check().catch(() => {});
-        newlyChecked++;
+    // 4c: Check ALL column checkboxes. The inputs are visible but a custom-styled
+    // label sits on top of them and intercepts clicks, so Playwright's .check() can
+    // fail (silently if you swallow the error). Set .checked directly via JS — the
+    // ASP.NET MVC form serializes from input.checked at submit time.
+    const columnResult = await page.evaluate(() => {
+      const cbs = Array.from(
+        document.querySelectorAll<HTMLInputElement>('input[id^="ColumnOptions"][id$="__Checked"]')
+      );
+      const failed: string[] = [];
+      let newlyChecked = 0;
+      for (const cb of cbs) {
+        if (cb.checked) continue;
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        cb.dispatchEvent(new Event('input', { bubbles: true }));
+        if (cb.checked) newlyChecked++;
+        else failed.push(cb.id);
       }
-    }
-    console.log(`[scrape] Columns: ${columnCheckboxes.length} total, ${newlyChecked} newly checked.`);
+      return { total: cbs.length, newlyChecked, failed };
+    });
+    console.log(
+      `[scrape] Columns: ${columnResult.total} total, ${columnResult.newlyChecked} newly checked` +
+        (columnResult.failed.length ? `, failed: ${columnResult.failed.join(',')}` : '.')
+    );
     await page.waitForTimeout(1000);
 
     // 4d: Set interval to Daily
