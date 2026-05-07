@@ -724,7 +724,8 @@ export default function OccupancyDashboard() {
             },
             x: {
               ticks: {
-                autoSkip: false,
+                autoSkip: true,
+                maxTicksLimit: 12,
                 maxRotation: 45,
                 minRotation: 45
               }
@@ -733,7 +734,7 @@ export default function OccupancyDashboard() {
         }
       });
     }
-    
+
     // Lease Expiration Chart
     if (leaseChartRef.current && stats.leaseExpirations) {
       const ctx = leaseChartRef.current.getContext('2d');
