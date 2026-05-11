@@ -824,9 +824,14 @@ async function scrapeCurrentProperty(
     return [];
   }
 
-  // Save and parse
-  const suggestedName = download.suggestedFilename() || `como-usage-${Date.now()}.csv`;
-  const downloadPath = path.join(DOWNLOADS_DIR, suggestedName);
+  // Save and parse. Use a unique filename per property so concurrent BPU +
+  // COMO scrapes (and concurrent COMO properties) don't race on the same
+  // path. BPU and COMO both suggest "Usage.csv", which used to cause silent
+  // 0-record runs when the file was overwritten between saveAs and read.
+  const downloadPath = path.join(
+    DOWNLOADS_DIR,
+    `como-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.csv`
+  );
   await download.saveAs(downloadPath);
   console.log(`[como] Downloaded: ${downloadPath}`);
 
@@ -856,6 +861,8 @@ async function scrapeCurrentProperty(
  *
  * Handles both formats gracefully.
  */
+const REQUIRED_COMO_COLUMNS = ['End', 'CCF'];
+
 function parseComoCsv(filePath: string): ComoMeterReading[] {
   const fileContent = fs.readFileSync(filePath, 'utf-8');
   if (!fileContent.trim()) return [];
@@ -865,6 +872,21 @@ function parseComoCsv(filePath: string): ComoMeterReading[] {
     skip_empty_lines: true,
     trim: true,
   });
+
+  // If rows exist but the required COMO columns are missing, this is almost
+  // certainly the wrong CSV (e.g. a BPU download with a "Start" column).
+  // Throw loudly so the failure surfaces instead of returning 0 rows silently.
+  if (rawRecords.length > 0) {
+    const cols = Object.keys(rawRecords[0] || {});
+    const missing = REQUIRED_COMO_COLUMNS.filter(c => !cols.includes(c));
+    if (missing.length) {
+      throw new Error(
+        `COMO CSV is missing required columns [${missing.join(', ')}]. ` +
+          `Got columns: [${cols.join(', ')}]. ` +
+          `This usually means the downloaded file was overwritten by another scraper.`
+      );
+    }
+  }
 
   const results: ComoMeterReading[] = [];
 

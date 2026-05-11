@@ -649,9 +649,14 @@ export async function scrapeUsageData(
       };
     }
 
-    // Save downloaded file
-    const suggestedName = download.suggestedFilename() || `usage-${Date.now()}.csv`;
-    const downloadPath = path.join(DOWNLOADS_DIR, suggestedName);
+    // Save downloaded file. Use a unique filename per scrape so concurrent
+    // BPU + COMO scrapes don't race on the same path (the BPU and COMO sites
+    // both suggest "Usage.csv", and both scrapers share DOWNLOADS_DIR — a
+    // collision used to silently produce 0-record runs).
+    const downloadPath = path.join(
+      DOWNLOADS_DIR,
+      `bpu-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.csv`
+    );
     await download.saveAs(downloadPath);
     console.log(`[scrape] Downloaded: ${downloadPath}`);
 
@@ -659,7 +664,12 @@ export async function scrapeUsageData(
     console.log('[scrape] Parsing CSV...');
 
     const records = parseUsageCsv(downloadPath);
-    console.log(`[scrape] Parsed ${records.length} records.`);
+    if (records.length === 0) {
+      const size = (() => { try { return fs.statSync(downloadPath).size; } catch { return -1; } })();
+      console.warn(`[scrape] ⚠️  Parsed 0 records (file size: ${size} bytes).`);
+    } else {
+      console.log(`[scrape] Parsed ${records.length} records.`);
+    }
 
     // Clean up downloaded file
     try {
@@ -688,6 +698,8 @@ export async function scrapeUsageData(
 
 // ─── CSV Parsing ──────────────────────────────────────────────────────────
 
+const REQUIRED_BPU_COLUMNS = ['Start', 'Account Number', 'Meter', 'CCF'];
+
 function parseUsageCsv(filePath: string): MeterReading[] {
   const fileContent = fs.readFileSync(filePath, 'utf-8');
 
@@ -701,6 +713,21 @@ function parseUsageCsv(filePath: string): MeterReading[] {
     skip_empty_lines: true,
     trim: true,
   });
+
+  // If rows exist but the required BPU columns are missing, this is almost
+  // certainly the wrong CSV (e.g. a COMO download). Throw loudly so the
+  // scrape result is "error" instead of a silent "0 records".
+  if (rawRecords.length > 0) {
+    const cols = Object.keys(rawRecords[0] || {});
+    const missing = REQUIRED_BPU_COLUMNS.filter(c => !cols.includes(c));
+    if (missing.length) {
+      throw new Error(
+        `BPU CSV is missing required columns [${missing.join(', ')}]. ` +
+          `Got columns: [${cols.join(', ')}]. ` +
+          `This usually means the downloaded file was overwritten by another scraper.`
+      );
+    }
+  }
 
   const results: MeterReading[] = [];
 
