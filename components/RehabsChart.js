@@ -15,15 +15,19 @@ import { RECHARTS_THEME } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 
 const STATUS_COLORS = {
+  'Notice': '#fb923c',
+  'Eviction': '#f43f5e',
   'Not Started': '#ef4444',
   'Waiting': '#f97316',
-  'Back Burner': '#fb923c',
+  'Back Burner': '#fdba74',
   'In Progress': '#eab308',
   'Supervisor Onboard': '#a855f7',
   'Complete': '#22c55e'
 };
 
 const STATUS_ORDER = [
+  'Notice',
+  'Eviction',
   'Not Started',
   'Supervisor Onboard',
   'Back Burner',
@@ -32,7 +36,7 @@ const STATUS_ORDER = [
   'Complete'
 ];
 
-// Map database column names to display names
+// Map database column names to display names (for historical snapshot data)
 const DB_TO_DISPLAY = {
   'not_started': 'Not Started',
   'supervisor_onboard': 'Supervisor Onboard',
@@ -46,8 +50,8 @@ const DB_TO_DISPLAY = {
 const VACANT_PREFIX = 'vacant_';
 
 export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty = 'all' }) {
-  // Only include currently vacant units in chart calculations (exclude notice/eviction)
-  const rehabs = allRehabs.filter(r => r.source_type === 'vacancy');
+  // Use all in-progress rehabs for today's data point
+  const rehabs = allRehabs.filter(r => r.status === 'in_progress' || !r.status);
   const [selectedStatuses, setSelectedStatuses] = useState(['In Progress', 'Complete']);
   const [timeRange, setTimeRange] = useState('30'); // days
   const [historyData, setHistoryData] = useState([]);
