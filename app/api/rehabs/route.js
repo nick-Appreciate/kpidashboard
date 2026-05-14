@@ -199,10 +199,12 @@ export async function GET(request) {
           }
         }
 
-        // When a unit transitions to 'notice', default rehab_status to 'Notice'
-        // (if still at a non-started, non-locked status)
-        if (currentVacancy.source_type === 'notice' && ['Not Started', 'Back Burner'].includes(rehab.rehab_status)) {
-          updateFields.rehab_status = 'Notice';
+        // When a unit transitions to 'notice' or 'eviction', default rehab_status
+        // to the matching pre-vacancy status (if still at a non-started, non-locked status)
+        const PRE_VACANCY_DEFAULTS = { notice: 'Notice', eviction: 'Eviction' };
+        const newDefault = PRE_VACANCY_DEFAULTS[currentVacancy.source_type];
+        if (newDefault && ['Not Started', 'Back Burner', 'Notice', 'Eviction'].includes(rehab.rehab_status)) {
+          updateFields.rehab_status = newDefault;
         }
 
         await supabase
@@ -279,7 +281,7 @@ export async function GET(request) {
           property: vacancy.property,
           unit: vacancy.unit,
           status: 'in_progress',
-          rehab_status: isVacantRented ? 'Rented' : vacancy.source_type === 'notice' ? 'Notice' : 'Not Started',
+          rehab_status: isVacantRented ? 'Rented' : vacancy.source_type === 'notice' ? 'Notice' : vacancy.source_type === 'eviction' ? 'Eviction' : 'Not Started',
           source_type: vacancy.source_type,
           vacancy_start_date: vacancy.vacancy_start_date,
           move_out_date: vacancy.move_out_date,

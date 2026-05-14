@@ -124,7 +124,7 @@ export default function RehabsDashboard() {
     setOnboardingForm({
       contractor: '',
       goal_completion_date: '',
-      rehab_status: vacancy.source_type === 'notice' ? 'Notice' : 'Not Started',
+      rehab_status: vacancy.source_type === 'notice' ? 'Notice' : vacancy.source_type === 'eviction' ? 'Eviction' : 'Not Started',
     });
     setShowOnboarding(true);
   };
@@ -230,6 +230,8 @@ export default function RehabsDashboard() {
         return 'bg-blue-500/20 text-blue-400';
       case 'Notice':
         return 'bg-orange-400/20 text-orange-300';
+      case 'Eviction':
+        return 'bg-rose-600/20 text-rose-400';
       default:
         return 'bg-white/10 text-slate-400';
     }
@@ -285,8 +287,11 @@ export default function RehabsDashboard() {
     );
   }
 
+  // Statuses that represent pre-vacancy holding states — excluded from "In Rehab" counts/filters
+  const PRE_VACANCY_STATUSES = ['Notice', 'Eviction'];
+
   // Status order for sorting
-  const statusOrder = ['Notice', 'Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
+  const statusOrder = ['Notice', 'Eviction', 'Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
 
   // Filter rehabs by selected property and status
   const filteredRehabs = rehabs
@@ -300,9 +305,13 @@ export default function RehabsDashboard() {
     })
     .filter(r => selectedStatus === 'all' || (r.rehab_status || 'Not Started') === selectedStatus);
 
-  // All units for the table view (newVacancies are now auto-created as rehabs with 'Not Started' status)
+  // All units for the table view.
+  // When no specific status filter is active ("all"), exclude pre-vacancy holding
+  // statuses (Notice, Eviction) so the table shows only units actually in rehab.
+  // Selecting a specific status badge (e.g. "Notice") still shows those units.
   const allUnits = filteredRehabs
     .filter(r => r.status === 'in_progress')
+    .filter(r => selectedStatus !== 'all' || !PRE_VACANCY_STATUSES.includes(r.rehab_status || 'Not Started'))
     .sort((a, b) => {
       let comparison = 0;
 
@@ -387,6 +396,7 @@ export default function RehabsDashboard() {
                 options={[
                   { value: 'all', label: 'All Statuses' },
                   { value: 'Notice', label: 'Notice' },
+                  { value: 'Eviction', label: 'Eviction' },
                   { value: 'Not Started', label: 'Not Started' },
                   { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
                   { value: 'Back Burner', label: 'Back Burner' },
@@ -409,9 +419,9 @@ export default function RehabsDashboard() {
 
           {/* Status Counters */}
           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5">
-            {/* Clickable "In Rehab" button — resets all filters to show everything */}
+            {/* Clickable "In Rehab" button — resets filters; excludes Notice/Eviction from count */}
             {(() => {
-              const inRehabCount = filteredRehabs.filter(r => r.status === 'in_progress').length;
+              const inRehabCount = filteredRehabs.filter(r => r.status === 'in_progress' && !PRE_VACANCY_STATUSES.includes(r.rehab_status || 'Not Started')).length;
               const percent = totalUnits > 0 ? ((inRehabCount / totalUnits) * 100).toFixed(1) : 0;
               const isActive = selectedStatus === 'all' && selectedProperty === 'all';
               return (
@@ -429,8 +439,9 @@ export default function RehabsDashboard() {
             })()}
             {(() => {
               const allItems = filteredRehabs.filter(r => r.status === 'in_progress');
+              // Percentages for real rehab statuses are out of the rehab-only total (excl. pre-vacancy)
+              const rehabTotal = allItems.filter(r => !PRE_VACANCY_STATUSES.includes(r.rehab_status || 'Not Started')).length;
               const statusCounts = {};
-              const totalCount = allItems.length;
               statusOrder.forEach(s => { statusCounts[s] = 0; });
               allItems.forEach(item => {
                 const status = item.rehab_status || 'Not Started';
@@ -439,7 +450,9 @@ export default function RehabsDashboard() {
               return statusOrder.map(status => {
                 const count = statusCounts[status];
                 if (count === 0) return null;
-                const percent = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
+                const isPre = PRE_VACANCY_STATUSES.includes(status);
+                // Pre-vacancy badges just show count; rehab badges show % of rehab total
+                const pct = !isPre && rehabTotal > 0 ? ` (${Math.round((count / rehabTotal) * 100)}%)` : '';
                 const isActive = selectedStatus === status;
                 return (
                   <button
@@ -449,7 +462,7 @@ export default function RehabsDashboard() {
                       isActive ? 'ring-1 ring-white/30' : 'opacity-80 hover:opacity-100'
                     }`}
                   >
-                    {status}: {count} ({percent}%)
+                    {status}: {count}{pct}
                   </button>
                 );
               });
@@ -564,6 +577,7 @@ export default function RehabsDashboard() {
                           className={`w-full px-1 py-1 text-xs border-0 rounded text-center font-medium ${getStatusStyle(unit.rehab_status || 'Not Started')} ${unit.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-90' : ''}`}
                         >
                           <option value="Notice" className="bg-surface-overlay text-slate-200">Notice</option>
+                          <option value="Eviction" className="bg-surface-overlay text-slate-200">Eviction</option>
                           <option value="Not Started" className="bg-surface-overlay text-slate-200">Not Started</option>
                           <option value="Supervisor Onboard" className="bg-surface-overlay text-slate-200">Supervisor Onboard</option>
                           <option value="Back Burner" className="bg-surface-overlay text-slate-200">Back Burner</option>
@@ -669,6 +683,7 @@ export default function RehabsDashboard() {
                     searchable={false}
                     options={[
                       { value: 'Notice', label: 'Notice' },
+                      { value: 'Eviction', label: 'Eviction' },
                       { value: 'Not Started', label: 'Not Started' },
                       { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
                       { value: 'Back Burner', label: 'Back Burner' },
