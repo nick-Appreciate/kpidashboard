@@ -124,7 +124,7 @@ export default function RehabsDashboard() {
     setOnboardingForm({
       contractor: '',
       goal_completion_date: '',
-      rehab_status: 'Not Started',
+      rehab_status: vacancy.source_type === 'notice' ? 'Notice' : 'Not Started',
     });
     setShowOnboarding(true);
   };
@@ -228,6 +228,8 @@ export default function RehabsDashboard() {
         return 'bg-red-500/20 text-red-400';
       case 'Rented':
         return 'bg-blue-500/20 text-blue-400';
+      case 'Notice':
+        return 'bg-orange-400/20 text-orange-300';
       default:
         return 'bg-white/10 text-slate-400';
     }
@@ -284,7 +286,7 @@ export default function RehabsDashboard() {
   }
 
   // Status order for sorting
-  const statusOrder = ['Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
+  const statusOrder = ['Notice', 'Not Started', 'Supervisor Onboard', 'Back Burner', 'Waiting', 'In Progress', 'Complete', 'Rented'];
 
   // Filter rehabs by selected property and status
   const filteredRehabs = rehabs
@@ -384,6 +386,7 @@ export default function RehabsDashboard() {
                 onChange={setSelectedStatus}
                 options={[
                   { value: 'all', label: 'All Statuses' },
+                  { value: 'Notice', label: 'Notice' },
                   { value: 'Not Started', label: 'Not Started' },
                   { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
                   { value: 'Back Burner', label: 'Back Burner' },
@@ -406,6 +409,24 @@ export default function RehabsDashboard() {
 
           {/* Status Counters */}
           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5">
+            {/* Clickable "In Rehab" button — resets all filters to show everything */}
+            {(() => {
+              const inRehabCount = filteredRehabs.filter(r => r.status === 'in_progress').length;
+              const percent = totalUnits > 0 ? ((inRehabCount / totalUnits) * 100).toFixed(1) : 0;
+              const isActive = selectedStatus === 'all' && selectedProperty === 'all';
+              return (
+                <button
+                  onClick={() => { setSelectedStatus('all'); setSelectedProperty('all'); }}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'bg-accent/25 text-accent ring-1 ring-accent/40'
+                      : 'bg-white/10 text-slate-400 hover:bg-white/15 hover:text-slate-300'
+                  }`}
+                >
+                  In Rehab: {inRehabCount}/{totalUnits} ({percent}%)
+                </button>
+              );
+            })()}
             {(() => {
               const allItems = filteredRehabs.filter(r => r.status === 'in_progress');
               const statusCounts = {};
@@ -417,24 +438,22 @@ export default function RehabsDashboard() {
               });
               return statusOrder.map(status => {
                 const count = statusCounts[status];
+                if (count === 0) return null;
                 const percent = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
+                const isActive = selectedStatus === status;
                 return (
-                  <div
+                  <button
                     key={status}
-                    className={`px-2 py-1 rounded text-xs font-medium ${getStatusStyle(status)}`}
+                    onClick={() => setSelectedStatus(isActive ? 'all' : status)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${getStatusStyle(status)} ${
+                      isActive ? 'ring-1 ring-white/30' : 'opacity-80 hover:opacity-100'
+                    }`}
                   >
-                    {status}: {count}{count > 0 && ` (${percent}%)`}
-                  </div>
+                    {status}: {count} ({percent}%)
+                  </button>
                 );
               });
             })()}
-            <div className="px-2 py-1 rounded text-xs font-medium bg-white/10 text-slate-400">
-              {(() => {
-                const inRehabCount = filteredRehabs.filter(r => r.status === 'in_progress').length;
-                const percent = totalUnits > 0 ? ((inRehabCount / totalUnits) * 100).toFixed(1) : 0;
-                return `In Rehab: ${inRehabCount}/${totalUnits} (${percent}%)`;
-              })()}
-            </div>
           </div>
         </div>
 
@@ -544,6 +563,7 @@ export default function RehabsDashboard() {
                           disabled={unit.rehab_status === 'Rented'}
                           className={`w-full px-1 py-1 text-xs border-0 rounded text-center font-medium ${getStatusStyle(unit.rehab_status || 'Not Started')} ${unit.rehab_status === 'Rented' ? 'cursor-not-allowed opacity-90' : ''}`}
                         >
+                          <option value="Notice" className="bg-surface-overlay text-slate-200">Notice</option>
                           <option value="Not Started" className="bg-surface-overlay text-slate-200">Not Started</option>
                           <option value="Supervisor Onboard" className="bg-surface-overlay text-slate-200">Supervisor Onboard</option>
                           <option value="Back Burner" className="bg-surface-overlay text-slate-200">Back Burner</option>
@@ -648,6 +668,7 @@ export default function RehabsDashboard() {
                     disabled={editingRehab.rehab_status === 'Rented'}
                     searchable={false}
                     options={[
+                      { value: 'Notice', label: 'Notice' },
                       { value: 'Not Started', label: 'Not Started' },
                       { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
                       { value: 'Back Burner', label: 'Back Burner' },
@@ -742,6 +763,7 @@ export default function RehabsDashboard() {
                   onChange={(val) => setOnboardingForm(prev => ({ ...prev, rehab_status: val }))}
                   searchable={false}
                   options={[
+                    { value: 'Notice', label: 'Notice' },
                     { value: 'Not Started', label: 'Not Started' },
                     { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
                     { value: 'Back Burner', label: 'Back Burner' },

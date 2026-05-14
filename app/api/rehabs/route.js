@@ -199,11 +199,18 @@ export async function GET(request) {
           }
         }
 
+        // When a unit transitions to 'notice', default rehab_status to 'Notice'
+        // (if still at a non-started, non-locked status)
+        if (currentVacancy.source_type === 'notice' && ['Not Started', 'Back Burner'].includes(rehab.rehab_status)) {
+          updateFields.rehab_status = 'Notice';
+        }
+
         await supabase
           .from('rehabs')
           .update(updateFields)
           .eq('id', rehab.id);
         rehab.source_type = currentVacancy.source_type;
+        if (updateFields.rehab_status) rehab.rehab_status = updateFields.rehab_status;
         console.log(`Updated source_type for ${rehab.property} ${rehab.unit} → ${currentVacancy.source_type}`);
       }
 
@@ -272,7 +279,7 @@ export async function GET(request) {
           property: vacancy.property,
           unit: vacancy.unit,
           status: 'in_progress',
-          rehab_status: isVacantRented ? 'Rented' : 'Not Started',
+          rehab_status: isVacantRented ? 'Rented' : vacancy.source_type === 'notice' ? 'Notice' : 'Not Started',
           source_type: vacancy.source_type,
           vacancy_start_date: vacancy.vacancy_start_date,
           move_out_date: vacancy.move_out_date,
