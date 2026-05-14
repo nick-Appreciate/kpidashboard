@@ -305,13 +305,9 @@ export default function RehabsDashboard() {
     })
     .filter(r => selectedStatus === 'all' || (r.rehab_status || 'Not Started') === selectedStatus);
 
-  // All units for the table view.
-  // When no specific status filter is active ("all"), exclude pre-vacancy holding
-  // statuses (Notice, Eviction) so the table shows only units actually in rehab.
-  // Selecting a specific status badge (e.g. "Notice") still shows those units.
+  // All units for the table view — show everything in_progress, status badges filter them.
   const allUnits = filteredRehabs
     .filter(r => r.status === 'in_progress')
-    .filter(r => selectedStatus !== 'all' || !PRE_VACANCY_STATUSES.includes(r.rehab_status || 'Not Started'))
     .sort((a, b) => {
       let comparison = 0;
 
