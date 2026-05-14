@@ -638,7 +638,7 @@ export default function RehabsDashboard() {
         </div>
 
       {/* Rehabs Chart */}
-      <RehabsChart rehabs={filteredRehabs} selectedProperty={selectedProperty} />
+      <RehabsChart rehabs={rehabs} selectedProperty={selectedProperty} />
 
         </div>{/* end scrollable content area */}
       </div>

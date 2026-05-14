@@ -59,7 +59,8 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
       setLoading(true);
       try {
         const params = new URLSearchParams({ days: timeRange });
-        if (selectedProperty && selectedProperty !== 'all' && selectedProperty !== 'portfolio') {
+        // 'farquhar' is a region alias — no per-region snapshots exist, use portfolio-wide
+        if (selectedProperty && selectedProperty !== 'all' && selectedProperty !== 'portfolio' && selectedProperty !== 'farquhar') {
           params.append('property', selectedProperty);
         }
 
