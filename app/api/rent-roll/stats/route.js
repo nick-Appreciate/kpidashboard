@@ -77,12 +77,14 @@ export async function GET(request) {
     
     // Calculate current stats
     const totalUnits = currentData.length;
-    // Occupied = units where someone is physically living (Current, Evict, Notice-Unrented)
+    // Occupied = units where someone is physically living
+    // Notice-Rented: current tenant gave notice but new tenant already signed — current tenant still lives there
     // This matches Appfolio's occupancy calculation
-    const occupiedUnits = currentData.filter(u => 
-      u.status === 'Current' || 
-      u.status === 'Evict' || 
-      u.status === 'Notice-Unrented'
+    const occupiedUnits = currentData.filter(u =>
+      u.status === 'Current' ||
+      u.status === 'Evict' ||
+      u.status === 'Notice-Unrented' ||
+      u.status === 'Notice-Rented'
     ).length;
     const vacantUnits = currentData.filter(u => u.status?.startsWith('Vacant')).length;
     const noticeUnits = currentData.filter(u => u.status?.startsWith('Notice')).length;
@@ -114,8 +116,8 @@ export async function GET(request) {
         propertyOccupancy[prop] = { total: 0, occupied: 0 };
       }
       propertyOccupancy[prop].total++;
-      // Occupied = Current, Evict, or Notice-Unrented (someone physically living there)
-      if (u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented') {
+      // Occupied = Current, Evict, Notice-Unrented, or Notice-Rented (someone physically living there)
+      if (u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented' || u.status === 'Notice-Rented') {
         propertyOccupancy[prop].occupied++;
       }
     });
@@ -223,7 +225,7 @@ export async function GET(request) {
     dataToProcess.forEach(record => {
       const date = record.snapshot_date;
       const isKC = isKCProperty(record.property);
-      const isOccupied = record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented';
+      const isOccupied = record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented' || record.status === 'Notice-Rented';
       const isVacant = record.status?.startsWith('Vacant');
 
       // Portfolio stats
@@ -293,7 +295,7 @@ export async function GET(request) {
         dailyStatsByProperty[key] = { date, property: prop, total: 0, occupied: 0 };
       }
       dailyStatsByProperty[key].total++;
-      if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented') {
+      if (record.status === 'Current' || record.status === 'Evict' || record.status === 'Notice-Unrented' || record.status === 'Notice-Rented') {
         dailyStatsByProperty[key].occupied++;
       }
     });

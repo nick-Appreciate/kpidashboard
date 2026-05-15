@@ -89,7 +89,7 @@ export async function GET(request) {
     
     const totalUnits = currentUnits?.length || 0;
     const currentOccupied = currentUnits?.filter(u =>
-      u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented'
+      u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented' || u.status === 'Notice-Rented'
     ).length || 0;
 
     // Get move-out dates from af_tenant_directory (authoritative source from AppFolio)
@@ -160,7 +160,7 @@ export async function GET(request) {
     // Build occupied unit keys early (for deduplication of move-ins)
     const occupiedUnitKeys = new Set(
       (currentUnits || [])
-        .filter(u => u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented')
+        .filter(u => u.status === 'Current' || u.status === 'Evict' || u.status === 'Notice-Unrented' || u.status === 'Notice-Rented')
         .map(u => `${u.property}||${u.unit}`.toLowerCase())
     );
 
@@ -587,7 +587,7 @@ export async function GET(request) {
             occupiedByDate.set(row.snapshot_date, bucket);
           }
           bucket.total++;
-          if (row.status === 'Current' || row.status === 'Evict' || row.status === 'Notice-Unrented') {
+          if (row.status === 'Current' || row.status === 'Evict' || row.status === 'Notice-Unrented' || row.status === 'Notice-Rented') {
             bucket.occupied.set(`${row.property}||${row.unit}`.toLowerCase(), row.tenant_name || null);
           }
         }
