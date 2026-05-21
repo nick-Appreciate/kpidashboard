@@ -500,8 +500,6 @@ function Legend({ tracked }: { tracked: Worker[] }) {
         <span className="inline-block w-3 h-3 align-middle bg-slate-400 mr-1"></span>
         Work order
       </span>
-      <span className="text-slate-500 ml-2">Target: ≥ {TARGET_LABEL} of clocked time billed</span>
-      <span className="text-amber-300">⚠ &gt;100% = billed exceeds clocked</span>
     </div>
   );
 }
