@@ -65,19 +65,22 @@ export default function BPUUtilitiesDashboard() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [selectedMeter, setSelectedMeter] = useState<MeterSummary | null>(null);
 
+  // Utilities is in the "Administrative" sidebar group — visible to every
+  // authenticated app user. Only the "Private" group is admin-only. So we
+  // just bounce unauthenticated visitors; any signed-in role can view.
   useEffect(() => {
-    if (!authLoading && appUser && appUser.role !== 'admin') {
+    if (!authLoading && !appUser) {
       router.push('/');
     }
   }, [authLoading, appUser, router]);
 
-  // Depend on primitive role value (not the whole appUser object), otherwise every
+  // Depend on primitive sign-in state (not the whole appUser object), otherwise every
   // Supabase onAuthStateChange tick (token refresh, tab visibility, etc.) minted a
   // new object reference and refired this effect — aborting in-flight requests and
   // clearing charts in a loop.
-  const isAdmin = appUser?.role === 'admin';
+  const isSignedIn = !!appUser;
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isSignedIn) return;
 
     const controller = new AbortController();
 
@@ -111,7 +114,7 @@ export default function BPUUtilitiesDashboard() {
       });
 
     return () => controller.abort();
-  }, [isAdmin, timeRange]);
+  }, [isSignedIn, timeRange]);
 
   const handleMeterClick = (meterStr: string) => {
     const m = meters.find(m => m.meter === meterStr);
@@ -126,7 +129,7 @@ export default function BPUUtilitiesDashboard() {
     setActiveTab('overview');
   };
 
-  if (authLoading || appUser?.role !== 'admin') {
+  if (authLoading || !appUser) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-accent" />

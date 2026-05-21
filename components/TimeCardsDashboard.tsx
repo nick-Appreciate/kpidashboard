@@ -298,8 +298,11 @@ export default function TimeCardsDashboard() {
     tech: string; day: string; wo: WorkOrderEntry; x: number; y: number;
   } | null>(null);
 
+  // Time Cards is in the "Administrative" sidebar group, which is visible
+  // to every authenticated app user — only the "Private" group is admin-only.
+  // So we just bounce unauthenticated visitors; any signed-in role can view.
   useEffect(() => {
-    if (!authLoading && appUser && appUser.role !== 'admin') router.push('/');
+    if (!authLoading && !appUser) router.push('/');
   }, [authLoading, appUser, router]);
 
   const fetchData = useCallback(async () => {
@@ -315,7 +318,7 @@ export default function TimeCardsDashboard() {
   }, [days]);
 
   useEffect(() => {
-    if (!authLoading && appUser?.role === 'admin') fetchData();
+    if (!authLoading && appUser) fetchData();
   }, [authLoading, appUser, fetchData]);
 
   // Group rows: a map of day → tech → row
@@ -373,7 +376,7 @@ export default function TimeCardsDashboard() {
   }, [data]);
 
   if (authLoading) return <div className="p-8 text-slate-400">Loading…</div>;
-  if (!appUser || appUser.role !== 'admin') return null;
+  if (!appUser) return null;
 
   const tracked = data?.workers ?? [];
 

@@ -6,10 +6,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '../../../../lib/auth';
+import { requireAuth } from '../../../../lib/auth';
 
+// Time Cards is the maintenance clocked-vs-billed dashboard. It lives under
+// the "Administrative" sidebar group which all authenticated app users can
+// view (only "Private" tabs are admin-only), so we gate on requireAuth, not
+// requireAdmin.
 export async function GET(req: NextRequest) {
-  const auth = await requireAdmin(req);
+  const auth = await requireAuth(req);
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
 

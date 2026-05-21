@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '../../../../lib/auth';
+import { requireAuth } from '../../../../lib/auth';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -62,7 +62,9 @@ interface MeterSummary {
 
 export async function GET(request: Request) {
   try {
-    const auth = await requireAdmin(request);
+    // Utilities lives in the "Administrative" sidebar group, which is open
+    // to all authenticated app users (only "Private" tabs are admin-only).
+    const auth = await requireAuth(request);
     if ('error' in auth) return auth.error;
     const supabase = auth.supabase;
 
