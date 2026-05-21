@@ -164,6 +164,15 @@ export default function SimmonsDepositsDashboard() {
   const [jobsExpanded, setJobsExpanded] = useState(false);
   const [totp, setTotp] = useState<{ code: string; secondsLeft: number } | null>(null);
   const [totpCopied, setTotpCopied] = useState(false);
+  // Local-dev-only features (capture/extract spawning + Chrome launch)
+  // are gated to localhost since they depend on Mac-only shell commands.
+  const [isLocalDev, setIsLocalDev] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const h = window.location.hostname;
+      setIsLocalDev(h === 'localhost' || h === '127.0.0.1' || h.endsWith('.local'));
+    }
+  }, []);
   // Multi-select for bulk resolve
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkResolveOpen, setBulkResolveOpen] = useState(false);
@@ -337,6 +346,7 @@ export default function SimmonsDepositsDashboard() {
 
   useEffect(() => {
     if (!appUser || appUser.role !== 'admin') return;
+    if (!isLocalDev) return; // skip TOTP polling in production
     refreshTotp();
     // Tick locally each second; refresh from server when window expires
     const t = setInterval(() => {
@@ -348,7 +358,7 @@ export default function SimmonsDepositsDashboard() {
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [appUser, refreshTotp]);
+  }, [appUser, refreshTotp, isLocalDev]);
 
   const copyTotp = useCallback(async () => {
     if (!totp) return;
@@ -557,27 +567,31 @@ export default function SimmonsDepositsDashboard() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap items-center">
-            {totp && (
+            {totp && isLocalDev && (
               <TotpBadge code={totp.code} secondsLeft={totp.secondsLeft} copied={totpCopied} onCopy={copyTotp} />
             )}
-            <button
-              onClick={launchChrome}
-              disabled={launchingChrome}
-              title="Open the dedicated debug-profile Chrome window for logging into Simmons"
-              className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded border border-indigo-500 text-white"
-            >
-              {launchingChrome ? 'Launching…' : '🚀 Launch Chrome'}
-            </button>
-            <button
-              onClick={runSync}
-              disabled={syncPhase !== 'idle' || (!!job && job.status === 'running')}
-              title="Capture any new deposits from the logged-in Simmons session, then Claude-extract the new check images"
-              className="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded border border-emerald-500 text-white font-medium"
-            >
-              {syncPhase === 'capture'   ? 'Capturing…' :
-               syncPhase === 'extract'   ? 'Extracting…' :
-               '▶ Sync Deposits'}
-            </button>
+            {isLocalDev && (
+              <button
+                onClick={launchChrome}
+                disabled={launchingChrome}
+                title="Open the dedicated debug-profile Chrome window for logging into Simmons"
+                className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded border border-indigo-500 text-white"
+              >
+                {launchingChrome ? 'Launching…' : '🚀 Launch Chrome'}
+              </button>
+            )}
+            {isLocalDev && (
+              <button
+                onClick={runSync}
+                disabled={syncPhase !== 'idle' || (!!job && job.status === 'running')}
+                title="Capture any new deposits from the logged-in Simmons session, then Claude-extract the new check images"
+                className="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded border border-emerald-500 text-white font-medium"
+              >
+                {syncPhase === 'capture'   ? 'Capturing…' :
+                 syncPhase === 'extract'   ? 'Extracting…' :
+                 '▶ Sync Deposits'}
+              </button>
+            )}
             <button
               onClick={fetchRows}
               disabled={loading}
