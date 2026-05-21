@@ -1176,11 +1176,12 @@ function AfDetailPanel({ state, onClose }: {
     return <div className="p-4 text-sm text-rose-400">Failed to load detail.</div>;
   }
   const { receipt, tenant } = state;
-  const occupancyLedgerUrl = tenant?.occupancy_id && tenant?.tenant_id
-    ? `https://appreciateinc.appfolio.com/occupancies/${tenant.occupancy_id}/selected_tenant/${tenant.tenant_id}/ledger`
-    : tenant?.occupancy_id
-      ? `https://appreciateinc.appfolio.com/occupancies/${tenant.occupancy_id}`
-      : null;
+  // AppFolio's tenant ledger lives on the occupancy page; the user clicks the
+  // Ledger tab once they land there. The /selected_tenant/{id}/ledger URL we
+  // tried earlier 404s — this is the canonical entry point that works.
+  const occupancyUrl = tenant?.occupancy_id
+    ? `https://appreciateinc.appfolio.com/occupancies/${tenant.occupancy_id}`
+    : null;
 
   return (
     <div className="px-4 py-3 text-sm">
@@ -1211,14 +1212,14 @@ function AfDetailPanel({ state, onClose }: {
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {occupancyLedgerUrl ? (
+        {occupancyUrl ? (
           <a
-            href={occupancyLedgerUrl}
+            href={occupancyUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-500 text-white"
           >
-            Open tenant ledger in AppFolio
+            Open in AppFolio
             <span className="text-[10px]">↗</span>
           </a>
         ) : (
