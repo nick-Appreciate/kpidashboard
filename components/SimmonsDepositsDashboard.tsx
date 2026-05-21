@@ -39,6 +39,7 @@ interface ReconcileRow {
   af_tenant_id: number | null;
   af_receipt_id: string | null;
   duplicate_ref: boolean | null;
+  amounts_match: boolean | null;
   resolution: ResolutionInfo | null;
 }
 
