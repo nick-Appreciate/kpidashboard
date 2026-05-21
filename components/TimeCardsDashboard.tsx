@@ -81,9 +81,12 @@ interface ApiResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const TARGET_RATIO = 0.9375;          // 7.5/8 = 93.75% billed / clocked
-const TARGET_RATIO_PCT = TARGET_RATIO * 100;
-const TARGET_LABEL = '7.5/8 (93.75%)';
+// Target band: 95–105% of clocked time billed. Below 95% = under-billing;
+// above 105% = billing exceeds clocked (data-entry error or untimed entries
+// inflating the total).
+const TARGET_RATIO_MIN_PCT = 95;
+const TARGET_RATIO_MAX_PCT = 105;
+const TARGET_LABEL = '95–105%';
 const TZ = 'America/Chicago';         // Will + Brett are in Missouri/Kansas
 const DEFAULT_HOUR_START = 6;         // 6 AM
 const DEFAULT_HOUR_END = 22;          // 10 PM
@@ -106,8 +109,8 @@ const DATE_RANGES = [
 type RatioState = 'none' | 'low' | 'good' | 'over';
 function classifyRatio(ratio: number | null): RatioState {
   if (ratio == null) return 'none';
-  if (ratio > 100) return 'over';
-  if (ratio >= TARGET_RATIO_PCT) return 'good';
+  if (ratio > TARGET_RATIO_MAX_PCT) return 'over';
+  if (ratio >= TARGET_RATIO_MIN_PCT) return 'good';
   return 'low';
 }
 const RATIO_CHIP_CLASSES: Record<RatioState, string> = {
@@ -204,6 +207,64 @@ interface TimeBlock {
   endHour: number;       // exclusive, fractional 0..24
   spillsToNextDay?: boolean;
 }
+/**
+ * Google-Calendar-style lane packing: groups blocks that overlap in time and
+ * assigns each a column (lane) within its overlap group, so they render side
+ * by side at narrower widths instead of stacking on top of each other (which
+ * makes the bottom blocks unclickable).
+ *
+ * Non-overlapping blocks use the full width (totalLanes=1).
+ */
+function packBlocksIntoLanes<T extends { startHour: number; endHour: number }>(
+  blocks: T[]
+): Array<T & { lane: number; totalLanes: number }> {
+  if (blocks.length === 0) return [];
+  const sorted = blocks.slice().sort(
+    (a, b) => a.startHour - b.startHour || a.endHour - b.endHour
+  );
+
+  // Identify overlap groups: sweep left→right, merge intervals
+  const groups: T[][] = [];
+  let cur: T[] = [];
+  let groupEnd = -Infinity;
+  for (const b of sorted) {
+    if (b.startHour >= groupEnd) {
+      if (cur.length) groups.push(cur);
+      cur = [b];
+      groupEnd = b.endHour;
+    } else {
+      cur.push(b);
+      groupEnd = Math.max(groupEnd, b.endHour);
+    }
+  }
+  if (cur.length) groups.push(cur);
+
+  // Assign lanes within each group
+  const result: Array<T & { lane: number; totalLanes: number }> = [];
+  for (const group of groups) {
+    const laneEnds: number[] = [];   // lane[i] = end-hour of last placed block
+    const lanes: number[] = [];
+    for (const b of group) {
+      let lane = -1;
+      for (let i = 0; i < laneEnds.length; i++) {
+        if (laneEnds[i] <= b.startHour) {
+          laneEnds[i] = b.endHour;
+          lane = i;
+          break;
+        }
+      }
+      if (lane === -1) {
+        laneEnds.push(b.endHour);
+        lane = laneEnds.length - 1;
+      }
+      lanes.push(lane);
+    }
+    const totalLanes = laneEnds.length;
+    group.forEach((b, i) => result.push({ ...b, lane: lanes[i], totalLanes }));
+  }
+  return result;
+}
+
 function blocksForDay(startIso: string, endIso: string | null, dayStr: string): TimeBlock[] {
   const startDate = localDateOf(startIso);
   const endDate = endIso ? localDateOf(endIso) : null;
@@ -583,7 +644,7 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
 
   if (!row || ((row.shifts?.length ?? 0) === 0 && (row.work_orders?.length ?? 0) === 0)) {
     return (
-      <div className="w-12 relative border border-slate-900/40 bg-slate-900/20" style={{ height: gridHeight }}>
+      <div className="w-14 relative border border-slate-900/40 bg-slate-900/20" style={{ height: gridHeight }}>
       </div>
     );
   }
@@ -593,7 +654,7 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
     : null;
 
   return (
-    <div className="w-12 relative border border-slate-900/60 bg-slate-900/10" style={{ height: gridHeight }}>
+    <div className="w-14 relative border border-slate-900/60 bg-slate-900/10" style={{ height: gridHeight }}>
       {/* Clocked-in shifts (background outline + light fill) */}
       {(row.shifts || []).map((s, i) => {
         const blocks = blocksForDay(s.start_time, s.end_time, day);
@@ -616,10 +677,11 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
       })}
 
       {/* Work-order blocks (foreground, on top of clocked area).
-          Two kinds: TIMED (has start_time/end_time → renders at the real
-          slot) and UNTIMED (only `hours` recorded → stacks at the start
-          of the day's first clocked shift, with a dashed border to signal
-          "approximate position"). */}
+          Timed blocks render at their actual times; untimed blocks (those
+          AppFolio recorded as just `hours` with no start/end) anchor at the
+          start of the first clocked shift and stack downward.
+          Overlapping blocks are arranged into side-by-side lanes
+          (Google-Calendar style) so each one stays individually clickable. */}
       {(() => {
         const woList = row.work_orders || [];
         const timed = woList.filter((wo) => !!wo.start_time);
@@ -633,31 +695,55 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
             : null;
         let untimedCursor = firstShiftStart != null ? firstShiftStart : 9;
 
-        const renderBlock = (
-          wo: WorkOrderEntry,
-          startHour: number,
-          endHour: number,
-          keyPrefix: string,
-          isApprox: boolean,
-        ) => {
-          const top = (startHour - hourStart) * PX_PER_HOUR;
-          const height = Math.max((endHour - startHour) * PX_PER_HOUR, 4);
-          const bg = colors[woKey(wo)] || '#888';
-          const url = appFolioWoUrl(wo);
+        // Build a flat array of {wo, startHour, endHour, isApprox, key}, then
+        // pack into lanes so overlapping blocks render side by side.
+        interface RawBlock { wo: WorkOrderEntry; startHour: number; endHour: number; isApprox: boolean; key: string; }
+        const raw: RawBlock[] = [];
+
+        timed.forEach((wo, i) => {
+          const blocks = blocksForDay(wo.start_time || '', wo.end_time, day);
+          blocks.forEach((b, j) => {
+            raw.push({ wo, startHour: b.startHour, endHour: b.endHour, isApprox: false, key: `wo-${i}-${j}` });
+          });
+        });
+        untimed.forEach((wo, i) => {
+          const h = num(wo.hours);
+          const s = untimedCursor;
+          const e = Math.min(s + h, 24);
+          raw.push({ wo, startHour: s, endHour: e, isApprox: true, key: `wou-${i}` });
+          untimedCursor = e;
+        });
+
+        const laned = packBlocksIntoLanes(raw);
+
+        return laned.map((b) => {
+          const top = (b.startHour - hourStart) * PX_PER_HOUR;
+          const height = Math.max((b.endHour - b.startHour) * PX_PER_HOUR, 4);
+          const bg = colors[woKey(b.wo)] || '#888';
+          const url = appFolioWoUrl(b.wo);
+          // Within the track's inner area, give each lane an equal share.
+          // Tiny inset between lanes so adjacent blocks are visually separated.
+          const inset = 1;
+          const laneWidthPct = 100 / b.totalLanes;
+          const leftPct = b.lane * laneWidthPct;
           return (
             <div
-              key={keyPrefix}
+              key={b.key}
               role={url ? 'link' : undefined}
               tabIndex={url ? 0 : undefined}
-              className={`absolute left-0.5 right-0.5 rounded-sm shadow-md hover:brightness-125 overflow-hidden ${
+              className={`absolute rounded-sm shadow-md hover:brightness-125 hover:z-10 overflow-hidden ${
                 url ? 'cursor-pointer' : 'cursor-default'
-              } ${isApprox ? 'ring-1 ring-dashed ring-white/40' : ''}`}
+              }`}
               style={{
-                top, height, backgroundColor: bg, zIndex: 2,
-                ...(isApprox ? { border: '1px dashed rgba(255,255,255,0.6)', opacity: 0.92 } : null),
+                top, height,
+                left:  `calc(${leftPct}% + ${inset}px)`,
+                width: `calc(${laneWidthPct}% - ${inset * 2}px)`,
+                backgroundColor: bg,
+                zIndex: 2,
+                ...(b.isApprox ? { border: '1px dashed rgba(255,255,255,0.6)', opacity: 0.92 } : null),
               }}
               onMouseEnter={(e) =>
-                onHover({ tech, day, wo: { ...wo, _approxTime: isApprox } as any, x: e.clientX, y: e.clientY })
+                onHover({ tech, day, wo: { ...b.wo, _approxTime: b.isApprox } as any, x: e.clientX, y: e.clientY })
               }
               onMouseLeave={() => onHover(null)}
               onClick={() => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); }}
@@ -668,35 +754,19 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
                 }
               }}
             >
-              {height >= 24 && (
+              {/* Only show labels if there's room AND we're on a single-lane block.
+                  When packed into lanes the columns get too narrow for text. */}
+              {height >= 24 && b.totalLanes === 1 && (
                 <div className="text-[8.5px] text-white/95 font-medium px-1 truncate leading-tight">
-                  {isApprox ? '≈ ' : ''}#{wo.work_order_number || wo.work_order_id}
+                  {b.isApprox ? '≈ ' : ''}#{b.wo.work_order_number || b.wo.work_order_id}
                 </div>
               )}
-              {height >= 36 && wo.unit && (
-                <div className="text-[8px] text-white/80 px-1 truncate leading-tight">{wo.unit}</div>
+              {height >= 36 && b.totalLanes === 1 && b.wo.unit && (
+                <div className="text-[8px] text-white/80 px-1 truncate leading-tight">{b.wo.unit}</div>
               )}
             </div>
           );
-        };
-
-        const els: React.ReactNode[] = [];
-        // Render TIMED blocks at their real slots
-        timed.forEach((wo, i) => {
-          const blocks = blocksForDay(wo.start_time || '', wo.end_time, day);
-          blocks.forEach((b, j) => {
-            els.push(renderBlock(wo, b.startHour, b.endHour, `wo-${i}-${j}`, false));
-          });
         });
-        // Render UNTIMED blocks anchored at the first shift, stacking down
-        untimed.forEach((wo, i) => {
-          const h = num(wo.hours);
-          const s = untimedCursor;
-          const e = Math.min(s + h, 24);
-          els.push(renderBlock(wo, s, e, `wou-${i}`, true));
-          untimedCursor = e;
-        });
-        return els;
       })()}
 
       {/* Ratio chip at the top of the track. Over-100% billing is flagged
