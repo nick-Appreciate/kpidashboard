@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../lib/auth';
+import { supabaseAdmin } from '../../../../lib/supabase';
+
+// Use service-role client for storage signed URLs. Admin auth is already
+// verified at the API layer; the service-role bypass avoids any RLS edge
+// cases with the user-scoped JWT against the storage bucket.
+function storageClient() {
+  return supabaseAdmin ?? null;
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
+  const storage = storageClient() ?? supabase; // fallback to user client
 
   const { searchParams } = new URL(req.url);
   const mode = searchParams.get('mode') || 'deposits';
@@ -29,11 +38,11 @@ export async function GET(req: NextRequest) {
     const imagesWithUrls = await Promise.all((images || []).map(async (img) => {
       let front_url = null, back_url = null;
       if (img.front_image_path) {
-        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
+        const { data } = await storage.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
         front_url = data?.signedUrl || null;
       }
       if (img.back_image_path) {
-        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
+        const { data } = await storage.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
         back_url = data?.signedUrl || null;
       }
       return { ...img, front_url, back_url };
@@ -56,11 +65,11 @@ export async function GET(req: NextRequest) {
     const imagesWithUrls = await Promise.all((images || []).map(async (img) => {
       let front_url = null, back_url = null;
       if (img.front_image_path) {
-        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
+        const { data } = await storage.storage.from('simmons-checks').createSignedUrl(img.front_image_path, 3600);
         front_url = data?.signedUrl || null;
       }
       if (img.back_image_path) {
-        const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
+        const { data } = await storage.storage.from('simmons-checks').createSignedUrl(img.back_image_path, 3600);
         back_url = data?.signedUrl || null;
       }
       return { ...img, front_url, back_url };
@@ -237,16 +246,17 @@ function buildSummary(rows: any[]) {
   };
 }
 
-async function attachSignedUrls(supabase: any, rows: any[]) {
+// (helper not currently called; takes any Supabase-like client with .storage)
+async function attachSignedUrls(client: any, rows: any[]) {
   return Promise.all(rows.map(async (row) => {
     if (!row.front_image_path && !row.back_image_path) return row;
     let front_url = null, back_url = null;
     if (row.front_image_path) {
-      const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(row.front_image_path, 3600);
+      const { data } = await client.storage.from('simmons-checks').createSignedUrl(row.front_image_path, 3600);
       front_url = data?.signedUrl || null;
     }
     if (row.back_image_path) {
-      const { data } = await supabase.storage.from('simmons-checks').createSignedUrl(row.back_image_path, 3600);
+      const { data } = await client.storage.from('simmons-checks').createSignedUrl(row.back_image_path, 3600);
       back_url = data?.signedUrl || null;
     }
     return { ...row, front_url, back_url };
