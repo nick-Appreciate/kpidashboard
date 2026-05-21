@@ -114,10 +114,10 @@ function classifyRatio(ratio: number | null): RatioState {
   return 'low';
 }
 const RATIO_CHIP_CLASSES: Record<RatioState, string> = {
-  none: 'bg-slate-800 text-slate-400',
-  low:  'bg-rose-900/80 text-rose-200',
-  good: 'bg-emerald-900/80 text-emerald-200',
-  over: 'bg-amber-900/80 text-amber-200',
+  none: 'bg-slate-800/80 text-slate-400 ring-1 ring-slate-700/60',
+  low:  'bg-rose-500/15 text-rose-200 ring-1 ring-rose-500/40',
+  good: 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/40',
+  over: 'bg-amber-500/15 text-amber-200 ring-1 ring-amber-500/50',
 };
 const RATIO_TEXT_CLASSES: Record<RatioState, string> = {
   none: 'text-slate-500',
@@ -774,14 +774,21 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
         const state = classifyRatio(ratio);
         return (
           <div
-            className={`absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold z-10 px-1 py-0.5 rounded ${RATIO_CHIP_CLASSES[state]}`}
+            className={`absolute top-1 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums shadow-sm backdrop-blur-sm ${RATIO_CHIP_CLASSES[state]}`}
             title={
               state === 'over' ? `${ratio.toFixed(1)}% — billing exceeds clocked time`
               : state === 'low'  ? `${ratio.toFixed(1)}% — below ${TARGET_LABEL} target`
               : `${ratio.toFixed(1)}%`
             }
           >
-            {Math.round(ratio)}%{state === 'over' ? ' ⚠' : ''}
+            {state === 'over' && (
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            )}
+            <span>{Math.round(ratio)}%</span>
           </div>
         );
       })()}
