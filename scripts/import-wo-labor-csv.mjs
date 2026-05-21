@@ -140,11 +140,15 @@ function canonicalRowHash({ technician, date_worked, work_order_number, hours, s
   const text = await readFile(csvPath, 'utf8');
   const rows = parseCsv(text);
   const headerRow = rows[0];
+  // Older exports omit the trailing "Work Order ID" column; new exports include it.
+  // We auto-detect by header length and pull col 15 (Work Order ID) when present.
+  const hasWorkOrderId = headerRow.length >= 16 && headerRow[15] === 'Work Order ID';
   const expectedCols = [
     'Work Order Number', 'Date', 'Maintenance Tech', 'Property', 'Unit',
     'Start Time', 'End Time', 'Worked Hours', 'Billable Hours',
     'Hours Difference', 'Work Order Status', 'Description', 'Last Edited By',
-    'Last Bill Created At', 'Work Order Issue'
+    'Last Bill Created At', 'Work Order Issue',
+    ...(hasWorkOrderId ? ['Work Order ID'] : []),
   ];
   console.log('Header:', headerRow.length, 'cols');
   console.log('Mode:', DRY_RUN ? 'DRY RUN' : 'LIVE');
@@ -179,6 +183,11 @@ function canonicalRowHash({ technician, date_worked, work_order_number, hours, s
     const last_edited_by = r[12].trim() || null;
     const last_bill_created_at = parseUSDate(r[13]);
     const work_order_issue = r[14]?.trim() || null;
+    // New CSV exports include the integer work_order_id as col 15
+    const work_order_id_raw = hasWorkOrderId ? (r[15] ?? '').trim() : '';
+    const work_order_id = work_order_id_raw && /^\d+$/.test(work_order_id_raw)
+      ? work_order_id_raw
+      : null;
 
     // work_order_number is "{service_request_id}-{idx}" — derive the SR
     // prefix so AppFolio deep-links work for CSV-imported rows too.
@@ -187,6 +196,7 @@ function canonicalRowHash({ technician, date_worked, work_order_number, hours, s
 
     const raw = {
       work_order_number,
+      work_order_id,
       service_request_id,
       date,
       maintenance_tech: technician,
@@ -209,8 +219,9 @@ function canonicalRowHash({ technician, date_worked, work_order_number, hours, s
     records.push({
       raw,
       technician,
-      // We don't have work_order_id from the CSV (only the WO number)
-      work_order_id: null,
+      // Use work_order_id from the CSV if the new column is present;
+      // otherwise leave null (older CSV exports didn't have it).
+      work_order_id,
       date_worked: date,
       hours: worked_hours,
       // row_hash gets set by the DB trigger (af_wo_labor_set_hash_trigger).

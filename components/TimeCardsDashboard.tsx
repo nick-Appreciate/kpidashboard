@@ -89,10 +89,11 @@ const DEFAULT_HOUR_START = 6;         // 6 AM
 const DEFAULT_HOUR_END = 22;          // 10 PM
 const PX_PER_HOUR = 36;
 const DATE_RANGES = [
-  { key: 7,  label: '7d' },
-  { key: 14, label: '14d' },
-  { key: 30, label: '30d' },
-  { key: 60, label: '60d' },
+  { key: 7,   label: '7d' },
+  { key: 14,  label: '14d' },
+  { key: 30,  label: '30d' },
+  { key: 60,  label: '60d' },
+  { key: 180, label: 'All' },  // ~6 months — covers the whole CSV backfill window
 ];
 
 // Two colour palettes — one per tech. Each palette has many distinct colours so

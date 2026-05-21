@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const supabase = auth.supabase;
 
   const { searchParams } = new URL(req.url);
-  const days = Math.min(parseInt(searchParams.get('days') || '14', 10) || 14, 180);
+  const days = Math.min(parseInt(searchParams.get('days') || '14', 10) || 14, 730);
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   // Pull tracked workers + day rollup
