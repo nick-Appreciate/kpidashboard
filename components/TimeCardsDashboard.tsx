@@ -93,8 +93,35 @@ const DATE_RANGES = [
   { key: 14,  label: '14d' },
   { key: 30,  label: '30d' },
   { key: 60,  label: '60d' },
-  { key: 180, label: 'All' },  // ~6 months — covers the whole CSV backfill window
+  { key: 365, label: 'All' },  // a year — comfortably covers the CSV backfill window
 ];
+
+/**
+ * Tri-state ratio classification.
+ *  - 'low':   under target (not billing enough)
+ *  - 'good':  ≥ target and ≤ 100% (on track)
+ *  - 'over':  > 100% — billing more than clocked time, almost certainly an
+ *             error (forgot to clock in, double-logged on different days, etc.)
+ */
+type RatioState = 'none' | 'low' | 'good' | 'over';
+function classifyRatio(ratio: number | null): RatioState {
+  if (ratio == null) return 'none';
+  if (ratio > 100) return 'over';
+  if (ratio >= TARGET_RATIO_PCT) return 'good';
+  return 'low';
+}
+const RATIO_CHIP_CLASSES: Record<RatioState, string> = {
+  none: 'bg-slate-800 text-slate-400',
+  low:  'bg-rose-900/80 text-rose-200',
+  good: 'bg-emerald-900/80 text-emerald-200',
+  over: 'bg-amber-900/80 text-amber-200',
+};
+const RATIO_TEXT_CLASSES: Record<RatioState, string> = {
+  none: 'text-slate-500',
+  low:  'text-rose-300',
+  good: 'text-emerald-300',
+  over: 'text-amber-300',
+};
 
 // Two colour palettes — one per tech. Each palette has many distinct colours so
 // individual work orders are easily distinguishable.
@@ -323,8 +350,14 @@ export default function TimeCardsDashboard() {
           {tracked.map(w => {
             const s = perWorkerSummary[w.name] || { clocked: 0, billed: 0, days: 0 };
             const ratio = s.clocked > 0 ? (s.billed / s.clocked) * 100 : 0;
-            const ratioGood = ratio >= TARGET_RATIO_PCT;
+            const ratioState = classifyRatio(ratio);
             const palette = PALETTE_BY_TECH[w.name]?.[0] ?? '#10b981';
+            const ratioCardClass = ({
+              none: 'bg-slate-800/40 text-slate-300 border border-slate-700/50',
+              low:  'bg-rose-900/40 text-rose-300 border border-rose-700/50',
+              good: 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50',
+              over: 'bg-amber-900/40 text-amber-300 border border-amber-700/50',
+            } as const)[ratioState];
             return (
               <div key={w.worker_id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
                 <div className="flex items-baseline justify-between gap-3 mb-2">
@@ -335,10 +368,8 @@ export default function TimeCardsDashboard() {
                     </h3>
                     <div className="text-xs text-slate-500">{w.work_email}</div>
                   </div>
-                  <div className={`px-2 py-0.5 rounded text-xs font-semibold ${ratioGood
-                    ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-700/50'
-                    : 'bg-rose-900/40 text-rose-300 border border-rose-700/50'}`}>
-                    {ratio.toFixed(1)}% billed
+                  <div className={`px-2 py-0.5 rounded text-xs font-semibold ${ratioCardClass}`}>
+                    {ratio.toFixed(1)}% billed{ratioState === 'over' ? ' ⚠' : ''}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3 text-xs">
@@ -409,6 +440,7 @@ function Legend({ tracked }: { tracked: Worker[] }) {
         Work order
       </span>
       <span className="text-slate-500 ml-2">Target: ≥ {TARGET_LABEL} of clocked time billed</span>
+      <span className="text-amber-300">⚠ &gt;100% = billed exceeds clocked</span>
     </div>
   );
 }
@@ -667,16 +699,24 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
         return els;
       })()}
 
-      {/* Ratio chip at the top of the track */}
-      {ratio != null && (
-        <div
-          className={`absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold z-10 px-1 py-0.5 rounded ${
-            ratio >= TARGET_RATIO_PCT ? 'bg-emerald-900/80 text-emerald-200' : 'bg-rose-900/80 text-rose-200'
-          }`}
-        >
-          {Math.round(ratio)}%
-        </div>
-      )}
+      {/* Ratio chip at the top of the track. Over-100% billing is flagged
+          in amber — a tech can't logically bill more time than they clocked,
+          so this signals a likely data-entry error. */}
+      {ratio != null && (() => {
+        const state = classifyRatio(ratio);
+        return (
+          <div
+            className={`absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold z-10 px-1 py-0.5 rounded ${RATIO_CHIP_CLASSES[state]}`}
+            title={
+              state === 'over' ? `${ratio.toFixed(1)}% — billing exceeds clocked time`
+              : state === 'low'  ? `${ratio.toFixed(1)}% — below ${TARGET_LABEL} target`
+              : `${ratio.toFixed(1)}%`
+            }
+          >
+            {Math.round(ratio)}%{state === 'over' ? ' ⚠' : ''}
+          </div>
+        );
+      })()}
     </div>
   );
 }
