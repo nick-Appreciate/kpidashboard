@@ -571,13 +571,25 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
           const top = (b.startHour - hourStart) * PX_PER_HOUR;
           const height = Math.max((b.endHour - b.startHour) * PX_PER_HOUR, 4);
           const bg = colors[woKey(wo)] || '#888';
+          const url = wo.work_order_id ? `https://appreciateinc.appfolio.com/work_orders/${wo.work_order_id}` : null;
           return (
             <div
               key={`wo-${i}-${j}`}
-              className="absolute left-0.5 right-0.5 rounded-sm shadow-md hover:brightness-125 cursor-default overflow-hidden"
+              role={url ? 'link' : undefined}
+              tabIndex={url ? 0 : undefined}
+              className={`absolute left-0.5 right-0.5 rounded-sm shadow-md hover:brightness-125 overflow-hidden ${url ? 'cursor-pointer' : 'cursor-default'}`}
               style={{ top, height, backgroundColor: bg, zIndex: 2 }}
               onMouseEnter={(e) => onHover({ tech, day, wo, x: e.clientX, y: e.clientY })}
               onMouseLeave={() => onHover(null)}
+              onClick={() => {
+                if (url) window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              onKeyDown={(e) => {
+                if (url && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }
+              }}
             >
               {height >= 24 && (
                 <div className="text-[8.5px] text-white/95 font-medium px-1 truncate leading-tight">
