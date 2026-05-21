@@ -564,26 +564,54 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
         });
       })}
 
-      {/* Work-order blocks (foreground, on top of clocked area) */}
-      {(row.work_orders || []).map((wo, i) => {
-        const blocks = blocksForDay(wo.start_time || '', wo.end_time, day);
-        return blocks.map((b, j) => {
-          const top = (b.startHour - hourStart) * PX_PER_HOUR;
-          const height = Math.max((b.endHour - b.startHour) * PX_PER_HOUR, 4);
+      {/* Work-order blocks (foreground, on top of clocked area).
+          Two kinds: TIMED (has start_time/end_time → renders at the real
+          slot) and UNTIMED (only `hours` recorded → stacks at the start
+          of the day's first clocked shift, with a dashed border to signal
+          "approximate position"). */}
+      {(() => {
+        const woList = row.work_orders || [];
+        const timed = woList.filter((wo) => !!wo.start_time);
+        const untimed = woList.filter((wo) => !wo.start_time && num(wo.hours) > 0);
+
+        // For untimed blocks, anchor at the first shift's start hour (or 9 AM
+        // if no shifts on this day). Stack downward in WO order.
+        const firstShiftStart =
+          row.shifts?.[0]?.start_time != null
+            ? hourOfDay(row.shifts[0].start_time)
+            : null;
+        let untimedCursor = firstShiftStart != null ? firstShiftStart : 9;
+
+        const renderBlock = (
+          wo: WorkOrderEntry,
+          startHour: number,
+          endHour: number,
+          keyPrefix: string,
+          isApprox: boolean,
+        ) => {
+          const top = (startHour - hourStart) * PX_PER_HOUR;
+          const height = Math.max((endHour - startHour) * PX_PER_HOUR, 4);
           const bg = colors[woKey(wo)] || '#888';
-          const url = wo.work_order_id ? `https://appreciateinc.appfolio.com/work_orders/${wo.work_order_id}` : null;
+          const url = wo.work_order_id
+            ? `https://appreciateinc.appfolio.com/work_orders/${wo.work_order_id}`
+            : null;
           return (
             <div
-              key={`wo-${i}-${j}`}
+              key={keyPrefix}
               role={url ? 'link' : undefined}
               tabIndex={url ? 0 : undefined}
-              className={`absolute left-0.5 right-0.5 rounded-sm shadow-md hover:brightness-125 overflow-hidden ${url ? 'cursor-pointer' : 'cursor-default'}`}
-              style={{ top, height, backgroundColor: bg, zIndex: 2 }}
-              onMouseEnter={(e) => onHover({ tech, day, wo, x: e.clientX, y: e.clientY })}
-              onMouseLeave={() => onHover(null)}
-              onClick={() => {
-                if (url) window.open(url, '_blank', 'noopener,noreferrer');
+              className={`absolute left-0.5 right-0.5 rounded-sm shadow-md hover:brightness-125 overflow-hidden ${
+                url ? 'cursor-pointer' : 'cursor-default'
+              } ${isApprox ? 'ring-1 ring-dashed ring-white/40' : ''}`}
+              style={{
+                top, height, backgroundColor: bg, zIndex: 2,
+                ...(isApprox ? { border: '1px dashed rgba(255,255,255,0.6)', opacity: 0.92 } : null),
               }}
+              onMouseEnter={(e) =>
+                onHover({ tech, day, wo: { ...wo, _approxTime: isApprox } as any, x: e.clientX, y: e.clientY })
+              }
+              onMouseLeave={() => onHover(null)}
+              onClick={() => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); }}
               onKeyDown={(e) => {
                 if (url && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault();
@@ -593,7 +621,7 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
             >
               {height >= 24 && (
                 <div className="text-[8.5px] text-white/95 font-medium px-1 truncate leading-tight">
-                  #{wo.work_order_number || wo.work_order_id}
+                  {isApprox ? '≈ ' : ''}#{wo.work_order_number || wo.work_order_id}
                 </div>
               )}
               {height >= 36 && wo.unit && (
@@ -601,8 +629,26 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
               )}
             </div>
           );
+        };
+
+        const els: React.ReactNode[] = [];
+        // Render TIMED blocks at their real slots
+        timed.forEach((wo, i) => {
+          const blocks = blocksForDay(wo.start_time || '', wo.end_time, day);
+          blocks.forEach((b, j) => {
+            els.push(renderBlock(wo, b.startHour, b.endHour, `wo-${i}-${j}`, false));
+          });
         });
-      })}
+        // Render UNTIMED blocks anchored at the first shift, stacking down
+        untimed.forEach((wo, i) => {
+          const h = num(wo.hours);
+          const s = untimedCursor;
+          const e = Math.min(s + h, 24);
+          els.push(renderBlock(wo, s, e, `wou-${i}`, true));
+          untimedCursor = e;
+        });
+        return els;
+      })()}
 
       {/* Ratio chip at the top of the track */}
       {ratio != null && (
@@ -618,20 +664,24 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
   );
 }
 
-function Tooltip({ x, y, tech, day, wo }: { x: number; y: number; tech: string; day: string; wo: WorkOrderEntry; }) {
+function Tooltip({ x, y, tech, day, wo }: { x: number; y: number; tech: string; day: string; wo: WorkOrderEntry & { _approxTime?: boolean }; }) {
   const woRef = wo.work_order_number || wo.work_order_id || '—';
   const url = wo.work_order_id ? `https://appreciateinc.appfolio.com/work_orders/${wo.work_order_id}` : null;
+  const isApprox = !!wo._approxTime;
   return (
     <div
       className="fixed z-50 pointer-events-none bg-slate-900 border border-slate-700 rounded p-2 shadow-xl text-xs max-w-xs"
       style={{ left: Math.min(x + 12, window.innerWidth - 260), top: Math.max(y - 8, 8) }}
     >
       <div className="font-semibold text-slate-100 mb-0.5">{tech} · {fmtDate(day)}</div>
-      <div className="text-slate-400">WO #{woRef} · <span className="text-emerald-300 font-semibold">{fmtHours(num(wo.hours))}h</span></div>
+      <div className="text-slate-400">
+        WO #{woRef} · <span className="text-emerald-300 font-semibold">{fmtHours(num(wo.hours))}h</span>
+        {isApprox && <span className="ml-1 text-amber-300">≈ no clock-in/out</span>}
+      </div>
       {wo.property && <div className="text-slate-300 truncate">{wo.property}{wo.unit ? ` · ${wo.unit}` : ''}</div>}
       {wo.issue && <div className="text-slate-300">{wo.issue}</div>}
       {wo.status && <div className="text-slate-500 text-[10px] mt-0.5">{wo.status}</div>}
-      {url && <div className="text-indigo-300 text-[10px] mt-0.5">↗ Click in AppFolio</div>}
+      {url && <div className="text-indigo-300 text-[10px] mt-0.5">↗ Click to open in AppFolio</div>}
     </div>
   );
 }
