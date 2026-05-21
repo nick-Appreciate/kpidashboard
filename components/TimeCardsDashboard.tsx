@@ -63,8 +63,11 @@ interface ApiResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const TARGET_HOURS = 7.5;             // billed-hours threshold
-const MAX_BAR_HOURS = 10;             // y-axis ceiling for the bar viewport
+const TARGET_HOURS = 7.5;             // billed-hours threshold (per day)
+const TZ = 'America/Chicago';         // Will + Brett are in Missouri/Kansas
+const DEFAULT_HOUR_START = 6;         // 6 AM
+const DEFAULT_HOUR_END = 22;          // 10 PM
+const PX_PER_HOUR = 36;
 const DATE_RANGES = [
   { key: 7,  label: '7d' },
   { key: 14, label: '14d' },
@@ -85,7 +88,6 @@ const PALETTE_BY_TECH: Record<string, string[]> = {
   ],
 };
 const FALLBACK_PALETTE = ['#10b981', '#34d399', '#059669', '#047857'];
-const UNBILLED_COLOR = '#7f1d1d'; // dark red for the gap at top
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +121,59 @@ function colorForWo(tech: string, idx: number): string {
 // Stable WO id for picking a colour even when the order changes
 function woKey(wo: WorkOrderEntry): string {
   return wo.work_order_id || wo.work_order_number || (wo.issue || '?');
+}
+
+/** Convert ISO timestamp → fractional hour-of-day (0..24) in the team's local TZ. */
+function hourOfDay(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(d);
+  const get = (t: string) => parseInt(parts.find(p => p.type === t)?.value || '0', 10);
+  let h = get('hour'); if (h === 24) h = 0;
+  const m = get('minute');
+  const s = get('second');
+  return h + m / 60 + s / 3600;
+}
+
+/** Local date (YYYY-MM-DD) of an ISO timestamp in the team's local TZ. */
+function localDateOf(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d);
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/** Returns a list of time-blocks for a given local day, clipped to that day. */
+interface TimeBlock {
+  startHour: number;     // inclusive, fractional 0..24
+  endHour: number;       // exclusive, fractional 0..24
+  spillsToNextDay?: boolean;
+}
+function blocksForDay(startIso: string, endIso: string | null, dayStr: string): TimeBlock[] {
+  const startDate = localDateOf(startIso);
+  const endDate = endIso ? localDateOf(endIso) : null;
+  const startHour = hourOfDay(startIso) ?? 0;
+  const endHour = endIso ? (hourOfDay(endIso) ?? 24) : new Date().getTime() && hourOfDay(new Date().toISOString())!;
+  // entirely within one day
+  if (startDate === dayStr && (!endDate || endDate === dayStr)) {
+    return [{ startHour, endHour: Math.max(endHour, startHour + 0.05) }];
+  }
+  // shift starts on this day, ends on a later day → clip to 24
+  if (startDate === dayStr && endDate && endDate !== dayStr) {
+    return [{ startHour, endHour: 24, spillsToNextDay: true }];
+  }
+  // shift started on a previous day, ends on this day → starts at 0
+  if (endDate === dayStr && startDate !== dayStr) {
+    return [{ startHour: 0, endHour }];
+  }
+  return [];
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -317,18 +372,22 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function Legend({ tracked }: { tracked: Worker[] }) {
   return (
-    <div className="flex gap-3 text-xs text-slate-400">
+    <div className="flex gap-3 text-xs text-slate-400 items-center flex-wrap">
       {tracked.map(w => (
         <span key={w.worker_id} className="inline-flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: PALETTE_BY_TECH[w.name]?.[0] || '#888' }} />
           {w.name.split(' ')[0]}
         </span>
       ))}
-      <span className="inline-flex items-center gap-1.5">
-        <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: UNBILLED_COLOR }} />
-        Unbilled
+      <span className="text-slate-500 ml-2">
+        <span className="inline-block w-3 h-3 align-middle border border-dashed border-slate-500 mr-1"></span>
+        Clocked
       </span>
-      <span className="text-slate-500 ml-2">Dashed line = {TARGET_HOURS}h target</span>
+      <span className="text-slate-500">
+        <span className="inline-block w-3 h-3 align-middle bg-slate-400 mr-1"></span>
+        Work order
+      </span>
+      <span className="text-slate-500 ml-2">Target ≥ {TARGET_HOURS}h/day billed</span>
     </div>
   );
 }
@@ -340,23 +399,45 @@ function CalendarGrid({ dayList, tracked, byDay, perWoColorMap, onHover }: {
   perWoColorMap: Record<string, Record<string, string>>;
   onHover: (h: { tech: string; day: string; wo: WorkOrderEntry; x: number; y: number; } | null) => void;
 }) {
-  const PX_PER_HOUR = 22;
-  const BAR_HEIGHT = MAX_BAR_HOURS * PX_PER_HOUR;
+  // Auto-expand the visible hour range if data falls outside the default
+  const { hourStart, hourEnd } = useMemo(() => {
+    let earliest = DEFAULT_HOUR_START;
+    let latest = DEFAULT_HOUR_END;
+    for (const day of Object.keys(byDay)) {
+      for (const row of Object.values(byDay[day])) {
+        for (const s of row.shifts || []) {
+          const sh = hourOfDay(s.start_time); if (sh != null) earliest = Math.min(earliest, sh);
+          const eh = hourOfDay(s.end_time);   if (eh != null) latest   = Math.max(latest,   eh);
+        }
+        for (const wo of row.work_orders || []) {
+          const sh = hourOfDay(wo.start_time); if (sh != null) earliest = Math.min(earliest, sh);
+          const eh = hourOfDay(wo.end_time);   if (eh != null) latest   = Math.max(latest,   eh);
+        }
+      }
+    }
+    return {
+      hourStart: Math.max(0, Math.floor(earliest)),
+      hourEnd:   Math.min(24, Math.ceil(latest + 0.5)),
+    };
+  }, [byDay]);
+
+  const totalHours = Math.max(hourEnd - hourStart, 4);
+  const gridHeight = totalHours * PX_PER_HOUR;
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex gap-1" style={{ minHeight: BAR_HEIGHT + 80 }}>
-        {/* Y-axis labels */}
-        <div className="shrink-0 w-10 pt-1 relative" style={{ height: BAR_HEIGHT }}>
-          {Array.from({ length: MAX_BAR_HOURS + 1 }, (_, i) => i).map((i) => {
-            const h = MAX_BAR_HOURS - i;
+      <div className="flex" style={{ minHeight: gridHeight + 60 }}>
+        {/* Y-axis (hours of day) */}
+        <div className="shrink-0 w-12 relative pt-2" style={{ height: gridHeight }}>
+          {Array.from({ length: totalHours + 1 }, (_, i) => hourStart + i).map((h) => {
+            const top = (h - hourStart) * PX_PER_HOUR;
             return (
               <div
                 key={h}
-                className="absolute text-[10px] text-slate-500 right-1"
-                style={{ top: i * PX_PER_HOUR - 6 }}
+                className="absolute text-[10px] text-slate-500 right-1.5"
+                style={{ top: top - 6 }}
               >
-                {h % 2 === 0 ? `${h}h` : ''}
+                {h === 24 ? '12 AM' : h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`}
               </div>
             );
           })}
@@ -370,8 +451,9 @@ function CalendarGrid({ dayList, tracked, byDay, perWoColorMap, onHover }: {
             tracked={tracked}
             rows={byDay[d] || {}}
             perWoColorMap={perWoColorMap}
-            pxPerHour={PX_PER_HOUR}
-            barHeight={BAR_HEIGHT}
+            hourStart={hourStart}
+            hourEnd={hourEnd}
+            gridHeight={gridHeight}
             onHover={onHover}
           />
         ))}
@@ -380,128 +462,139 @@ function CalendarGrid({ dayList, tracked, byDay, perWoColorMap, onHover }: {
   );
 }
 
-function DayColumn({ day, tracked, rows, perWoColorMap, pxPerHour, barHeight, onHover }: {
+function DayColumn({ day, tracked, rows, perWoColorMap, hourStart, hourEnd, gridHeight, onHover }: {
   day: string;
   tracked: Worker[];
   rows: Record<string, DayRow>;
   perWoColorMap: Record<string, Record<string, string>>;
-  pxPerHour: number;
-  barHeight: number;
+  hourStart: number;
+  hourEnd: number;
+  gridHeight: number;
   onHover: (h: { tech: string; day: string; wo: WorkOrderEntry; x: number; y: number; } | null) => void;
 }) {
   const isWeekend = ['Sat', 'Sun'].includes(dayOfWeek(day));
+  const isToday = (() => {
+    const today = localDateOf(new Date().toISOString());
+    return today === day;
+  })();
+
   return (
-    <div className={`flex flex-col shrink-0 items-center ${isWeekend ? 'opacity-50' : ''}`}>
-      {/* Bars container */}
-      <div className="relative flex items-end gap-0.5 px-0.5" style={{ height: barHeight }}>
-        {/* Target line */}
-        <div
-          className="absolute left-0 right-0 border-t border-dashed border-emerald-400/40 pointer-events-none"
-          style={{ top: (MAX_BAR_HOURS - TARGET_HOURS) * pxPerHour, zIndex: 1 }}
-        />
+    <div className={`flex flex-col shrink-0 ${isWeekend ? 'opacity-60' : ''}`}>
+      {/* Day header */}
+      <div className={`text-center pb-1 mb-0.5 border-b ${isToday ? 'border-indigo-500' : 'border-slate-800'}`}>
+        <div className={`text-[10px] font-medium ${isToday ? 'text-indigo-300' : 'text-slate-300'}`}>
+          {fmtDate(day)}
+        </div>
+        <div className={`text-[9px] ${isToday ? 'text-indigo-400' : 'text-slate-600'}`}>
+          {dayOfWeek(day)}
+        </div>
+      </div>
+
+      {/* Two tech tracks side-by-side */}
+      <div className="flex gap-px relative" style={{ height: gridHeight }}>
+        {/* Hour grid lines (every hour) */}
+        {Array.from({ length: hourEnd - hourStart + 1 }, (_, i) => i).map((i) => (
+          <div
+            key={i}
+            className="absolute left-0 right-0 border-t border-slate-800/60 pointer-events-none"
+            style={{ top: i * PX_PER_HOUR }}
+          />
+        ))}
         {tracked.map((w) => (
-          <TechBar
+          <TechTrack
             key={w.worker_id}
             tech={w.name}
             day={day}
             row={rows[w.name]}
             colors={perWoColorMap[w.name] || {}}
-            pxPerHour={pxPerHour}
+            hourStart={hourStart}
+            gridHeight={gridHeight}
             onHover={onHover}
           />
         ))}
-      </div>
-
-      {/* Day label */}
-      <div className="text-[10px] text-slate-500 mt-1 text-center">
-        <div className="font-medium">{fmtDate(day)}</div>
-        <div className="text-slate-600">{dayOfWeek(day)}</div>
       </div>
     </div>
   );
 }
 
-function TechBar({ tech, day, row, colors, pxPerHour, onHover }: {
+function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
   tech: string;
   day: string;
   row: DayRow | undefined;
   colors: Record<string, string>;
-  pxPerHour: number;
+  hourStart: number;
+  gridHeight: number;
   onHover: (h: { tech: string; day: string; wo: WorkOrderEntry; x: number; y: number; } | null) => void;
 }) {
-  const clocked = num(row?.clocked_hours);
-  const billed = num(row?.billed_hours);
-  const total = Math.max(clocked, billed); // billed can exceed clocked sometimes
-  const billedHeight = billed * pxPerHour;
-  const totalHeight = total * pxPerHour;
-  const unbilled = Math.max(clocked - billed, 0);
-  const unbilledHeight = unbilled * pxPerHour;
-  // billed_pct may be null/string; gracefully numerify
-  const ratio = clocked > 0 ? (billed / clocked) * 100 : null;
-  const ratioGood = ratio == null ? null : ratio >= 93.75;
+  const techPalette = PALETTE_BY_TECH[tech]?.[0] ?? '#888';
 
-  if (!row || (clocked === 0 && billed === 0)) {
+  if (!row || ((row.shifts?.length ?? 0) === 0 && (row.work_orders?.length ?? 0) === 0)) {
     return (
-      <div
-        className="w-7 border-l border-r border-slate-800/60 border-b border-b-slate-700 rounded-b-sm bg-slate-900/30"
-        style={{ height: '100%' }}
-        title={`${tech} – no time logged on ${day}`}
-      />
+      <div className="w-12 relative border border-slate-900/40 bg-slate-900/20" style={{ height: gridHeight }}>
+      </div>
     );
   }
 
-  // Build segments bottom-up from billed work orders, then unbilled on top
-  const wos = (row.work_orders || []).slice().sort((a, b) => num(a.hours) - num(b.hours)); // smallest first → looks tidier bottom-up
+  const ratio = num(row.clocked_hours) > 0
+    ? (num(row.billed_hours) / num(row.clocked_hours)) * 100
+    : null;
+
   return (
-    <div
-      className="w-7 relative cursor-default"
-      title={`${tech} · ${day} · clocked ${fmtHours(clocked)}h · billed ${fmtHours(billed)}h · ${ratio?.toFixed(0) ?? '—'}%`}
-      style={{ height: totalHeight, alignSelf: 'flex-end' }}
-    >
-      {/* unbilled (top) */}
-      {unbilled > 0 && (
-        <div
-          className="absolute left-0 right-0 border-t border-rose-700/40"
-          style={{
-            top: 0,
-            height: unbilledHeight,
-            backgroundColor: UNBILLED_COLOR,
-            opacity: 0.85,
-          }}
-          title={`${fmtHours(unbilled)}h unbilled`}
-        />
-      )}
-      {/* WO segments (filling the billed portion from bottom up) */}
-      {(() => {
-        let bottomOffset = 0;
-        return wos.map((wo, i) => {
-          const h = num(wo.hours);
-          if (h === 0) return null;
-          const segHeight = h * pxPerHour;
-          const segStyle = {
-            bottom: bottomOffset,
-            height: segHeight,
-            backgroundColor: colors[woKey(wo)] || '#888',
-          };
-          bottomOffset += segHeight;
+    <div className="w-12 relative border border-slate-900/60 bg-slate-900/10" style={{ height: gridHeight }}>
+      {/* Clocked-in shifts (background outline + light fill) */}
+      {(row.shifts || []).map((s, i) => {
+        const blocks = blocksForDay(s.start_time, s.end_time, day);
+        return blocks.map((b, j) => {
+          const top = (b.startHour - hourStart) * PX_PER_HOUR;
+          const height = Math.max((b.endHour - b.startHour) * PX_PER_HOUR, 1);
           return (
             <div
-              key={`${wo.work_order_id || wo.work_order_number || i}-${i}`}
-              className="absolute left-0 right-0 hover:brightness-125 transition-all"
-              style={segStyle}
-              onMouseEnter={(e) =>
-                onHover({ tech, day, wo, x: e.clientX, y: e.clientY })
-              }
-              onMouseLeave={() => onHover(null)}
+              key={`shift-${i}-${j}`}
+              className="absolute left-0 right-0 border border-dashed pointer-events-none"
+              style={{
+                top, height,
+                backgroundColor: `${techPalette}22`,
+                borderColor: `${techPalette}66`,
+              }}
+              title={`Clocked: ${s.start_time?.slice(11, 16)} – ${s.end_time?.slice(11, 16) || 'now'}`}
             />
           );
         });
-      })()}
-      {/* Ratio chip at the top */}
+      })}
+
+      {/* Work-order blocks (foreground, on top of clocked area) */}
+      {(row.work_orders || []).map((wo, i) => {
+        const blocks = blocksForDay(wo.start_time || '', wo.end_time, day);
+        return blocks.map((b, j) => {
+          const top = (b.startHour - hourStart) * PX_PER_HOUR;
+          const height = Math.max((b.endHour - b.startHour) * PX_PER_HOUR, 4);
+          const bg = colors[woKey(wo)] || '#888';
+          return (
+            <div
+              key={`wo-${i}-${j}`}
+              className="absolute left-0.5 right-0.5 rounded-sm shadow-md hover:brightness-125 cursor-default overflow-hidden"
+              style={{ top, height, backgroundColor: bg, zIndex: 2 }}
+              onMouseEnter={(e) => onHover({ tech, day, wo, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => onHover(null)}
+            >
+              {height >= 24 && (
+                <div className="text-[8.5px] text-white/95 font-medium px-1 truncate leading-tight">
+                  #{wo.work_order_number || wo.work_order_id}
+                </div>
+              )}
+              {height >= 36 && wo.unit && (
+                <div className="text-[8px] text-white/80 px-1 truncate leading-tight">{wo.unit}</div>
+              )}
+            </div>
+          );
+        });
+      })}
+
+      {/* Ratio chip at the top of the track */}
       {ratio != null && (
         <div
-          className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-semibold ${
-            ratioGood ? 'text-emerald-300' : 'text-rose-300'
+          className={`absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold z-10 px-1 py-0.5 rounded ${
+            ratio >= 93.75 ? 'bg-emerald-900/80 text-emerald-200' : 'bg-rose-900/80 text-rose-200'
           }`}
         >
           {Math.round(ratio)}%
