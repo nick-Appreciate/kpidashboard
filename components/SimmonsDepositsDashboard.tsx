@@ -1176,9 +1176,12 @@ function AfDetailPanel({ state, onClose }: {
     return <div className="p-4 text-sm text-rose-400">Failed to load detail.</div>;
   }
   const { receipt, tenant } = state;
-  // AppFolio's tenant ledger lives on the occupancy page; the user clicks the
-  // Ledger tab once they land there. The /selected_tenant/{id}/ledger URL we
-  // tried earlier 404s — this is the canonical entry point that works.
+  // AppFolio's "Tenant Ledger" report URL filters by party_id, which is the
+  // tenant_id prefixed with "t_". Query syntax is filters[party_ids][]=t_<id>
+  // (the brackets must stay percent-encoded for AppFolio's parser to accept).
+  const tenantLedgerUrl = tenant?.tenant_id
+    ? `https://appreciateinc.appfolio.com/buffered_reports/tenant_ledger?filters%5Bparty_ids%5D%5B%5D=t_${tenant.tenant_id}`
+    : null;
   const occupancyUrl = tenant?.occupancy_id
     ? `https://appreciateinc.appfolio.com/occupancies/${tenant.occupancy_id}`
     : null;
@@ -1212,18 +1215,30 @@ function AfDetailPanel({ state, onClose }: {
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
+        {tenantLedgerUrl ? (
+          <a
+            href={tenantLedgerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-500 text-white"
+          >
+            Open tenant ledger in AppFolio
+            <span className="text-[10px]">↗</span>
+          </a>
+        ) : null}
         {occupancyUrl ? (
           <a
             href={occupancyUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-500 text-white"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-slate-700 hover:bg-slate-800 text-slate-200"
           >
-            Open in AppFolio
+            Open occupancy
             <span className="text-[10px]">↗</span>
           </a>
-        ) : (
-          <span className="text-xs text-slate-500 italic">No occupancy_id on file — can't deep-link to AppFolio.</span>
+        ) : null}
+        {!tenantLedgerUrl && !occupancyUrl && (
+          <span className="text-xs text-slate-500 italic">No tenant_id or occupancy_id on file — can't deep-link.</span>
         )}
       </div>
     </div>
