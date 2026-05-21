@@ -119,6 +119,22 @@ function sha256(s) {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 
+/**
+ * Canonical hash for af_work_order_labor.row_hash so that API syncs and CSV
+ * imports of the SAME logical entry produce IDENTICAL hashes — re-runs are
+ * idempotent and there's no cross-source duplication.
+ */
+function canonicalRowHash({ technician, date_worked, work_order_number, hours, start_time }) {
+  const key = [
+    technician ?? '',
+    date_worked ?? '',
+    work_order_number ?? '',
+    hours == null ? '' : String(hours),
+    start_time ?? '',
+  ].join('|');
+  return crypto.createHash('md5').update(key).digest('hex');
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 (async () => {
   const text = await readFile(csvPath, 'utf8');
@@ -197,7 +213,9 @@ function sha256(s) {
       work_order_id: null,
       date_worked: date,
       hours: worked_hours,
-      row_hash: sha256(JSON.stringify(raw)),
+      // row_hash gets set by the DB trigger (af_wo_labor_set_hash_trigger).
+      // We pass a placeholder so the column isn't NULL on its way through.
+      row_hash: '__placeholder__',
       synced_at: new Date().toISOString(),
     });
   }

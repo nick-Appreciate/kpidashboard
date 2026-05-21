@@ -4,12 +4,16 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // ─────────────────────────────────────────────────────────────────────────
 // sync-work-order-labor
 // Pulls AppFolio's `work_order_labor_summary` report and upserts into
-// af_work_order_labor. Column mapping based on actual report schema:
+// af_work_order_labor. Column mapping:
 //   maintenance_tech → technician
-//   work_order_id    → work_order_id (the integer id, not _number)
+//   work_order_id    → work_order_id (integer)
 //   date             → date_worked
 //   worked_hours     → hours
-// Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD query for narrowing the window.
+//
+// row_hash is set canonically by a DB trigger (af_wo_labor_set_hash_trigger),
+// so we pass any placeholder here and let the DB enforce uniqueness across
+// API syncs and CSV imports. The trigger keys on (technician, date,
+// work_order_number, round(hours*60), start_time).
 // ─────────────────────────────────────────────────────────────────────────
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -60,12 +64,6 @@ function parseNumber(s: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
-async function sha256Hex(s: string): Promise<string> {
-  const data = new TextEncoder().encode(s);
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 Deno.serve(async (req: Request) => {
   try {
     const url = new URL(req.url);
@@ -79,7 +77,7 @@ Deno.serve(async (req: Request) => {
     let inserted = 0, skipped = 0;
     for (const row of rows) {
       const r = row as Record<string, unknown>;
-      const hash = await sha256Hex(JSON.stringify(r));
+      // row_hash is computed by the DB trigger — pass a placeholder
       const { error } = await sb.from('af_work_order_labor').upsert(
         {
           raw: r,
@@ -87,7 +85,7 @@ Deno.serve(async (req: Request) => {
           work_order_id: r.work_order_id == null ? null : String(r.work_order_id),
           date_worked: parseDate(r.date),
           hours: parseNumber(r.worked_hours ?? r.hours),
-          row_hash: hash,
+          row_hash: '__placeholder__', // overwritten by af_wo_labor_set_hash_trigger
           synced_at: new Date().toISOString(),
         },
         { onConflict: 'row_hash' }
