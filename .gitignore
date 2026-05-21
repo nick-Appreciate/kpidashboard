@@ -65,3 +65,13 @@ bpu-bot/
 .session-state.json
 output/
 supabase/.temp/
+
+# Simmons-bot exploration scripts kept locally
+simmons-bot/.scratch/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Local capex scratch files
+capex_2025_by_unit.xlsx
+capex_2025_unified.csv
