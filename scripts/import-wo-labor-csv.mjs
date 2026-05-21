@@ -164,8 +164,14 @@ function sha256(s) {
     const last_bill_created_at = parseUSDate(r[13]);
     const work_order_issue = r[14]?.trim() || null;
 
+    // work_order_number is "{service_request_id}-{idx}" — derive the SR
+    // prefix so AppFolio deep-links work for CSV-imported rows too.
+    const srMatch = work_order_number && work_order_number.match(/^(\d+)-\d+$/);
+    const service_request_id = srMatch ? srMatch[1] : null;
+
     const raw = {
       work_order_number,
+      service_request_id,
       date,
       maintenance_tech: technician,
       property_name,

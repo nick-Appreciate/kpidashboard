@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 interface WorkOrderEntry {
   work_order_id: string | null;
   work_order_number: string | null;
+  service_request_id: string | null;
   hours: number;
   property: string | null;
   unit: string | null;
@@ -27,6 +28,23 @@ interface WorkOrderEntry {
   status: string | null;
   start_time: string | null;
   end_time: string | null;
+}
+
+/**
+ * Build the AppFolio deep-link for a work-order entry.
+ * - Best: /maintenance/service_requests/{sr}/work_orders/{wo}  (both ids)
+ * - Fallback: /maintenance/service_requests/{sr}                (CSV imports
+ *   only have the SR prefix from the work_order_number, not the WO integer id)
+ * - Returns null if neither is available.
+ */
+function appFolioWoUrl(wo: WorkOrderEntry): string | null {
+  if (wo.service_request_id && wo.work_order_id) {
+    return `https://appreciateinc.appfolio.com/maintenance/service_requests/${wo.service_request_id}/work_orders/${wo.work_order_id}`;
+  }
+  if (wo.service_request_id) {
+    return `https://appreciateinc.appfolio.com/maintenance/service_requests/${wo.service_request_id}`;
+  }
+  return null;
 }
 
 interface Shift {
@@ -592,9 +610,7 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
           const top = (startHour - hourStart) * PX_PER_HOUR;
           const height = Math.max((endHour - startHour) * PX_PER_HOUR, 4);
           const bg = colors[woKey(wo)] || '#888';
-          const url = wo.work_order_id
-            ? `https://appreciateinc.appfolio.com/work_orders/${wo.work_order_id}`
-            : null;
+          const url = appFolioWoUrl(wo);
           return (
             <div
               key={keyPrefix}
@@ -666,7 +682,7 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
 
 function Tooltip({ x, y, tech, day, wo }: { x: number; y: number; tech: string; day: string; wo: WorkOrderEntry & { _approxTime?: boolean }; }) {
   const woRef = wo.work_order_number || wo.work_order_id || '—';
-  const url = wo.work_order_id ? `https://appreciateinc.appfolio.com/work_orders/${wo.work_order_id}` : null;
+  const url = appFolioWoUrl(wo);
   const isApprox = !!wo._approxTime;
   return (
     <div
