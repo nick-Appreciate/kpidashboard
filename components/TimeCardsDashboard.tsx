@@ -63,7 +63,9 @@ interface ApiResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const TARGET_HOURS = 7.5;             // billed-hours threshold (per day)
+const TARGET_RATIO = 0.9375;          // 7.5/8 = 93.75% billed / clocked
+const TARGET_RATIO_PCT = TARGET_RATIO * 100;
+const TARGET_LABEL = '7.5/8 (93.75%)';
 const TZ = 'America/Chicago';         // Will + Brett are in Missouri/Kansas
 const DEFAULT_HOUR_START = 6;         // 6 AM
 const DEFAULT_HOUR_END = 22;          // 10 PM
@@ -276,7 +278,7 @@ export default function TimeCardsDashboard() {
           <div>
             <h1 className="text-2xl font-semibold">Time Cards</h1>
             <p className="text-sm text-slate-400 mt-0.5">
-              Clocked hours (Rippling) vs billed labor on work orders (AppFolio). Target ≥ {TARGET_HOURS}h/day billed.
+              Clocked hours (Rippling) vs billed labor on work orders (AppFolio). Target: <strong>{TARGET_LABEL}</strong> of clocked time billed.
             </p>
           </div>
           <div className="flex gap-2 items-center">
@@ -302,7 +304,7 @@ export default function TimeCardsDashboard() {
           {tracked.map(w => {
             const s = perWorkerSummary[w.name] || { clocked: 0, billed: 0, days: 0 };
             const ratio = s.clocked > 0 ? (s.billed / s.clocked) * 100 : 0;
-            const ratioGood = ratio >= 93.75;
+            const ratioGood = ratio >= TARGET_RATIO_PCT;
             const palette = PALETTE_BY_TECH[w.name]?.[0] ?? '#10b981';
             return (
               <div key={w.worker_id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
@@ -387,7 +389,7 @@ function Legend({ tracked }: { tracked: Worker[] }) {
         <span className="inline-block w-3 h-3 align-middle bg-slate-400 mr-1"></span>
         Work order
       </span>
-      <span className="text-slate-500 ml-2">Target ≥ {TARGET_HOURS}h/day billed</span>
+      <span className="text-slate-500 ml-2">Target: ≥ {TARGET_LABEL} of clocked time billed</span>
     </div>
   );
 }
@@ -594,7 +596,7 @@ function TechTrack({ tech, day, row, colors, hourStart, gridHeight, onHover }: {
       {ratio != null && (
         <div
           className={`absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-bold z-10 px-1 py-0.5 rounded ${
-            ratio >= 93.75 ? 'bg-emerald-900/80 text-emerald-200' : 'bg-rose-900/80 text-rose-200'
+            ratio >= TARGET_RATIO_PCT ? 'bg-emerald-900/80 text-emerald-200' : 'bg-rose-900/80 text-rose-200'
           }`}
         >
           {Math.round(ratio)}%
