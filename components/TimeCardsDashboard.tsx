@@ -538,7 +538,7 @@ function CalendarGrid({ dayList, tracked, byDay, perWoColorMap, onHover }: {
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex" style={{ minHeight: gridHeight + 60 }}>
+      <div className="flex gap-2" style={{ minHeight: gridHeight + 60 }}>
         {/* Y-axis (hours of day) */}
         <div className="shrink-0 w-12 relative pt-2" style={{ height: gridHeight }}>
           {Array.from({ length: totalHours + 1 }, (_, i) => hourStart + i).map((h) => {
