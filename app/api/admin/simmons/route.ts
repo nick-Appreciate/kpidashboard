@@ -81,20 +81,40 @@ export async function GET(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Get earliest AF payment date so the frontend can set a sensible default
-    const { data: afMinRow } = await supabase
-      .from('af_income_register')
-      .select('receipt_date')
-      .gt('receipt_amount', 0)
-      .not('reference', 'is', null)
-      .order('receipt_date', { ascending: true })
-      .limit(1)
-      .single();
+    // Fetch all manual resolutions and merge into rows
+    const { data: resolutions } = await supabase
+      .from('simmons_reconcile_resolutions')
+      .select('id, check_image_id, af_id, resolved_by, resolved_at, notes')
+      .order('resolved_at', { ascending: false });
+
+    const byCheck = new Map<string, any>();
+    const byAf = new Map<string, any>();
+    for (const r of resolutions || []) {
+      if (r.check_image_id) byCheck.set(r.check_image_id, r);
+      if (r.af_id) byAf.set(r.af_id, r);
+    }
+
+    const rowsWithResolution = (raw || []).map((row: any) => {
+      const res =
+        (row.check_image_id && byCheck.get(row.check_image_id)) ||
+        (row.af_id && byAf.get(row.af_id)) ||
+        null;
+      return {
+        ...row,
+        resolution: res
+          ? {
+              id: res.id,
+              resolved_by: res.resolved_by,
+              resolved_at: res.resolved_at,
+              notes: res.notes,
+            }
+          : null,
+      };
+    });
 
     return NextResponse.json({
-      rows: raw || [],
-      summary: buildSummary(raw || []),
-      earliest_af_date: afMinRow?.receipt_date || null,
+      rows: rowsWithResolution,
+      summary: buildSummary(rowsWithResolution),
     });
   }
 
@@ -152,13 +172,66 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ deposits, total: count || 0 });
 }
 
+// ── POST: resolve / unresolve a reconciliation exception ─────────────────
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if ('error' in auth) return auth.error;
+  const supabase = auth.supabase;
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const { action, check_image_id, af_id, notes } = body || {};
+
+  if (action !== 'resolve' && action !== 'unresolve') {
+    return NextResponse.json({ error: 'action must be "resolve" or "unresolve"' }, { status: 400 });
+  }
+  if (!check_image_id && !af_id) {
+    return NextResponse.json({ error: 'either check_image_id or af_id is required' }, { status: 400 });
+  }
+  if (check_image_id && af_id) {
+    return NextResponse.json({ error: 'only one of check_image_id / af_id may be set' }, { status: 400 });
+  }
+
+  if (action === 'resolve') {
+    const { data, error } = await supabase
+      .from('simmons_reconcile_resolutions')
+      .upsert(
+        {
+          check_image_id: check_image_id || null,
+          af_id: af_id || null,
+          resolved_by: auth.appUser.email,
+          notes: (notes || '').toString().trim() || null,
+          resolved_at: new Date().toISOString(),
+        },
+        { onConflict: check_image_id ? 'check_image_id' : 'af_id' }
+      )
+      .select('id, check_image_id, af_id, resolved_by, resolved_at, notes')
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ resolution: data });
+  }
+
+  // action === 'unresolve'
+  let q = supabase.from('simmons_reconcile_resolutions').delete();
+  q = check_image_id ? q.eq('check_image_id', check_image_id) : q.eq('af_id', af_id);
+  const { error } = await q;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildSummary(rows: any[]) {
   return {
     matched:        rows.filter(r => r.status === 'matched').length,
-    simmons_only:   rows.filter(r => r.status === 'simmons_only').length,
-    af_only:        rows.filter(r => r.status === 'af_only').length,
+    simmons_only:   rows.filter(r => r.status === 'simmons_only' && !r.resolution).length,
+    af_only:        rows.filter(r => r.status === 'af_only' && !r.resolution).length,
+    resolved:       rows.filter(r => r.resolution).length,
     amount_diffs:   rows.filter(r => r.status === 'matched' && r.amounts_match === false).length,
     duplicate_refs: rows.filter(r => r.duplicate_ref === true).length,
   };
