@@ -40,6 +40,61 @@ if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
   console.log('   Supabase: ⚠️  not configured (set SUPABASE_URL + SUPABASE_SERVICE_KEY)');
 }
 
+// ─── Sync progress reporting ─────────────────────────────────────────────
+// The dashboard's "Sync Now" button creates a `sync_runs` row and passes
+// run_id to /api/scrape-async / /api/como/scrape-async. We append progress
+// lines to that row via append_sync_log() so the UI can subscribe via
+// Realtime and show a live feed.
+async function logSync(
+  runId: string | undefined | null,
+  service: 'bpu' | 'como' | 'meta',
+  level: 'info' | 'warn' | 'error',
+  message: string,
+  opts: { progressPct?: number; currentStep?: string } = {},
+): Promise<void> {
+  if (!runId || !supabase) return;
+  try {
+    // Use `any` for the rpc args — the supabase-js typings on this side of
+    // the codebase have no generated DB types, so rpc() is typed for the
+    // built-in functions only.
+    const { error } = await (supabase as any).rpc('append_sync_log', {
+      p_run_id: runId,
+      p_service: service,
+      p_level: level,
+      p_message: message,
+      p_progress_pct: opts.progressPct ?? null,
+      p_current_step: opts.currentStep ?? null,
+    });
+    if (error) console.warn('[sync-log] append failed:', error.message);
+  } catch (e: any) {
+    console.warn('[sync-log] rpc threw:', e?.message || e);
+  }
+}
+
+async function markSyncSubrunDone(
+  runId: string | undefined | null,
+  service: 'bpu' | 'como',
+  ok: boolean,
+  stats: Record<string, unknown>,
+): Promise<void> {
+  if (!runId || !supabase) return;
+  try {
+    // Atomic JSONB merge — Postgres-side so two parallel subruns (BPU + COMO)
+    // can't clobber each other's stats entries. A DB trigger
+    // (finalize_sync_run_trigger) flips the parent row to completed/partial/
+    // failed once all expected services have reported in.
+    const { error } = await (supabase as any).rpc('set_sync_run_subrun', {
+      p_run_id: runId,
+      p_service: service,
+      p_ok: ok,
+      p_stats: stats,
+    });
+    if (error) console.warn('[sync-log] subrun write failed:', error.message);
+  } catch (e: any) {
+    console.warn('[sync-log] subrun rpc threw:', e?.message || e);
+  }
+}
+
 // ─── Auth Middleware ──────────────────────────────────────────────────────
 
 function requireAuth(
@@ -193,34 +248,46 @@ app.post('/api/scrape-async', async (req, res) => {
       });
     }
 
-    const { start_date, end_date, dry_run } = req.body || {};
+    const { start_date, end_date, dry_run, run_id } = req.body || {};
 
     // Return immediately — run scrape in background
-    res.json({ triggered: true, start_date, end_date });
+    res.json({ triggered: true, start_date, end_date, run_id });
 
     // Background work
     (async () => {
       try {
         console.log(`[async-scrape] BPU: Starting background scrape (${start_date} to ${end_date})...`);
+        await logSync(run_id, 'bpu', 'info', `Scraping ${start_date} → ${end_date}`, { currentStep: 'BPU: scraping' });
+
         const scrapeResult = await scrapeUsageData(start_date, end_date);
 
         if (!scrapeResult.success) {
           console.error('[async-scrape] BPU scrape failed:', scrapeResult.error);
+          await logSync(run_id, 'bpu', 'error', `Scrape failed: ${scrapeResult.error}`);
+          await markSyncSubrunDone(run_id, 'bpu', false, { error: scrapeResult.error });
           return;
         }
 
         const records = scrapeResult.records;
         console.log(`[async-scrape] BPU: Parsed ${records.length} records.`);
+        await logSync(run_id, 'bpu', 'info', `Parsed ${records.length} records`);
 
         if (dry_run || !supabase || records.length === 0) {
-          console.log(`[async-scrape] BPU: ${dry_run ? 'Dry run' : !supabase ? 'No Supabase' : 'No records'} — skipping upload.`);
+          const reason = dry_run ? 'Dry run' : !supabase ? 'No Supabase' : 'No records';
+          console.log(`[async-scrape] BPU: ${reason} — skipping upload.`);
+          await logSync(run_id, 'bpu', 'info', `${reason} — skipping upload`);
+          await markSyncSubrunDone(run_id, 'bpu', true, { parsed: records.length, uploaded: 0, reason });
           return;
         }
 
         const uploaded = await uploadToSupabase(records);
         console.log(`[async-scrape] BPU: ✅ Uploaded ${uploaded} records to Supabase.`);
+        await logSync(run_id, 'bpu', 'info', `Uploaded ${uploaded} records ✅`);
+        await markSyncSubrunDone(run_id, 'bpu', true, { parsed: records.length, uploaded });
       } catch (err: any) {
         console.error('[async-scrape] BPU background error:', err.message);
+        await logSync(run_id, 'bpu', 'error', `Background error: ${err.message}`);
+        await markSyncSubrunDone(run_id, 'bpu', false, { error: err.message });
       }
     })();
   } catch (err: any) {
@@ -243,34 +310,50 @@ app.post('/api/como/scrape-async', async (req, res) => {
       });
     }
 
-    const { start_date, end_date, dry_run } = req.body || {};
+    const { start_date, end_date, dry_run, run_id } = req.body || {};
 
     // Return immediately
-    res.json({ triggered: true, start_date, end_date });
+    res.json({ triggered: true, start_date, end_date, run_id });
 
     // Background work
     (async () => {
       try {
         console.log(`[async-scrape] COMO: Starting background scrape (${start_date} to ${end_date})...`);
+        await logSync(run_id, 'como', 'info', `Scraping ${start_date} → ${end_date}`, { currentStep: 'COMO: scraping' });
+
         const scrapeResult = await scrapeComoData(start_date, end_date);
 
         if (!scrapeResult.success) {
           console.error('[async-scrape] COMO scrape failed:', scrapeResult.error);
+          await logSync(run_id, 'como', 'error', `Scrape failed: ${scrapeResult.error}`);
+          await markSyncSubrunDone(run_id, 'como', false, { error: scrapeResult.error });
           return;
         }
 
         const records = scrapeResult.records;
         console.log(`[async-scrape] COMO: Parsed ${records.length} records from ${scrapeResult.properties_scraped} properties.`);
+        await logSync(run_id, 'como', 'info', `Parsed ${records.length} records from ${scrapeResult.properties_scraped} properties`);
 
         if (dry_run || !supabase || records.length === 0) {
-          console.log(`[async-scrape] COMO: ${dry_run ? 'Dry run' : !supabase ? 'No Supabase' : 'No records'} — skipping upload.`);
+          const reason = dry_run ? 'Dry run' : !supabase ? 'No Supabase' : 'No records';
+          console.log(`[async-scrape] COMO: ${reason} — skipping upload.`);
+          await logSync(run_id, 'como', 'info', `${reason} — skipping upload`);
+          await markSyncSubrunDone(run_id, 'como', true, {
+            parsed: records.length, uploaded: 0, properties: scrapeResult.properties_scraped, reason,
+          });
           return;
         }
 
         const uploaded = await uploadComoToSupabase(records);
         console.log(`[async-scrape] COMO: ✅ Uploaded ${uploaded} records to Supabase.`);
+        await logSync(run_id, 'como', 'info', `Uploaded ${uploaded} records ✅`);
+        await markSyncSubrunDone(run_id, 'como', true, {
+          parsed: records.length, uploaded, properties: scrapeResult.properties_scraped,
+        });
       } catch (err: any) {
         console.error('[async-scrape] COMO background error:', err.message);
+        await logSync(run_id, 'como', 'error', `Background error: ${err.message}`);
+        await markSyncSubrunDone(run_id, 'como', false, { error: err.message });
       }
     })();
   } catch (err: any) {

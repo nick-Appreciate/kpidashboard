@@ -44,6 +44,9 @@ Deno.serve(async (req: Request) => {
     let startDate: string | undefined;
     let endDate: string | undefined;
     let dryRun = false;
+    // Optional sync_runs.id for live UI progress (passed through to the bot).
+    // Null/undefined when invoked by cron or curl with no body.
+    let runId: string | undefined;
 
     try {
       const body = await req.json();
@@ -51,6 +54,7 @@ Deno.serve(async (req: Request) => {
       if (body.start_date) startDate = body.start_date;
       if (body.end_date) endDate = body.end_date;
       if (body.dry_run) dryRun = body.dry_run;
+      if (body.run_id) runId = String(body.run_id);
     } catch {
       // No body or invalid JSON — use defaults
     }
@@ -98,7 +102,7 @@ Deno.serve(async (req: Request) => {
             Authorization: `Bearer ${botSecret}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun }),
+          body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun, run_id: runId }),
         });
 
         bpuResult = await scrapeRes.json();
@@ -124,7 +128,7 @@ Deno.serve(async (req: Request) => {
             Authorization: `Bearer ${botSecret}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun }),
+          body: JSON.stringify({ start_date: startDate, end_date: endDate, dry_run: dryRun, run_id: runId }),
         });
 
         comoResult = await comoRes.json();
