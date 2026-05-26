@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
@@ -10,7 +10,6 @@ import BPUMeterDetail from './BPUMeterDetail';
 import BPUOccupiedUnits from './BPUOccupiedUnits';
 import BPUSpendVsBaseline, { SpendVsBaselineRow } from './BPUSpendVsBaseline';
 import BPUTotalSpendChart from './BPUTotalSpendChart';
-import UtilitiesSyncCard from './UtilitiesSyncCard';
 
 interface Stats {
   totalMeters: number;
@@ -80,11 +79,12 @@ export default function BPUUtilitiesDashboard() {
   // new object reference and refired this effect — aborting in-flight requests and
   // clearing charts in a loop.
   const isSignedIn = !!appUser;
+  useEffect(() => {
+    if (!isSignedIn) return;
 
-  // Pulled out so the Sync Now button can call it after a sync completes to
-  // refresh charts without a full page reload. Returns the cleanup callback
-  // for the effect to invoke when timeRange changes.
-  const fetchUtilities = useCallback((signal?: AbortSignal) => {
+    const controller = new AbortController();
+
+    // Clear stale data immediately so charts show loading state
     setLoading(true);
     setDailyUsage([]);
     setDailyCost([]);
@@ -94,7 +94,7 @@ export default function BPUUtilitiesDashboard() {
     setOccupiedMetered([]);
     setStats(null);
 
-    fetch(`/api/admin/utilities?days=${timeRange}`, { signal })
+    fetch(`/api/admin/utilities?days=${timeRange}`, { signal: controller.signal })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (!data) return;
@@ -107,24 +107,14 @@ export default function BPUUtilitiesDashboard() {
         setOccupiedMetered(data.occupiedMetered || []);
       })
       .catch(err => {
-        if (err?.name !== 'AbortError') console.error('Error fetching utilities data:', err);
+        if (err.name !== 'AbortError') console.error('Error fetching utilities data:', err);
       })
       .finally(() => {
-        if (!signal?.aborted) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
-  }, [timeRange]);
 
-  useEffect(() => {
-    if (!isSignedIn) return;
-    const controller = new AbortController();
-    fetchUtilities(controller.signal);
     return () => controller.abort();
-  }, [isSignedIn, fetchUtilities]);
-
-  // Called by UtilitiesSyncCard when a sync_runs row flips to completed/partial.
-  const handleSyncComplete = useCallback(() => {
-    fetchUtilities();
-  }, [fetchUtilities]);
+  }, [isSignedIn, timeRange]);
 
   const handleMeterClick = (meterStr: string) => {
     const m = meters.find(m => m.meter === meterStr);
@@ -171,9 +161,6 @@ export default function BPUUtilitiesDashboard() {
           ))}
         </div>
       </div>
-
-      {/* Manual sync trigger with live progress */}
-      <UtilitiesSyncCard onComplete={handleSyncComplete} />
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
