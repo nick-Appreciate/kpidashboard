@@ -79,6 +79,11 @@ export default function InspectionsDashboard() {
   // we surface all inspections for that day in a list modal. Each row in the
   // list opens the existing single-inspection detail modal.
   const [selectedDayInspections, setSelectedDayInspections] = useState(null);
+  // Confirm-before-delete modal. Holds the inspection pending deletion; null
+  // when the modal is closed. We use an in-app modal rather than window.confirm()
+  // so the confirmation matches the rest of the app's dark glass styling.
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Fetch units when property changes in new inspection form
   useEffect(() => {
@@ -235,12 +240,16 @@ export default function InspectionsDashboard() {
     }
   };
 
-  const deleteInspection = async (id) => {
-    const inspection = inspections.find(i => i.id === id);
-    const label = inspection
-      ? `${inspection.type} on ${formatDateCentral(inspection.date)} at ${inspection.time} (${inspection.property_name}${inspection.unit_name ? ' Unit ' + inspection.unit_name : ''})`
-      : 'this inspection';
-    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+  // Request deletion — opens the in-app confirm modal. The actual API call
+  // happens in confirmDeleteInspection() once the user confirms.
+  const requestDeleteInspection = (inspection) => {
+    setPendingDelete(inspection);
+  };
+
+  const confirmDeleteInspection = async () => {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setDeleting(true);
     try {
       const response = await fetch(`/api/inspections?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -257,9 +266,12 @@ export default function InspectionsDashboard() {
         const remaining = prev.inspections.filter(i => i.id !== id);
         return remaining.length === 0 ? null : { ...prev, inspections: remaining };
       });
+      setPendingDelete(null);
     } catch (err) {
       console.error('Error deleting inspection:', err);
       alert(err.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -675,7 +687,7 @@ export default function InspectionsDashboard() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => deleteInspection(inspection.id)}
+                      onClick={() => requestDeleteInspection(inspection)}
                       className="shrink-0 p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-colors"
                       title="Delete inspection"
                     >
@@ -801,7 +813,7 @@ export default function InspectionsDashboard() {
                 </button>
 
                 <button
-                  onClick={() => deleteInspection(selectedInspection.id)}
+                  onClick={() => requestDeleteInspection(selectedInspection)}
                   className="w-full px-4 py-2.5 border border-rose-500/40 text-rose-300 rounded-lg hover:bg-rose-500/10 flex items-center justify-center gap-2 font-medium"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -965,6 +977,76 @@ export default function InspectionsDashboard() {
                   className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
                 >
                   Create Re-Inspection
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal — replaces window.confirm() so the dialog
+            matches the rest of the app's dark glass styling. z-60 so it lands
+            above the day-list modal (z-40) and detail modal (z-50). */}
+        {pendingDelete && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]" onClick={() => !deleting && setPendingDelete(null)}>
+            <div className="glass-card max-w-md w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="bg-rose-500/10 px-6 py-4 border-b border-rose-500/20">
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0 w-10 h-10 rounded-full bg-rose-500/15 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-slate-100">Delete inspection?</h3>
+                    <p className="text-sm text-slate-400 mt-0.5">This cannot be undone.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-1 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-500">Type</span>
+                  <span className="text-slate-200 font-medium text-right">{pendingDelete.type}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-500">When</span>
+                  <span className="text-slate-200 font-medium text-right">
+                    {formatDateCentral(pendingDelete.date)} at {pendingDelete.time}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-500">Property</span>
+                  <span className="text-slate-200 font-medium text-right">
+                    {pendingDelete.property_name}
+                    {pendingDelete.unit_name && <span className="text-slate-500"> — Unit {pendingDelete.unit_name}</span>}
+                  </span>
+                </div>
+              </div>
+
+              <div className="px-6 pb-6 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingDelete(null)}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 border border-[var(--glass-border)] text-slate-300 rounded-lg hover:bg-white/5 font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteInspection}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleting ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      </svg>
+                      Deleting…
+                    </>
+                  ) : 'Delete'}
                 </button>
               </div>
             </div>
