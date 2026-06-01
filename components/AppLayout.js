@@ -4,7 +4,9 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from './Sidebar';
+import GlobalFilterBar from './GlobalFilterBar';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import { GlobalFilterProvider } from '../contexts/GlobalFilterContext';
 import { SWRProvider } from '../lib/swr';
 
 const Particles = dynamic(() => import('./reactbits/Particles'), { ssr: false });
@@ -80,6 +82,11 @@ function LayoutContent({ children }) {
             <Particles count={40} color="#06b6d4" speed={0.2} opacity={0.08} size={1} />
           </div>
         )}
+        {/* Global filter — pinned top-right on every authenticated page.
+            Pages that opt in read from useGlobalFilter() / useGlobalFilterFn(). */}
+        <div className="fixed top-3 right-3 z-30">
+          <GlobalFilterBar />
+        </div>
         {children}
       </main>
     </div>
@@ -90,7 +97,9 @@ export default function AppLayout({ children }) {
   return (
     <AuthProvider>
       <SWRProvider>
-        <LayoutContent>{children}</LayoutContent>
+        <GlobalFilterProvider>
+          <LayoutContent>{children}</LayoutContent>
+        </GlobalFilterProvider>
       </SWRProvider>
     </AuthProvider>
   );
