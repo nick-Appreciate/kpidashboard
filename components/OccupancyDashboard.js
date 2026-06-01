@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 import { fetcher } from '../lib/swr';
+import OccupancyRentRollChart from './OccupancyRentRollChart';
 
 // Helper: aggregate daily data points into weekly (one per week, using last value in each week)
 const aggregateWeekly = (dataPoints, dateKey = 'date', valueKey = 'occupancyRate') => {
@@ -1109,7 +1110,14 @@ export default function OccupancyDashboard() {
               <h2 className="text-lg font-semibold text-slate-100 mb-4 pb-2 border-b border-[var(--glass-border)]">Occupancy Trend (Historical)</h2>
               <canvas ref={occupancyChartRef}></canvas>
             </div>
-            
+
+            {/* Rent Roll Over Time — monthly income from AppFolio cash flow,
+                filterable by GL account. Self-contained, owns its own
+                fetching + chart. */}
+            <div className="mb-6">
+              <OccupancyRentRollChart />
+            </div>
+
             {/* Occupancy Projections — Unified Chart */}
             {projections && (
               <div className="glass-card p-6 mb-6">
