@@ -75,6 +75,10 @@ export default function InspectionsDashboard() {
   const [editForm, setEditForm] = useState({});
   const [editUnits, setEditUnits] = useState([]);
   const [loadingEditUnits, setLoadingEditUnits] = useState(false);
+  // When the user clicks "+N more" on a calendar day (or the day chip itself),
+  // we surface all inspections for that day in a list modal. Each row in the
+  // list opens the existing single-inspection detail modal.
+  const [selectedDayInspections, setSelectedDayInspections] = useState(null);
 
   // Fetch units when property changes in new inspection form
   useEffect(() => {
@@ -227,6 +231,34 @@ export default function InspectionsDashboard() {
       setSelectedInspection(null);
     } catch (err) {
       console.error('Error updating inspection:', err);
+      alert(err.message);
+    }
+  };
+
+  const deleteInspection = async (id) => {
+    const inspection = inspections.find(i => i.id === id);
+    const label = inspection
+      ? `${inspection.type} on ${formatDateCentral(inspection.date)} at ${inspection.time} (${inspection.property_name}${inspection.unit_name ? ' Unit ' + inspection.unit_name : ''})`
+      : 'this inspection';
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    try {
+      const response = await fetch(`/api/inspections?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const j = await response.json().catch(() => ({}));
+        throw new Error(j.error || `Failed to delete inspection (HTTP ${response.status})`);
+      }
+      setInspections(prev => prev.filter(i => i.id !== id));
+      // Close any modals that were showing this inspection
+      setSelectedInspection(null);
+      setSelectedDayInspections(prev => {
+        if (!prev) return null;
+        const remaining = prev.inspections.filter(i => i.id !== id);
+        return remaining.length === 0 ? null : { ...prev, inspections: remaining };
+      });
+    } catch (err) {
+      console.error('Error deleting inspection:', err);
       alert(err.message);
     }
   };
@@ -495,8 +527,20 @@ export default function InspectionsDashboard() {
                   >
                     {day && (
                       <>
-                        <div className={`text-sm font-medium mb-2 ${isToday ? 'text-accent font-bold' : 'text-slate-300'}`}>
-                          {day.getDate()}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className={`text-sm font-medium ${isToday ? 'text-accent font-bold' : 'text-slate-300'}`}>
+                            {day.getDate()}
+                          </div>
+                          {dayInspections.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDayInspections({ date: day, inspections: dayInspections })}
+                              className="text-[10px] text-slate-500 hover:text-accent font-medium px-1.5 py-0.5 rounded hover:bg-white/5 transition-colors"
+                              title="View all inspections this day"
+                            >
+                              {dayInspections.length} total
+                            </button>
+                          )}
                         </div>
                         <div className="space-y-1.5">
                           {dayInspections.slice(0, 3).map(inspection => (
@@ -513,9 +557,13 @@ export default function InspectionsDashboard() {
                             </div>
                           ))}
                           {dayInspections.length > 3 && (
-                            <div className="text-xs text-slate-500 font-medium">
-                              +{dayInspections.length - 3} more
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDayInspections({ date: day, inspections: dayInspections })}
+                              className="w-full text-left text-xs text-accent hover:text-accent-light font-medium px-2.5 py-1.5 rounded-md hover:bg-white/5 transition-colors"
+                            >
+                              +{dayInspections.length - 3} more →
+                            </button>
                           )}
                         </div>
                       </>
@@ -577,6 +625,70 @@ export default function InspectionsDashboard() {
             ))}
           </div>
         </div>
+
+        {/* Day Inspection List Modal — shown when "+N more" or "N total" is clicked
+            on a calendar day. Lists every inspection for that day, each clickable
+            to open the single-inspection detail modal underneath. */}
+        {selectedDayInspections && !selectedInspection && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40" onClick={() => setSelectedDayInspections(null)}>
+            <div className="glass-card max-w-lg w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="bg-surface-overlay px-6 py-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-100">
+                    {selectedDayInspections.date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    {selectedDayInspections.inspections.length} inspection{selectedDayInspections.inspections.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+                <button onClick={() => setSelectedDayInspections(null)} className="text-slate-400 hover:text-slate-200">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto divide-y divide-[var(--glass-border)]">
+                {selectedDayInspections.inspections.map(inspection => (
+                  <div
+                    key={inspection.id}
+                    className="p-4 hover:bg-white/5 flex items-center gap-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedInspection(inspection)}
+                      className="flex-1 flex items-center gap-3 text-left"
+                    >
+                      <div className={`w-3 h-3 rounded-full shrink-0 ${getInspectionColor(inspection.type)}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-100">{inspection.time}</span>
+                          <span className="text-xs text-slate-500">{inspection.type}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getStatusColor(inspection.status)}`}>
+                            {inspection.status}
+                          </span>
+                        </div>
+                        <div className="text-sm text-slate-300 truncate">
+                          {inspection.property_name}
+                          {inspection.unit_name && <span className="text-slate-500"> — Unit {inspection.unit_name}</span>}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteInspection(inspection.id)}
+                      className="shrink-0 p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-colors"
+                      title="Delete inspection"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Inspection Details Modal */}
         {selectedInspection && !isEditing && (
@@ -686,6 +798,16 @@ export default function InspectionsDashboard() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
                   Schedule Re-Inspection
+                </button>
+
+                <button
+                  onClick={() => deleteInspection(selectedInspection.id)}
+                  className="w-full px-4 py-2.5 border border-rose-500/40 text-rose-300 rounded-lg hover:bg-rose-500/10 flex items-center justify-center gap-2 font-medium"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                  </svg>
+                  Delete Inspection
                 </button>
               </div>
             </div>
