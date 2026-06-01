@@ -84,28 +84,6 @@ function formatMonth(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
 
-/**
- * Format a snapshot date for labels. Given an ISO synced_at timestamp from
- * the API (e.g. "2026-02-20T23:59:59.999Z"), return a short label like
- * "Feb 20, 26" that communicates both the month and the day we snapshotted.
- *
- * Falls back to period-start month formatting if syncedAt is missing.
- */
-function formatSnapshotDate(syncedAt: string | undefined, fallbackPeriodStart: string): string {
-  if (!syncedAt) return formatMonth(fallbackPeriodStart);
-  // Pull the calendar date in UTC (synced_at in our views is always
-  // 23:59:59 UTC on the target day). Displaying in UTC avoids accidental
-  // timezone drift that would make "Feb 20" render as "Feb 19" in some US
-  // locales.
-  const d = new Date(syncedAt);
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: '2-digit',
-    timeZone: 'UTC',
-  });
-}
-
 interface TableRow {
   type: 'section' | 'account' | 'subtotal' | 'summary' | 'spacer';
   label: string;
@@ -281,21 +259,14 @@ export default function FinancialsDashboard() {
     return m.startsWith('gl:') ? m.slice(3) : m;
   }, [metricOptions]);
 
-  // Map period_start -> synced_at (the snapshot date the view picked for
-  // that period). All rows in a period share one synced_at, so we build this
-  // once from the raw data and reuse it for chart axis / table header /
-  // stat-card captions.
-  const periodToSynced = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of data) {
-      if (!m.has(r.period_start) && r.synced_at) m.set(r.period_start, r.synced_at);
-    }
-    return m;
-  }, [data]);
-
+  // Column / tick / tooltip label for a period. We used to render the
+  // synced_at date here ("Feb 20, 26") to communicate snapshot freshness
+  // per column, but every period now gets re-synced daily, so all months
+  // collapsed to the same recent date — confusing and useless. For a
+  // *monthly* cash-flow view, the only sensible label is the month.
   const snapshotLabelFor = useCallback(
-    (periodStart: string) => formatSnapshotDate(periodToSynced.get(periodStart), periodStart),
-    [periodToSynced],
+    (periodStart: string) => formatMonth(periodStart),
+    [],
   );
 
 
