@@ -6,6 +6,7 @@ import Chart from 'chart.js/auto';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 import { fetcher } from '../lib/swr';
+import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 // Color palette for multi-property charts
 const propertyColors = [
@@ -75,6 +76,7 @@ const IssueBadge = ({ type }) => {
 };
 
 export default function RenewalsDashboard() {
+  const globalFilter = useGlobalFilter();
   const [selectedProperty, setSelectedProperty] = useState('portfolio');
   const [dateRange, setDateRange] = useState('all_time');
   const [startDate, setStartDate] = useState('');
@@ -170,10 +172,17 @@ export default function RenewalsDashboard() {
     return leases;
   }, [stats]);
 
-  // For the detail table, only show upcoming expirations up to 90 days (chart shows full 180)
+  // For the detail table, only show upcoming expirations up to 90 days (chart shows full 180).
+  // Also apply the app-wide GlobalFilter when active (intersection with whatever
+  // selectedProperty is set to). Charts use server-aggregated counts so they
+  // currently show the full unfiltered set — chart-level filtering is a
+  // follow-up that needs the API to accept properties[] arrays.
   const tableleases = useMemo(() => {
-    return allLeases.filter(l => !(l.issueType === 'upcoming' && l.daysUntilExpiration > 90));
-  }, [allLeases]);
+    const base = allLeases.filter(l => !(l.issueType === 'upcoming' && l.daysUntilExpiration > 90));
+    if (!globalFilter.isActive) return base;
+    const set = new Set(globalFilter.effectiveProperties);
+    return base.filter(l => set.has(l.property || l.property_name));
+  }, [allLeases, globalFilter.isActive, globalFilter.effectiveProperties]);
 
   // Collect unique renewal statuses and init activeStatuses on first load
   const allRenewalStatuses = useMemo(() => {

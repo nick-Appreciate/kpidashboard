@@ -8,6 +8,7 @@ import JustCallDialer, { useJustCall } from './JustCallDialer';
 import DarkSelect from './DarkSelect';
 import { DARK_CHART_DEFAULTS } from '@/lib/chartTheme';
 import { fetcher } from '../lib/swr';
+import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 const EnvelopeIcon = ({ className = "h-3.5 w-3.5" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 20 20" fill="currentColor">
@@ -22,6 +23,7 @@ export default function CollectionsDashboard() {
   const trendChartRef = useRef(null);
   const trendChartInstance = useRef(null);
   const { makeCall, openDialer } = useJustCall();
+  const globalFilter = useGlobalFilter();
 
   // SWR data fetching — cached across navigations
   const buildCollectionsKey = () => {
@@ -269,12 +271,17 @@ export default function CollectionsDashboard() {
     if (hilltopGone && item.property_name === 'Hilltop Townhomes') return false;
     return true;
   };
+  // Apply global filter (group / owner / individual properties picked
+  // from the top-right Filter bar). Intersection — most-restrictive wins.
+  const globalSet = globalFilter.isActive ? new Set(globalFilter.effectiveProperties) : null;
+  const globalFn = (item) => !globalSet || globalSet.has(item.property_name);
+
   const filteredItems = (selectedAgingBuckets.length === 0
     ? allItems
     : allItems.filter(item => {
         const primaryBucket = getPrimaryAgingBucket(item);
         return selectedAgingBuckets.includes(primaryBucket);
-      })).filter(farquharFilter);
+      })).filter(farquharFilter).filter(globalFn);
 
   // Group by property
   const groupedByProperty = filteredItems.reduce((acc, item) => {
