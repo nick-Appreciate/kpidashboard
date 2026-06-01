@@ -24,14 +24,19 @@ interface GroupShape {
   id: string;
   name: string;
   color: string;
-  owner_ids: number[];
+  // Property names this group currently filters to (resolved from
+  // active property_periods assigned to it).
   properties: string[];
 }
 
 interface OwnerShape {
+  // Kept for backward compatibility with older UIs that displayed
+  // owners as a filter option. The new property-period model treats
+  // "holding company" as a label on each period rather than a
+  // first-class entity. Empty for now — populated only if we add
+  // owner-level filtering back later.
   owner_id: number;
   name: string;
-  // Property names this owner currently owns (end_date null/future)
   current_properties: string[];
 }
 
@@ -110,35 +115,31 @@ export function GlobalFilterProvider({ children }: { children: React.ReactNode }
 
   const refresh = useCallback(async () => {
     try {
-      const [oRes, gRes] = await Promise.all([
-        fetch('/api/admin/owners'),
-        fetch('/api/admin/ownership-groups'),
-      ]);
-      if (!oRes.ok || !gRes.ok) { setLoaded(true); return; }
-      const o = await oRes.json();
-      const g = await gRes.json();
+      const res = await fetch('/api/admin/property-periods');
+      if (!res.ok) { setLoaded(true); return; }
+      const j = await res.json();
 
-      const ownerRows: OwnerShape[] = (o.owners || []).map((r: any) => ({
-        owner_id: r.owner_id,
-        name: r.name,
-        current_properties: (r.properties || [])
-          .filter((p: any) => !p.end_date)
-          .map((p: any) => p.property_name),
+      // Resolve each group → property names of its currently-active periods
+      const groupProps = new Map<string, Set<string>>();
+      const allProps = new Set<string>();
+      for (const p of j.periods || []) {
+        if (!p.is_active) continue;
+        allProps.add(p.property_name);
+        for (const g of p.groups || []) {
+          const s = groupProps.get(g.id) || new Set<string>();
+          s.add(p.property_name);
+          groupProps.set(g.id, s);
+        }
+      }
+      const groupRows: GroupShape[] = (j.groups || []).map((g: any) => ({
+        id: g.id, name: g.name, color: g.color,
+        properties: Array.from(groupProps.get(g.id) || []).sort(),
       }));
-      const groupRows: GroupShape[] = (g.groups || []).map((r: any) => ({
-        id: r.id, name: r.name, color: r.color,
-        owner_ids: r.owner_ids || [],
-        properties: r.properties || [],
-      }));
 
-      const propSet = new Set<string>();
-      for (const o of ownerRows) for (const p of o.current_properties) propSet.add(p);
-
-      setOwners(ownerRows);
+      setOwners([]); // owner-level filtering is retired; keep empty for shape compat
       setGroups(groupRows);
-      setAllProperties(Array.from(propSet).sort());
+      setAllProperties(Array.from(allProps).sort());
     } catch (e) {
-      // Don't blow up the whole app — just leave the filter inactive
       console.warn('GlobalFilter refresh failed', e);
     } finally {
       setLoaded(true);

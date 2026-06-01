@@ -135,7 +135,7 @@ export default function OwnerNetIncomeChart() {
             {' '}<span className="text-slate-500">−</span> debt service
           </p>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Insurance / taxes / debt are per-property overlays editable on <code className="text-slate-400">/admin/owners</code>
+            Insurance / taxes / debt are per-period overlays editable on <code className="text-slate-400">/admin/properties</code>
           </p>
         </div>
         <div className="flex flex-col items-start sm:items-end gap-2">

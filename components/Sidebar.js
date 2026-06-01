@@ -123,11 +123,11 @@ export default function Sidebar({ user, onLogout, alertCount = 0 }) {
       label: 'Private',
       items: [
         {
-          name: 'Owners',
-          href: '/admin/owners',
+          name: 'Properties',
+          href: '/admin/properties',
           icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20h10M9 10a3 3 0 116 0 3 3 0 01-6 0zm-6 4a2 2 0 114 0 2 2 0 01-4 0zm14 0a2 2 0 114 0 2 2 0 01-4 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m-1 4h1m-1 4h1m4-8h1m-1 4h1m-1 4h1" />
             </svg>
           )
         },

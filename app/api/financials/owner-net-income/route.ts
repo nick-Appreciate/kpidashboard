@@ -17,10 +17,12 @@
  *   contributions_in — Owner Contribution (account 3050), positive in
  *     af_cash_flow. Subtracted because if the owner had to put money in,
  *     that reduces net to owner.
- *   insurance, taxes, debt_service — per-property monthly costs from
- *     property_debt_insurance, editable on /admin/owners. These are paid
- *     OUTSIDE AppFolio so they don't appear in distributions — we have
- *     to subtract them explicitly.
+ *   insurance, taxes, debt_service — per-PERIOD monthly costs from
+ *     property_period. Each property has one or more periods (windows
+ *     of management under one ownership structure); we pick the period
+ *     covering each month and use its overlay. Editable on
+ *     /admin/properties. These are paid OUTSIDE AppFolio so they don't
+ *     appear in distributions — we have to subtract them explicitly.
  *
  * Response:
  *   {
@@ -44,8 +46,10 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
 
-interface PdiRow {
+interface PeriodRow {
   property_name: string;
+  period_start: string | null;
+  period_end: string | null;
   monthly_insurance: number | null;
   monthly_taxes: number | null;
   monthly_debt_service: number | null;
@@ -76,16 +80,43 @@ export async function GET(request: Request) {
       cutoff = start.toISOString().slice(0, 10);
     }
 
-    // Load the per-property debt/insurance lookup
-    const { data: pdiRows, error: pdiErr } = await supabase
-      .from('property_debt_insurance')
-      .select('property_name, monthly_insurance, monthly_taxes, monthly_debt_service');
+    // Load every property period (one row per property × ownership window).
+    // For each (property, month) we'll pick the period that was active in
+    // that month and use its overlay. Same property can have multiple
+    // periods with different costs.
+    const { data: periodRows, error: pdiErr } = await supabase
+      .from('property_period')
+      .select('property_name, period_start, period_end, monthly_insurance, monthly_taxes, monthly_debt_service');
     if (pdiErr) {
       return NextResponse.json({ error: pdiErr.message }, { status: 500 });
     }
-    const pdiByProperty = new Map<string, PdiRow>(
-      (pdiRows || []).map((r: any) => [r.property_name, r as PdiRow])
-    );
+    const periodsByProperty = new Map<string, PeriodRow[]>();
+    for (const r of (periodRows || []) as PeriodRow[]) {
+      const arr = periodsByProperty.get(r.property_name) || [];
+      arr.push(r);
+      periodsByProperty.set(r.property_name, arr);
+    }
+    // Sort periods chronologically for each property so picking the
+    // active-for-month is straightforward.
+    for (const arr of periodsByProperty.values()) {
+      arr.sort((a, b) => (a.period_start || '').localeCompare(b.period_start || ''));
+    }
+
+    // Returns the period covering YYYY-MM-01 for a property, or null.
+    function periodForMonth(property: string, monthStart: string): PeriodRow | null {
+      const arr = periodsByProperty.get(property);
+      if (!arr) return null;
+      // Use last day of the month as the "is this period active" check —
+      // a period that ends mid-month still counts for that month's costs.
+      const [y, m] = monthStart.split('-').map(Number);
+      const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+      for (const p of arr) {
+        const startsBeforeOrInMonth = !p.period_start || p.period_start <= monthEnd;
+        const endsAfterOrInMonth    = !p.period_end   || p.period_end   >= monthStart;
+        if (startsBeforeOrInMonth && endsAfterOrInMonth) return p;
+      }
+      return null;
+    }
 
     // Load Owner Distribution + Owner Contribution rows from the latest
     // snapshot view (uses the just-fixed DISTINCT ON dedup).
@@ -123,12 +154,10 @@ export async function GET(request: Request) {
       }
     }
 
-    // Make sure every property with a debt/insurance row shows up too,
+    // Make sure every property with at least one period shows up too,
     // even if it had no distributions in this window — keeps the chart
     // honest about ongoing costs.
-    for (const pdi of pdiByProperty.values()) {
-      propsSet.add(pdi.property_name);
-    }
+    for (const name of periodsByProperty.keys()) propsSet.add(name);
 
     const months_sorted = Array.from(monthsSet).sort();
     const properties_sorted = Array.from(propsSet).sort();
@@ -144,14 +173,14 @@ export async function GET(request: Request) {
     }
 
     for (const p of properties_sorted) {
-      const pdi = pdiByProperty.get(p);
       for (const m of months_sorted) {
         const k = key(p, m);
+        const period = periodForMonth(p, m);
         const distributions = round2(distMap.get(k) || 0);
         const contributions = round2(contribMap.get(k) || 0);
-        const insurance = round2(pdi?.monthly_insurance || 0);
-        const taxes = round2(pdi?.monthly_taxes || 0);
-        const debt_service = round2(pdi?.monthly_debt_service || 0);
+        const insurance = round2(period?.monthly_insurance || 0);
+        const taxes = round2(period?.monthly_taxes || 0);
+        const debt_service = round2(period?.monthly_debt_service || 0);
         const net_to_owner = round2(distributions - contributions - insurance - taxes - debt_service);
         if (distributions || contributions || insurance || taxes || debt_service) {
           rows.push({ property: p, month: m, distributions, contributions, insurance, taxes, debt_service, net_to_owner });
@@ -179,9 +208,10 @@ export async function GET(request: Request) {
     });
 
     // Surface properties in AppFolio that have distributions but NO
-    // debt/insurance row → user knows the model is missing data for them.
+    // matching property_period → user knows the model is missing data
+    // for them.
     const unmodeled = Array.from(propsSet)
-      .filter(p => !pdiByProperty.has(p))
+      .filter(p => !periodsByProperty.has(p))
       .sort();
 
     return NextResponse.json({
