@@ -4,13 +4,13 @@
  * OccupancyRentRollChart
  *
  * Line chart of scheduled rent & charges DUE over time on the /occupancy
- * page. Two data points per month (1st + 15th snapshots) so the user can
- * see the mid-month change. Two modes:
+ * page. One data point per day (rent_roll_snapshots is captured daily).
+ * Two modes:
  *   "All rent & charges" — single line summing total_rent across all units
  *   "By GL"              — multiselect; one line per selected GL column
  *
  * Data source: GET /api/occupancy/rent-roll-over-time (backed by the
- * `rent_roll_snapshots` table — per-unit, per-day scheduled rent roll).
+ * v_rent_roll_daily_sum view — per-day cross-unit sum).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -106,11 +106,14 @@ export default function OccupancyRentRollChart() {
         data: s.points.map(p => p.amount == null ? null : Number(p.amount)),
         borderColor: color,
         backgroundColor: color + '33',
-        tension: 0.25,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        borderWidth: 2,
-        fill: data.series.length === 1, // fill only when a single series
+        tension: 0.15,
+        // Daily granularity means a lot of points — hide markers by
+        // default and only show on hover so the line stays readable.
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 6,
+        borderWidth: 1.75,
+        fill: data.series.length === 1,
       };
     });
 
@@ -153,7 +156,13 @@ export default function OccupancyRentRollChart() {
             grid: { color: 'rgba(148, 163, 184, 0.1)' },
           },
           x: {
-            ticks: { color: '#94a3b8' },
+            ticks: {
+              color: '#94a3b8',
+              // Cap visible X labels so daily-density data doesn't shred the axis
+              autoSkip: true,
+              maxTicksLimit: 12,
+              maxRotation: 0,
+            },
             grid: { color: 'rgba(148, 163, 184, 0.1)' },
           },
         },
@@ -188,9 +197,9 @@ export default function OccupancyRentRollChart() {
         <div>
           <h3 className="text-base font-semibold text-slate-100">Rent Roll Over Time</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Scheduled rent &amp; charges due, sampled on the 1st &amp; 15th of each month
+            Daily scheduled rent &amp; charges due, from rent_roll_snapshots
             {data?.points?.length > 0 && (
-              <> · {fmtDateWithYear(data.points[0])} → {fmtDateWithYear(data.points[data.points.length - 1])}</>
+              <> · {fmtDateWithYear(data.points[0])} → {fmtDateWithYear(data.points[data.points.length - 1])} ({data.points.length} days)</>
             )}
           </p>
           {data?.note && (
