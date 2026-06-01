@@ -6,6 +6,10 @@
  *   net_to_owner = (distributions_out − contributions_in) − insurance − debt_service
  *
  * Where:
+ *   net_to_owner =
+ *     (distributions_out − contributions_in)
+ *       − insurance − taxes − debt_service
+ *
  *   distributions_out — AppFolio Owner Distribution (account 3060). In
  *     af_cash_flow this is stored as a negative number (capital leaving
  *     the property). We negate to get a positive "owner pulled this much
@@ -13,10 +17,10 @@
  *   contributions_in — Owner Contribution (account 3050), positive in
  *     af_cash_flow. Subtracted because if the owner had to put money in,
  *     that reduces net to owner.
- *   insurance, debt_service — per-property monthly costs from
- *     property_debt_insurance (sourced from Mike's Cash Balance .xls).
- *     These are paid OUTSIDE AppFolio so they don't appear in
- *     distributions — we have to subtract them explicitly.
+ *   insurance, taxes, debt_service — per-property monthly costs from
+ *     property_debt_insurance, editable on /admin/owners. These are paid
+ *     OUTSIDE AppFolio so they don't appear in distributions — we have
+ *     to subtract them explicitly.
  *
  * Response:
  *   {
@@ -43,6 +47,7 @@ import { requireAuth } from '../../../../lib/auth';
 interface PdiRow {
   property_name: string;
   monthly_insurance: number | null;
+  monthly_taxes: number | null;
   monthly_debt_service: number | null;
 }
 
@@ -74,7 +79,7 @@ export async function GET(request: Request) {
     // Load the per-property debt/insurance lookup
     const { data: pdiRows, error: pdiErr } = await supabase
       .from('property_debt_insurance')
-      .select('property_name, monthly_insurance, monthly_debt_service');
+      .select('property_name, monthly_insurance, monthly_taxes, monthly_debt_service');
     if (pdiErr) {
       return NextResponse.json({ error: pdiErr.message }, { status: 500 });
     }
@@ -132,10 +137,10 @@ export async function GET(request: Request) {
     const rows: any[] = [];
     const monthTotals = new Map<string, {
       distributions: number; contributions: number;
-      insurance: number; debt_service: number;
+      insurance: number; taxes: number; debt_service: number;
     }>();
     for (const m of months_sorted) {
-      monthTotals.set(m, { distributions: 0, contributions: 0, insurance: 0, debt_service: 0 });
+      monthTotals.set(m, { distributions: 0, contributions: 0, insurance: 0, taxes: 0, debt_service: 0 });
     }
 
     for (const p of properties_sorted) {
@@ -145,16 +150,16 @@ export async function GET(request: Request) {
         const distributions = round2(distMap.get(k) || 0);
         const contributions = round2(contribMap.get(k) || 0);
         const insurance = round2(pdi?.monthly_insurance || 0);
+        const taxes = round2(pdi?.monthly_taxes || 0);
         const debt_service = round2(pdi?.monthly_debt_service || 0);
-        const net_to_owner = round2(distributions - contributions - insurance - debt_service);
-        // Don't emit rows that are entirely zero (property had no
-        // activity that month AND no static costs).
-        if (distributions || contributions || insurance || debt_service) {
-          rows.push({ property: p, month: m, distributions, contributions, insurance, debt_service, net_to_owner });
+        const net_to_owner = round2(distributions - contributions - insurance - taxes - debt_service);
+        if (distributions || contributions || insurance || taxes || debt_service) {
+          rows.push({ property: p, month: m, distributions, contributions, insurance, taxes, debt_service, net_to_owner });
           const t = monthTotals.get(m)!;
           t.distributions += distributions;
           t.contributions += contributions;
           t.insurance += insurance;
+          t.taxes += taxes;
           t.debt_service += debt_service;
         }
       }
@@ -167,8 +172,9 @@ export async function GET(request: Request) {
         distributions: round2(t.distributions),
         contributions: round2(t.contributions),
         insurance: round2(t.insurance),
+        taxes: round2(t.taxes),
         debt_service: round2(t.debt_service),
-        net_to_owner: round2(t.distributions - t.contributions - t.insurance - t.debt_service),
+        net_to_owner: round2(t.distributions - t.contributions - t.insurance - t.taxes - t.debt_service),
       };
     });
 

@@ -53,6 +53,14 @@ interface GroupWithMembers extends Group {
   properties: string[];
 }
 
+interface PropertyFinancials {
+  property_name: string;
+  monthly_insurance: number | null;
+  monthly_taxes: number | null;
+  monthly_debt_service: number | null;
+  notes: string | null;
+}
+
 const GROUP_PALETTE = [
   '#06b6d4', '#34d399', '#8b5cf6', '#fbbf24', '#fb7185',
   '#60a5fa', '#fb923c', '#2dd4bf', '#f472b6', '#a3e635',
@@ -66,6 +74,9 @@ export default function OwnersDashboard() {
 
   const [owners, setOwners] = useState<Owner[]>([]);
   const [groups, setGroups] = useState<GroupWithMembers[]>([]);
+  // Per-property financial overlay (insurance / taxes / debt) — keyed
+  // on property_name, shared across all owners who touch the property.
+  const [financials, setFinancials] = useState<Map<string, PropertyFinancials>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedOwnerId, setExpandedOwnerId] = useState<number | null>(null);
@@ -88,6 +99,11 @@ export default function OwnersDashboard() {
       const o = await oRes.json(); const g = await gRes.json();
       setOwners(o.owners || []);
       setGroups(g.groups || []);
+      const finMap = new Map<string, PropertyFinancials>();
+      for (const f of (o.propertyFinancials || []) as PropertyFinancials[]) {
+        finMap.set(f.property_name, f);
+      }
+      setFinancials(finMap);
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -159,6 +175,21 @@ export default function OwnersDashboard() {
     await reload();
   };
 
+  // ── Property financial overlay edits (insurance / taxes / debt) ────
+  // Shared across all owners of the property.
+  const savePropertyFinancials = async (property_name: string, patch: Partial<PropertyFinancials>) => {
+    const res = await fetch('/api/admin/property-financials', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ property_name, ...patch }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${res.status}`);
+    }
+    await reload();
+  };
+
   if (authLoading || !appUser) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-accent" /></div>;
   }
@@ -195,10 +226,12 @@ export default function OwnersDashboard() {
                 key={o.owner_id}
                 owner={o}
                 groups={groups}
+                financials={financials}
                 expanded={expandedOwnerId === o.owner_id}
                 onExpand={() => setExpandedOwnerId(expandedOwnerId === o.owner_id ? null : o.owner_id)}
                 onToggleGroup={(gid) => toggleOwnerInGroup(o.owner_id, gid)}
                 onSaveHistoryRow={saveHistoryRow}
+                onSavePropertyFinancials={savePropertyFinancials}
               />
             ))}
           </div>
@@ -226,14 +259,16 @@ export default function OwnersDashboard() {
 // Per-owner expandable row
 // ─────────────────────────────────────────────────────────────────────
 function OwnerRow({
-  owner, groups, expanded, onExpand, onToggleGroup, onSaveHistoryRow,
+  owner, groups, financials, expanded, onExpand, onToggleGroup, onSaveHistoryRow, onSavePropertyFinancials,
 }: {
   owner: Owner;
   groups: GroupWithMembers[];
+  financials: Map<string, PropertyFinancials>;
   expanded: boolean;
   onExpand: () => void;
   onToggleGroup: (groupId: string) => void;
   onSaveHistoryRow: (id: string, patch: Partial<PropertyHistoryRow>) => Promise<void>;
+  onSavePropertyFinancials: (property_name: string, patch: Partial<PropertyFinancials>) => Promise<void>;
 }) {
   const memberGroupIds = useMemo(() => new Set(owner.groups.map(g => g.id)), [owner.groups]);
   const currentProps = owner.properties.filter(p => !p.end_date);
@@ -286,6 +321,34 @@ function OwnerRow({
               </div>
             )}
           </div>
+
+          {/* Property financials — per-property overlay (insurance,
+              taxes, debt) that's not represented in AppFolio. Shared
+              across all owners of the property. */}
+          {currentProps.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5 flex items-baseline gap-2">
+                Property financials
+                <span className="normal-case text-slate-600 text-[10px] tracking-normal">
+                  Insurance / Taxes / Debt — paid outside AppFolio · shared across all owners of the property
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {currentProps.map(cp => (
+                  <FinancialsRow
+                    key={cp.property_name}
+                    propertyName={cp.property_name}
+                    row={financials.get(cp.property_name) || {
+                      property_name: cp.property_name,
+                      monthly_insurance: null, monthly_taxes: null, monthly_debt_service: null,
+                      notes: null,
+                    }}
+                    onSave={onSavePropertyFinancials}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Group memberships */}
           <div>
@@ -537,5 +600,116 @@ function GroupsPanel({
         Open an owner on the left to add / remove them from groups.
       </p>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Per-property financial overlay editor (insurance / taxes / debt).
+// Property-scoped — saving updates the same row for every owner who
+// touches the property.
+// ─────────────────────────────────────────────────────────────────────
+function FinancialsRow({
+  propertyName, row, onSave,
+}: {
+  propertyName: string;
+  row: PropertyFinancials;
+  onSave: (property_name: string, patch: Partial<PropertyFinancials>) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [ins, setIns] = useState(row.monthly_insurance == null ? '' : String(row.monthly_insurance));
+  const [tax, setTax] = useState(row.monthly_taxes == null ? '' : String(row.monthly_taxes));
+  const [debt, setDebt] = useState(row.monthly_debt_service == null ? '' : String(row.monthly_debt_service));
+  const [saving, setSaving] = useState(false);
+
+  // Reset local form state whenever the upstream row changes (after save / reload)
+  useEffect(() => {
+    setIns(row.monthly_insurance == null ? '' : String(row.monthly_insurance));
+    setTax(row.monthly_taxes == null ? '' : String(row.monthly_taxes));
+    setDebt(row.monthly_debt_service == null ? '' : String(row.monthly_debt_service));
+  }, [row.monthly_insurance, row.monthly_taxes, row.monthly_debt_service]);
+
+  const fmtMoney = (v: number | null) =>
+    v == null
+      ? <span className="text-slate-600 italic">—</span>
+      : <span className="tabular-nums">${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>;
+
+  const cancel = () => {
+    setIns(row.monthly_insurance == null ? '' : String(row.monthly_insurance));
+    setTax(row.monthly_taxes == null ? '' : String(row.monthly_taxes));
+    setDebt(row.monthly_debt_service == null ? '' : String(row.monthly_debt_service));
+    setEditing(false);
+  };
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(propertyName, {
+        monthly_insurance:    ins  === '' ? null : Number(ins),
+        monthly_taxes:        tax  === '' ? null : Number(tax),
+        monthly_debt_service: debt === '' ? null : Number(debt),
+      });
+      setEditing(false);
+    } catch (e: any) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 text-sm bg-white/[0.02] rounded px-2 py-1.5">
+        <span className="flex-1 text-slate-200 truncate min-w-0">{propertyName}</span>
+        <Pill label="Ins"  value={fmtMoney(row.monthly_insurance)} />
+        <Pill label="Tax"  value={fmtMoney(row.monthly_taxes)} />
+        <Pill label="Debt" value={fmtMoney(row.monthly_debt_service)} />
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="p-1 text-slate-500 hover:text-slate-200 hover:bg-white/5 rounded"
+          title="Edit insurance / taxes / debt"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm bg-white/[0.03] rounded p-2 ring-1 ring-slate-700/60">
+      <span className="text-slate-200 font-medium truncate min-w-[140px]">{propertyName}</span>
+      <NumInput label="Ins"  value={ins}  onChange={setIns}  />
+      <NumInput label="Tax"  value={tax}  onChange={setTax}  />
+      <NumInput label="Debt" value={debt} onChange={setDebt} />
+      <button type="button" onClick={save} disabled={saving}
+        className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white text-xs font-medium disabled:opacity-50">
+        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
+      </button>
+      <button type="button" onClick={cancel} disabled={saving}
+        className="p-1 text-slate-500 hover:text-slate-200 hover:bg-white/5 rounded disabled:opacity-50">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function Pill({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <span className="text-[10px] uppercase tracking-wide text-slate-500 inline-flex items-center gap-1">
+      <span>{label}</span>
+      <span className="text-xs text-slate-300 normal-case tracking-normal">{value}</span>
+    </span>
+  );
+}
+
+function NumInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
+      <span>{label}</span>
+      <span className="text-slate-500">$</span>
+      <input
+        type="number" step="0.01" min="0"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="0"
+        className="w-20 px-1.5 py-0.5 text-xs rounded bg-slate-900 border border-slate-700 text-slate-200 normal-case"
+      />
+    </label>
   );
 }

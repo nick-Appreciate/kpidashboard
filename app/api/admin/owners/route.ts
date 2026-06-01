@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
 
-  const [ownersRes, historyRes, membershipsRes, groupsRes] = await Promise.all([
+  const [ownersRes, historyRes, membershipsRes, groupsRes, finRes] = await Promise.all([
     supabase
       .from('af_owner_directory')
       .select('owner_id, name, first_name, last_name, email, properties_owned, payment_type, hold_payments')
@@ -33,11 +33,19 @@ export async function GET(req: NextRequest) {
     supabase
       .from('ownership_groups')
       .select('id, name, color, description'),
+    // Per-property financial overlay (insurance / taxes / debt) — keyed on
+    // property_name, shared across all owners who touch the property.
+    supabase
+      .from('property_debt_insurance')
+      .select('property_name, monthly_insurance, monthly_taxes, monthly_debt_service, notes'),
   ]);
 
-  for (const r of [ownersRes, historyRes, membershipsRes, groupsRes]) {
+  for (const r of [ownersRes, historyRes, membershipsRes, groupsRes, finRes]) {
     if (r.error) return NextResponse.json({ error: r.error.message }, { status: 500 });
   }
+
+  const finByProperty = new Map<string, any>();
+  for (const f of finRes.data || []) finByProperty.set(f.property_name, f);
 
   const groupsById = new Map<string, any>();
   for (const g of groupsRes.data || []) groupsById.set(g.id, g);
@@ -65,5 +73,9 @@ export async function GET(req: NextRequest) {
     groups: groupsByOwner.get(o.owner_id) || [],
   }));
 
-  return NextResponse.json({ owners, groups: groupsRes.data || [] });
+  return NextResponse.json({
+    owners,
+    groups: groupsRes.data || [],
+    propertyFinancials: finRes.data || [],
+  });
 }

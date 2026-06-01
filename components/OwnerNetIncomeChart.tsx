@@ -30,6 +30,7 @@ interface MonthTotal {
   distributions: number;
   contributions: number;
   insurance: number;
+  taxes: number;
   debt_service: number;
   net_to_owner: number;
 }
@@ -93,9 +94,10 @@ export default function OwnerNetIncomeChart() {
       // Recharts stacked bars want positive values for proper stacking. We
       // negate the "cost" components so they stack downward visually,
       // making it obvious that net = distributions − costs.
-      negInsurance: -t.insurance,
-      negDebt: -t.debt_service,
-      negContributions: -t.contributions,
+      negInsurance:     -(t.insurance || 0),
+      negTaxes:         -(t.taxes || 0),
+      negDebt:          -(t.debt_service || 0),
+      negContributions: -(t.contributions || 0),
     }));
   }, [data]);
 
@@ -111,12 +113,13 @@ export default function OwnerNetIncomeChart() {
   const ytdTotal = useMemo(() => {
     if (!data?.totals?.length) return null;
     const sum = data.totals.reduce((acc, t) => ({
-      distributions: acc.distributions + t.distributions,
-      contributions: acc.contributions + t.contributions,
-      insurance: acc.insurance + t.insurance,
-      debt_service: acc.debt_service + t.debt_service,
-      net_to_owner: acc.net_to_owner + t.net_to_owner,
-    }), { distributions: 0, contributions: 0, insurance: 0, debt_service: 0, net_to_owner: 0 });
+      distributions: acc.distributions + (t.distributions || 0),
+      contributions: acc.contributions + (t.contributions || 0),
+      insurance: acc.insurance + (t.insurance || 0),
+      taxes: acc.taxes + (t.taxes || 0),
+      debt_service: acc.debt_service + (t.debt_service || 0),
+      net_to_owner: acc.net_to_owner + (t.net_to_owner || 0),
+    }), { distributions: 0, contributions: 0, insurance: 0, taxes: 0, debt_service: 0, net_to_owner: 0 });
     return sum;
   }, [data]);
 
@@ -126,11 +129,13 @@ export default function OwnerNetIncomeChart() {
         <div>
           <h2 className="text-lg font-semibold text-slate-100">Owner Net Income</h2>
           <p className="text-sm text-slate-400 mt-0.5">
-            AppFolio distributions <span className="text-slate-500">−</span> contributions
-            {' '}<span className="text-slate-500">−</span> insurance <span className="text-slate-500">−</span> debt service
+            Distributions <span className="text-slate-500">−</span> contributions
+            {' '}<span className="text-slate-500">−</span> insurance
+            {' '}<span className="text-slate-500">−</span> taxes
+            {' '}<span className="text-slate-500">−</span> debt service
           </p>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Insurance + debt costs sourced from <code className="text-slate-400">property_debt_insurance</code> (Cash Balance.xls)
+            Insurance / taxes / debt are per-property overlays editable on <code className="text-slate-400">/admin/owners</code>
           </p>
         </div>
         <div className="flex flex-col items-start sm:items-end gap-2">
@@ -163,10 +168,11 @@ export default function OwnerNetIncomeChart() {
       </div>
 
       {ytdTotal && !loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mb-4 text-xs">
           <StatCard label="Distributions"  value={ytdTotal.distributions} positive />
           <StatCard label="Contributions"  value={-ytdTotal.contributions} />
           <StatCard label="Insurance"      value={-ytdTotal.insurance} />
+          <StatCard label="Taxes"          value={-ytdTotal.taxes} />
           <StatCard label="Debt service"   value={-ytdTotal.debt_service} />
           <StatCard label={`Net (${months}mo)`} value={ytdTotal.net_to_owner} accent />
         </div>
@@ -205,6 +211,7 @@ export default function OwnerNetIncomeChart() {
               <Bar dataKey="distributions"    stackId="positive" fill="#34d399" name="Distributions" />
               <Bar dataKey="negContributions" stackId="negative" fill="#fb7185" name="Contributions" />
               <Bar dataKey="negInsurance"     stackId="negative" fill="#fbbf24" name="Insurance" />
+              <Bar dataKey="negTaxes"         stackId="negative" fill="#a3e635" name="Taxes" />
               <Bar dataKey="negDebt"          stackId="negative" fill="#fb923c" name="Debt service" />
               <Line type="monotone" dataKey="net_to_owner" stroke="#06b6d4" strokeWidth={2.5} dot={{ r: 4 }} name="Net to owner" />
             </ComposedChart>
