@@ -3,23 +3,30 @@
 /**
  * OccupancyRentRollChart
  *
- * Line chart of monthly income on the /occupancy page. Two modes:
- *   "All Income"  — single line = sum of every income GL
- *   "By GL"       — multiselect of individual GL accounts (one line each)
+ * Line chart of scheduled rent & charges DUE over time on the /occupancy
+ * page. Two data points per month (1st + 15th snapshots) so the user can
+ * see the mid-month change. Two modes:
+ *   "All rent & charges" — single line summing total_rent across all units
+ *   "By GL"              — multiselect; one line per selected GL column
  *
- * Data source: GET /api/occupancy/rent-roll-over-time
- *   - drives the GL picker from glOptions
- *   - re-fetches whenever the selected GLs change
+ * Data source: GET /api/occupancy/rent-roll-over-time (backed by the
+ * `rent_roll_snapshots` table — per-unit, per-day scheduled rent roll).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
 import { CHART_PALETTE, DARK_CHART_DEFAULTS } from '../lib/chartTheme';
 
-const fmtMonthAxis = (iso) => {
+// Pretty-print "2026-04-15" as "Apr 15 '26"
+const fmtDateAxis = (iso) => {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+};
+const fmtDateWithYear = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00Z');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 };
 
 const fmtCurrencyShort = (n) => {
@@ -50,7 +57,7 @@ export default function OccupancyRentRollChart() {
     if (mode === 'by_gl' && selectedGls.length > 0) {
       params.set('gls', selectedGls.join(','));
     }
-    // Else: omit gls → API returns the All Income aggregate
+    // Else: omit gls → API returns the All-rent-and-charges aggregate
     const q = params.toString();
     return `/api/occupancy/rent-roll-over-time${q ? `?${q}` : ''}`;
   }, [mode, selectedGls]);
@@ -88,12 +95,15 @@ export default function OccupancyRentRollChart() {
       chartRef.current = null;
     }
 
-    const labels = (data.months || []).map(fmtMonthAxis);
+    const labels = (data.points || []).map(fmtDateAxis);
     const datasets = (data.series || []).map((s, i) => {
       const color = CHART_PALETTE[i % CHART_PALETTE.length];
       return {
         label: s.name,
-        data: s.points.map(p => Number(p.amount) || 0),
+        // Null amounts render as gaps (per-GL breakdown isn't populated
+        // for older snapshots). The chart respects null when spanGaps
+        // is false (the default).
+        data: s.points.map(p => p.amount == null ? null : Number(p.amount)),
         borderColor: color,
         backgroundColor: color + '33',
         tension: 0.25,
@@ -117,7 +127,15 @@ export default function OccupancyRentRollChart() {
           tooltip: {
             ...(DARK_CHART_DEFAULTS.plugins?.tooltip || {}),
             callbacks: {
-              label: (item) => `${item.dataset.label}: ${fmtCurrencyFull(item.raw)}`,
+              title: (items) => {
+                const idx = items?.[0]?.dataIndex;
+                const iso = data?.points?.[idx];
+                return iso ? fmtDateWithYear(iso) : '';
+              },
+              label: (item) => {
+                if (item.raw == null) return `${item.dataset.label}: —`;
+                return `${item.dataset.label}: ${fmtCurrencyFull(item.raw)}`;
+              },
             },
           },
           legend: {
@@ -164,27 +182,20 @@ export default function OccupancyRentRollChart() {
     setPickerOpen(true);
   };
 
-  const totalForCurrent = useMemo(() => {
-    if (!data?.series) return null;
-    let sum = 0;
-    for (const s of data.series) for (const p of s.points) sum += Number(p.amount) || 0;
-    return sum;
-  }, [data]);
-
   return (
     <div className="glass-card p-5">
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <h3 className="text-base font-semibold text-slate-100">Rent Roll Over Time</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Monthly income from AppFolio's cash-flow report
-            {data?.months?.length > 0 && (
-              <> · {fmtMonthAxis(data.months[0])} → {fmtMonthAxis(data.months[data.months.length - 1])}</>
-            )}
-            {totalForCurrent != null && (
-              <> · total {fmtCurrencyFull(totalForCurrent)}</>
+            Scheduled rent &amp; charges due, sampled on the 1st &amp; 15th of each month
+            {data?.points?.length > 0 && (
+              <> · {fmtDateWithYear(data.points[0])} → {fmtDateWithYear(data.points[data.points.length - 1])}</>
             )}
           </p>
+          {data?.note && (
+            <p className="text-[11px] text-amber-300/80 mt-1">{data.note}</p>
+          )}
         </div>
 
         {/* Mode toggle */}
@@ -196,7 +207,7 @@ export default function OccupancyRentRollChart() {
               mode === 'all' ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            All Income
+            All
           </button>
           <button
             type="button"
@@ -290,11 +301,11 @@ export default function OccupancyRentRollChart() {
             {error}
           </div>
         )}
-        {!loading && !error && (data?.series?.length === 0 || data?.months?.length === 0) && (
+        {!loading && !error && (data?.series?.length === 0 || data?.points?.length === 0) && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">
             {mode === 'by_gl' && selectedGls.length === 0
               ? 'Pick at least one GL account above.'
-              : 'No income data in this window.'}
+              : 'No rent-roll snapshots in this window.'}
           </div>
         )}
         <canvas ref={canvasRef} />
