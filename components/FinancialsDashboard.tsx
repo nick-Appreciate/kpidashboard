@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import DarkSelect from './DarkSelect';
 import { CHART_PALETTE, RECHARTS_THEME } from '../lib/chartTheme';
+import OwnerNetIncomeChart from './OwnerNetIncomeChart';
 
 // --- Types ---
 
@@ -637,6 +638,11 @@ export default function FinancialsDashboard() {
         </div>
       ) : (
         <>
+          {/* Owner Net Income — models true net to owner after the
+              insurance + debt costs paid outside AppFolio (sourced from
+              property_debt_insurance / Cash Balance.xls). */}
+          <OwnerNetIncomeChart />
+
           {/* Chart */}
           <div className="glass-card p-6">
             <h2 className="text-lg font-semibold text-white mb-4">
