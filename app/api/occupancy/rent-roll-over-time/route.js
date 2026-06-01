@@ -23,9 +23,15 @@
  *   }
  *
  * Notes:
- *   af_cash_flow contains both per-property rows and a property_name='Total'
- *   sub-total row per (account, month). We sum only the per-property rows
- *   to avoid double-counting.
+ *   af_cash_flow is a point-in-time snapshot table — every daily run of
+ *   sync-appfolio-cash-flow-daily inserts a fresh row for every (property
+ *   × month × account). So we MUST dedup to the latest synced_at per
+ *   (period_start, account_number, property_name) before summing, or the
+ *   monthly totals come out 30-60× too high.
+ *
+ *   We also skip the property_name='Total' rows since they're AppFolio's
+ *   own per-account roll-up and would double-count alongside the
+ *   per-property rows.
  */
 
 import { NextResponse } from 'next/server';
@@ -47,23 +53,39 @@ export async function GET(request) {
     const includeOtherIncome = searchParams.get('include_other_income') === '1';
     const allowedTypes = includeOtherIncome ? INCOME_TYPES : ['Income'];
 
-    // Load every income GL that has at least one row in af_cash_flow. We
-    // need this for the multiselect picker *and* to validate user input.
-    const { data: allRows, error } = await supabase
+    // af_cash_flow is a daily snapshot table — each sync inserts a fresh
+    // row per (property × month × account). Pull synced_at too so we can
+    // dedup to the latest snapshot per (period_start, account_number,
+    // property_name) below, otherwise totals come out 30-60× too high.
+    //
+    // Supabase's PostgREST caps each response at 1000 rows by default; we
+    // bump that explicitly via .range() since we may have ~32k income
+    // rows over a few years.
+    const { data: rawRows, error } = await supabase
       .from('af_cash_flow')
-      .select('account_number, account_name, account_type, period_start, property_name, amount')
+      .select('account_number, account_name, account_type, period_start, property_name, amount, synced_at')
       .in('account_type', allowedTypes)
-      .neq('property_name', 'Total');
+      .neq('property_name', 'Total')
+      .range(0, 99999);
 
     if (error) {
       console.error('af_cash_flow read error', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Aggregate locally — fewer round trips than multiple Supabase queries,
-    // and the row count for income is in the ~30k range (cheap).
-    const inWindow = (allRows || []).filter(r => {
-      if (!r.period_start) return false;
+    // Dedup → latest synced_at wins for each (period, account, property)
+    const latestMap = new Map();
+    for (const r of rawRows || []) {
+      if (!r.period_start || !r.account_number) continue;
+      const key = `${r.period_start}|${r.account_number}|${r.property_name || ''}`;
+      const prev = latestMap.get(key);
+      if (!prev || (r.synced_at || '') > (prev.synced_at || '')) {
+        latestMap.set(key, r);
+      }
+    }
+    const allRows = Array.from(latestMap.values());
+
+    const inWindow = allRows.filter(r => {
       if (from && r.period_start < from) return false;
       if (to   && r.period_start > to)   return false;
       return true;
