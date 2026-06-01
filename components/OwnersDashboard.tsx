@@ -70,8 +70,10 @@ export default function OwnersDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [expandedOwnerId, setExpandedOwnerId] = useState<number | null>(null);
 
+  // Owners lives under the Private sidebar group — admin only.
   useEffect(() => {
-    if (!authLoading && !appUser) router.push('/');
+    if (authLoading) return;
+    if (!appUser || appUser.role !== 'admin') router.push('/');
   }, [authLoading, appUser, router]);
 
   const reload = useCallback(async () => {
@@ -160,6 +162,7 @@ export default function OwnersDashboard() {
   if (authLoading || !appUser) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-accent" /></div>;
   }
+  if (appUser.role !== 'admin') return null;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

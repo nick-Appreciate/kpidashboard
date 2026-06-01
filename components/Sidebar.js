@@ -117,6 +117,11 @@ export default function Sidebar({ user, onLogout, alertCount = 0 }) {
             </svg>
           )
         },
+      ]
+    },
+    ...(isAdmin ? [{
+      label: 'Private',
+      items: [
         {
           name: 'Owners',
           href: '/admin/owners',
@@ -126,11 +131,6 @@ export default function Sidebar({ user, onLogout, alertCount = 0 }) {
             </svg>
           )
         },
-      ]
-    },
-    ...(isAdmin ? [{
-      label: 'Private',
-      items: [
         {
           name: 'Financials',
           href: '/financials',

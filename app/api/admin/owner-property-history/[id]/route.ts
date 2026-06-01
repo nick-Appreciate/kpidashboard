@@ -14,14 +14,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAuth } from '../../../../../lib/auth';
+import { requireAdmin } from '../../../../../lib/auth';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const admin = () => createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const auth = await requireAuth(req);
+  const auth = await requireAdmin(req);
   if ('error' in auth) return auth.error;
 
   let body: any = {};
@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const auth = await requireAuth(req);
+  const auth = await requireAdmin(req);
   if ('error' in auth) return auth.error;
   const { error } = await admin()
     .from('owner_property_history').delete().eq('id', params.id);

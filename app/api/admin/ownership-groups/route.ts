@@ -2,17 +2,16 @@
  * /api/admin/ownership-groups
  *
  *   GET    — list every group with its member owner_ids + the union of
- *            properties currently owned by those members. The properties
- *            list is what the global filter resolves to when this group
- *            is selected.
+ *            properties currently owned by those members. Open to all
+ *            authenticated users since the global filter bar (visible
+ *            on every page) reads this data.
  *   POST   — create a new group { name, color?, description?, owner_ids? }
- *
- * Authenticated app users can manage groups (Administrative-tier).
+ *            Admin only — Owners is under the "Private" sidebar group.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAuth } from '../../../../lib/auth';
+import { requireAuth, requireAdmin } from '../../../../lib/auth';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -74,7 +73,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req);
+  const auth = await requireAdmin(req);
   if ('error' in auth) return auth.error;
   const sb = admin();
 
