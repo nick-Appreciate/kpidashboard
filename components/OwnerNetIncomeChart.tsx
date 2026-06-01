@@ -57,8 +57,11 @@ const fmtCurrencyShort = (n: number) => {
   if (abs >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
   return `$${Math.round(n).toLocaleString()}`;
 };
-const fmtCurrencyFull = (n: number) =>
-  `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const fmtCurrencyFull = (n: number) => {
+  const v = Number(n) || 0;
+  const abs = Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return v < 0 ? `($${abs})` : `$${abs}`;
+};
 
 export default function OwnerNetIncomeChart() {
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -187,12 +190,14 @@ export default function OwnerNetIncomeChart() {
                 contentStyle={RECHARTS_THEME.tooltip.contentStyle}
                 labelStyle={RECHARTS_THEME.tooltip.labelStyle}
                 labelFormatter={(l) => fmtMonth(String(l))}
-                formatter={(v: any, name: string) => {
-                  // Strip the "neg" prefix label and use absolute values in display
-                  const cleanName = name.startsWith('neg')
-                    ? name.slice(3).replace(/([A-Z])/g, ' $1').trim()
-                    : name;
-                  return [fmtCurrencyFull(Math.abs(v)), cleanName.charAt(0).toUpperCase() + cleanName.slice(1)];
+                formatter={(v: any, name: string, item: any) => {
+                  // The "neg*" dataKeys hold pre-negated values so the bars
+                  // stack downward visually — flip back to positive for the
+                  // tooltip label. Everything else (including net_to_owner)
+                  // keeps its real sign so a loss shows as "($X)".
+                  const key = item?.dataKey ?? '';
+                  const display = typeof key === 'string' && key.startsWith('neg') ? Math.abs(v) : v;
+                  return [fmtCurrencyFull(display), name];
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
