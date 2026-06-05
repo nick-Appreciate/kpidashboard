@@ -168,12 +168,13 @@ export default function OwnerNetIncomeChart() {
       </div>
 
       {ytdTotal && !loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mb-4 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-7 gap-2 mb-4 text-xs">
           <StatCard label="Distributions"  value={ytdTotal.distributions} positive />
           <StatCard label="Contributions"  value={-ytdTotal.contributions} />
           <StatCard label="Insurance"      value={-ytdTotal.insurance} />
           <StatCard label="Taxes"          value={-ytdTotal.taxes} />
           <StatCard label="Debt service"   value={-ytdTotal.debt_service} />
+          <StatCard label="Overhead total" value={-(ytdTotal.insurance + ytdTotal.taxes + ytdTotal.debt_service)} />
           <StatCard label={`Net (${months}mo)`} value={ytdTotal.net_to_owner} accent />
         </div>
       )}
