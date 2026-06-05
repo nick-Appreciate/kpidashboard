@@ -36,7 +36,15 @@ interface MonthTotal {
   net_to_owner: number;
 }
 
-interface PerPropertyRow extends MonthTotal { property: string; }
+interface PerPropertyRow extends MonthTotal {
+  property: string;
+  // Period-level metadata so filters can scope by group_id (which tracks
+  // ownership transitions correctly) instead of property name.
+  period_id: string | null;
+  group_ids: string[];
+  days_overlap: number;
+  days_in_month: number;
+}
 
 interface ApiResponse {
   months: string[];
@@ -89,14 +97,32 @@ export default function OwnerNetIncomeChart() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Apply the app-wide GlobalFilter (groups / owners / properties) on
-  // the client side. Filter the per-property rows down to the selected
-  // set, then re-sum the monthly totals from the survivors.
+  // Apply the app-wide GlobalFilter (groups / properties) on the client
+  // side. Filter at PERIOD granularity — match rows whose period is in a
+  // selected group, OR whose property is in the explicit property
+  // selection. Then re-sum monthly totals from the survivors.
+  //
+  // Period-level matching is what makes mid-month ownership transitions
+  // work correctly: a row for KCK's Hilltop period (tagged "Farquhar")
+  // is included under the Farquhar filter even after KCK divested, while
+  // the Summit Ridge replacement period (not tagged Farquhar) is dropped.
   const data = useMemo<ApiResponse | null>(() => {
     if (!rawData) return null;
     if (!globalFilter.isActive) return rawData;
-    const set = new Set(globalFilter.effectiveProperties);
-    const filteredRows = rawData.rows.filter(r => set.has(r.property));
+
+    const selectedGroups = new Set(globalFilter.selectedGroupIds);
+    const selectedProps  = new Set(globalFilter.selectedProperties);
+
+    const filteredRows = (rawData.rows as PerPropertyRow[]).filter(r => {
+      // Group match — checks the period's tags, not the property's
+      // current-period tags. This is the key piece that proates correctly
+      // across ownership transitions.
+      if (selectedGroups.size > 0 && r.group_ids.some(g => selectedGroups.has(g))) return true;
+      // Explicit property selection
+      if (selectedProps.has(r.property)) return true;
+      return false;
+    });
+
     const totalsByMonth = new Map<string, MonthTotal>();
     for (const m of rawData.months) {
       totalsByMonth.set(m, {
@@ -118,9 +144,9 @@ export default function OwnerNetIncomeChart() {
       ...rawData,
       rows: filteredRows,
       totals: Array.from(totalsByMonth.values()),
-      properties: rawData.properties.filter(p => set.has(p)),
+      properties: Array.from(new Set(filteredRows.map(r => r.property))).sort(),
     };
-  }, [rawData, globalFilter.isActive, globalFilter.effectiveProperties]);
+  }, [rawData, globalFilter.isActive, globalFilter.selectedGroupIds, globalFilter.selectedProperties]);
 
   const totalsForChart = useMemo(() => {
     if (!data?.totals) return [];
@@ -139,10 +165,26 @@ export default function OwnerNetIncomeChart() {
   const latestPropertyBreakdown = useMemo(() => {
     if (!data?.rows?.length) return [];
     const latestMonth = data.months[data.months.length - 1];
-    return data.rows
-      .filter(r => r.month === latestMonth)
-      .map(r => ({ ...r }))
-      .sort((a, b) => b.net_to_owner - a.net_to_owner);
+    // Rows are now per (period × month). A property with multiple periods
+    // overlapping the latest month would show as multiple bars unless we
+    // roll up here. Sum all rows for the same property.
+    const byProp = new Map<string, any>();
+    for (const r of data.rows) {
+      if (r.month !== latestMonth) continue;
+      const cur = byProp.get(r.property) || {
+        property: r.property, month: latestMonth,
+        distributions: 0, contributions: 0,
+        insurance: 0, taxes: 0, debt_service: 0, net_to_owner: 0,
+      };
+      cur.distributions += r.distributions;
+      cur.contributions += r.contributions;
+      cur.insurance     += r.insurance;
+      cur.taxes         += r.taxes;
+      cur.debt_service  += r.debt_service;
+      cur.net_to_owner  += r.net_to_owner;
+      byProp.set(r.property, cur);
+    }
+    return Array.from(byProp.values()).sort((a, b) => b.net_to_owner - a.net_to_owner);
   }, [data]);
 
   const ytdTotal = useMemo(() => {
