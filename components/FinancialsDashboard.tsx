@@ -10,6 +10,18 @@ import { CHART_PALETTE, RECHARTS_THEME } from '../lib/chartTheme';
 import OwnerNetIncomeChart from './OwnerNetIncomeChart';
 import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
+// Lightweight shape for the per-property overhead lookup. Sourced from
+// /api/admin/property-periods which now backs both the Owners admin page
+// and any other view that needs the static non-AppFolio cost overlay.
+interface PropertyPeriodRow {
+  property_name: string;
+  period_start: string | null;
+  period_end: string | null;
+  monthly_insurance: number | null;
+  monthly_taxes: number | null;
+  monthly_debt_service: number | null;
+}
+
 // --- Types ---
 
 interface CashFlowRow {
@@ -117,6 +129,12 @@ export default function FinancialsDashboard() {
   //   Same as auto except current month also uses month_end (capped at today).
   const [snapshotMode, setSnapshotMode] = useState<'auto' | 'day_of_month' | 'month_end'>('auto');
 
+  // Per-property monthly overhead overlay (insurance + taxes + debt
+  // service). Loaded once on mount from /api/admin/property-periods and
+  // summed into a stat card according to whatever scope is active
+  // (single property / owner-group / portfolio).
+  const [propertyPeriods, setPropertyPeriods] = useState<PropertyPeriodRow[]>([]);
+
   // Filters
   const [selectedProperty, setSelectedProperty] = useState('Total');
   const [selectedOwner, setSelectedOwner] = useState('all');
@@ -171,6 +189,15 @@ export default function FinancialsDashboard() {
   }, [snapshotMode]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Load per-property overhead overlay once on mount. Cheap (≤ ~20 rows)
+  // and not parameterized by the cash-flow snapshot mode.
+  useEffect(() => {
+    fetch('/api/admin/property-periods')
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j?.periods) setPropertyPeriods(j.periods); })
+      .catch(() => {});
+  }, []);
 
 
   // Build owner -> properties map
@@ -351,6 +378,25 @@ export default function FinancialsDashboard() {
     };
   }, [data, selectedMetrics, selectedProperty, ownerPropertyFilter, viewMode, properties, getMetricRows, getMetricLabel]);
 
+  // Active-period overhead per property — picks the period covering today
+  // and exposes its (insurance, taxes, debt) trio. Recomputes when the
+  // property_period data refreshes; otherwise stable.
+  const activeOverheadByProperty = useMemo(() => {
+    const m = new Map<string, { ins: number; tax: number; debt: number }>();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const p of propertyPeriods) {
+      const startsBefore = !p.period_start || p.period_start <= today;
+      const endsAfter    = !p.period_end   || p.period_end   >= today;
+      if (!startsBefore || !endsAfter) continue;
+      m.set(p.property_name, {
+        ins:  Number(p.monthly_insurance    || 0),
+        tax:  Number(p.monthly_taxes        || 0),
+        debt: Number(p.monthly_debt_service || 0),
+      });
+    }
+    return m;
+  }, [propertyPeriods]);
+
   // Stat cards — always show latest month
   const stats = useMemo(() => {
     if (data.length === 0) return null;
@@ -360,16 +406,44 @@ export default function FinancialsDashboard() {
 
     const label = snapshotLabelFor(latestPeriod);
 
+    // Sum cash-flow figures (NOI, income, expense, cash flow) within scope
+    let baseFiltered;
     if (ownerPropertyFilter) {
-      const filtered = data.filter(r => r.period_start === latestPeriod && ownerPropertyFilter.includes(r.property_name));
-      const sum = (type: string) => filtered.filter(r => r.row_type === type).reduce((s, r) => s + r.amount, 0);
-      return { periodLabel: label, noi: sum('noi'), totalIncome: sum('total_income'), totalExpense: sum('total_expense'), cashFlow: sum('cash_flow') };
+      baseFiltered = data.filter(r => r.period_start === latestPeriod && ownerPropertyFilter.includes(r.property_name));
+    } else {
+      baseFiltered = data.filter(r => r.period_start === latestPeriod && r.property_name === 'Total');
     }
+    const sum = (type: string) => baseFiltered.filter(r => r.row_type === type).reduce((s, r) => s + r.amount, 0);
 
-    const filtered = data.filter(r => r.period_start === latestPeriod && r.property_name === 'Total');
-    const sum = (type: string) => filtered.filter(r => r.row_type === type).reduce((s, r) => s + r.amount, 0);
-    return { periodLabel: label, noi: sum('noi'), totalIncome: sum('total_income'), totalExpense: sum('total_expense'), cashFlow: sum('cash_flow') };
-  }, [data, ownerPropertyFilter, snapshotLabelFor]);
+    // Resolve which set of properties contributes the overhead overlay
+    let scopeProperties: string[];
+    if (selectedProperty && selectedProperty !== 'Total' && selectedProperty !== 'all') {
+      scopeProperties = [selectedProperty];
+    } else if (ownerPropertyFilter) {
+      scopeProperties = ownerPropertyFilter;
+    } else {
+      scopeProperties = Array.from(activeOverheadByProperty.keys());
+    }
+    let ins = 0, tax = 0, debt = 0;
+    for (const pn of scopeProperties) {
+      const o = activeOverheadByProperty.get(pn);
+      if (!o) continue;
+      ins  += o.ins;
+      tax  += o.tax;
+      debt += o.debt;
+    }
+    const overhead = ins + tax + debt;
+
+    return {
+      periodLabel: label,
+      noi: sum('noi'),
+      totalIncome: sum('total_income'),
+      totalExpense: sum('total_expense'),
+      cashFlow: sum('cash_flow'),
+      overhead, overheadInsurance: ins, overheadTaxes: tax, overheadDebt: debt,
+      overheadPropertyCount: scopeProperties.length,
+    };
+  }, [data, ownerPropertyFilter, selectedProperty, activeOverheadByProperty, snapshotLabelFor]);
 
 
   // Build the detail table
@@ -702,11 +776,17 @@ export default function FinancialsDashboard() {
 
           {/* Stat Cards */}
           {stats && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <StatCard label="NOI" value={stats.noi} period={stats.periodLabel} color="text-cyan-400" />
               <StatCard label="Total Income" value={stats.totalIncome} period={stats.periodLabel} color="text-emerald-400" />
               <StatCard label="Total Expense" value={stats.totalExpense} period={stats.periodLabel} color="text-rose-400" />
               <StatCard label="Cash Flow" value={stats.cashFlow} period={stats.periodLabel} color="text-amber-400" />
+              <StatCard
+                label="Overhead (modeled)"
+                value={stats.overhead}
+                period={`Tax ${formatFullCurrency(stats.overheadTaxes)} · Ins ${formatFullCurrency(stats.overheadInsurance)} · Debt ${formatFullCurrency(stats.overheadDebt)}`}
+                color="text-orange-400"
+              />
             </div>
           )}
 
