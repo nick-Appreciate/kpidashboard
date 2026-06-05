@@ -24,6 +24,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { RECHARTS_THEME } from '../lib/chartTheme';
+import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 interface MonthTotal {
   month: string;
@@ -65,11 +66,12 @@ const fmtCurrencyFull = (n: number) => {
 };
 
 export default function OwnerNetIncomeChart() {
-  const [data, setData] = useState<ApiResponse | null>(null);
+  const [rawData, setRawData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'portfolio' | 'byProperty'>('portfolio');
   const [months, setMonths] = useState(12);
+  const globalFilter = useGlobalFilter();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -77,7 +79,7 @@ export default function OwnerNetIncomeChart() {
     try {
       const res = await fetch(`/api/financials/owner-net-income?months=${months}`);
       if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-      setData(await res.json());
+      setRawData(await res.json());
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -86,6 +88,39 @@ export default function OwnerNetIncomeChart() {
   }, [months]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Apply the app-wide GlobalFilter (groups / owners / properties) on
+  // the client side. Filter the per-property rows down to the selected
+  // set, then re-sum the monthly totals from the survivors.
+  const data = useMemo<ApiResponse | null>(() => {
+    if (!rawData) return null;
+    if (!globalFilter.isActive) return rawData;
+    const set = new Set(globalFilter.effectiveProperties);
+    const filteredRows = rawData.rows.filter(r => set.has(r.property));
+    const totalsByMonth = new Map<string, MonthTotal>();
+    for (const m of rawData.months) {
+      totalsByMonth.set(m, {
+        month: m, distributions: 0, contributions: 0,
+        insurance: 0, taxes: 0, debt_service: 0, net_to_owner: 0,
+      });
+    }
+    for (const r of filteredRows) {
+      const t = totalsByMonth.get(r.month);
+      if (!t) continue;
+      t.distributions += r.distributions;
+      t.contributions += r.contributions;
+      t.insurance     += r.insurance;
+      t.taxes         += r.taxes;
+      t.debt_service  += r.debt_service;
+      t.net_to_owner  += r.net_to_owner;
+    }
+    return {
+      ...rawData,
+      rows: filteredRows,
+      totals: Array.from(totalsByMonth.values()),
+      properties: rawData.properties.filter(p => set.has(p)),
+    };
+  }, [rawData, globalFilter.isActive, globalFilter.effectiveProperties]);
 
   const totalsForChart = useMemo(() => {
     if (!data?.totals) return [];
