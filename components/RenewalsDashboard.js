@@ -172,13 +172,19 @@ export default function RenewalsDashboard() {
     return leases;
   }, [stats]);
 
-  // For the detail table, only show upcoming expirations up to 90 days (chart shows full 180).
-  // Also apply the app-wide GlobalFilter when active (intersection with whatever
-  // selectedProperty is set to). Charts use server-aggregated counts so they
-  // currently show the full unfiltered set — chart-level filtering is a
-  // follow-up that needs the API to accept properties[] arrays.
+  // For the DEFAULT detail table view, only show upcoming expirations
+  // up to 90 days (chart shows full 180). When the user clicks a
+  // specific month from the bar chart we drop the 90-day cap — that
+  // month-click should reveal the 90-180 day leases that the chart was
+  // hinting at. The "healthy lease rate" calc lives on the server and
+  // is unaffected by this display choice.
+  //
+  // Also apply the app-wide GlobalFilter when active.
   const tableleases = useMemo(() => {
-    const base = allLeases.filter(l => !(l.issueType === 'upcoming' && l.daysUntilExpiration > 90));
+    const monthSelected = activeMonth && !activeMonth.expired;
+    const base = monthSelected
+      ? allLeases
+      : allLeases.filter(l => !(l.issueType === 'upcoming' && l.daysUntilExpiration > 90));
     if (!globalFilter.isActive) return base;
     const set = new Set(globalFilter.effectiveProperties);
     return base.filter(l => set.has(l.property || l.property_name));
