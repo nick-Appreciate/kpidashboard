@@ -82,11 +82,17 @@ export default function TimeSeriesChart({ stageStats, stageName }) {
                 const stage = stages[datasetIndex];
                 const details = tsDetailsByStage[stage]?.[idx] || [];
                 if (details.length === 0) return '';
-                const lines = details.slice(0, 10).map(d => {
-                  const location = d.property ? `${d.property}${d.unit ? ' #' + d.unit : ''}` : '';
-                  return `• ${d.name}${location ? ' (' + location + ')' : ''}`;
-                });
-                if (details.length > 10) lines.push(`... and ${details.length - 10} more`);
+                // Group by property and show counts descending. A long list
+                // of individual lead names was unreadable for big stages
+                // like Inquiries — this turns 65 names into ~5 lines.
+                const counts = new Map();
+                for (const d of details) {
+                  const prop = d.property || 'Unknown';
+                  counts.set(prop, (counts.get(prop) || 0) + 1);
+                }
+                const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+                const lines = sorted.slice(0, 10).map(([prop, n]) => `• ${prop} — ${n}`);
+                if (sorted.length > 10) lines.push(`... and ${sorted.length - 10} more`);
                 return lines;
               }
             }
