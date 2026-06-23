@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { LogoLoader } from './Logo';
 import DarkSelect from './DarkSelect';
+import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 const INSPECTION_TYPES = [
   'S8 - RFT',
@@ -52,6 +53,7 @@ const getTodayCentral = () => {
 };
 
 export default function InspectionsDashboard() {
+  const { allProperties: allKnownProperties } = useGlobalFilter();
   const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -172,9 +174,16 @@ export default function InspectionsDashboard() {
   }, []);
 
   const properties = useMemo(() => {
-    const props = new Set(inspections.map(i => i.property_name).filter(Boolean));
+    // Union: canonical property list (from property_period) + any
+    // property already referenced by an existing inspection. The
+    // canonical list ensures properties with zero inspections (e.g.
+    // Normandy) are still selectable when scheduling a new one.
+    const props = new Set([
+      ...allKnownProperties,
+      ...inspections.map(i => i.property_name).filter(Boolean),
+    ]);
     return ['all', ...Array.from(props).sort()];
-  }, [inspections]);
+  }, [inspections, allKnownProperties]);
 
   const filteredInspections = useMemo(() => {
     const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
