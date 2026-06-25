@@ -956,12 +956,92 @@ export async function GET(request) {
       })
       .sort((a, b) => new Date(b.leaseStart) - new Date(a.leaseStart)); // Most recent first
     
-    // Renewals by month (all available data) + month-to-month transitions
+    // Renewals by month (line series): bucket Renewed records by lease_start month.
     const renewalsByMonth = [];
+
+    // Month-to-month transitions by month (bar series): the OLD impl bucketed
+    // `Did Not Renew` from renewal_summary, but that conflated moved-out
+    // tenants with MTM ones AND included stale superseded records — wildly
+    // overstating reality (currently 1 tenant is actually MTM, old chart
+    // showed 6-13/month). The right signal is a snapshot diff: for each
+    // (property, unit, tenant), find the first month where the lease went
+    // from fixed-term to MTM (no lease_to, or lease_to in the past).
     const monthToMonthByMonth = [];
 
     const renewedRecords = filteredRenewalData.filter(r => r.status === 'Renewed' && r.lease_start);
-    const didNotRenewRecords = filteredRenewalData.filter(r => r.status === 'Did Not Renew' && r.lease_start);
+
+    // ── Build the month-by-month MTM-transition series ──────────────────
+    // 1. Pull one snapshot per calendar month (the last one of each month
+    //    is our "month-end state").
+    // 2. For each (property, unit, tenant), watch state month-over-month;
+    //    a transition counts as "went MTM in month M" when month M-1 had
+    //    a fixed lease (lease_to >= snapshot_date) and month M does not.
+    // 3. Apply the same property/region/farquhar filter the rest of the
+    //    route applies to currentData so the chart respects the selector.
+    let mtmTransitions = [];
+    try {
+      const { data: allSnapDates } = await supabase
+        .from('rent_roll_snapshots')
+        .select('snapshot_date')
+        .order('snapshot_date', { ascending: true });
+      // Last snapshot of each calendar month
+      const lastOfMonth = new Map(); // 'YYYY-MM' -> 'YYYY-MM-DD'
+      (allSnapDates || []).forEach(r => {
+        const d = r.snapshot_date;
+        const key = d.slice(0, 7);
+        if (!lastOfMonth.has(key) || d > lastOfMonth.get(key)) lastOfMonth.set(key, d);
+      });
+      const monthEndDates = Array.from(lastOfMonth.values()).sort();
+
+      if (monthEndDates.length > 0) {
+        let snapQuery = supabase
+          .from('rent_roll_snapshots')
+          .select('snapshot_date, property, unit, tenant_name, lease_to')
+          .eq('status', 'Current')
+          .not('tenant_name', 'is', null)
+          .in('snapshot_date', monthEndDates);
+        if (property && property !== 'all') snapQuery = snapQuery.eq('property', property);
+        const { data: snaps } = await snapQuery;
+        let scoped = snaps || [];
+        if (region) {
+          const kcProperties = REGION_PROPERTIES.region_kansas_city;
+          if (region === 'region_kansas_city') {
+            scoped = scoped.filter(r => kcProperties.some(kc => r.property?.toLowerCase().includes(kc)));
+          } else if (region === 'region_columbia') {
+            scoped = scoped.filter(r => !kcProperties.some(kc => r.property?.toLowerCase().includes(kc)));
+          } else if (region === 'farquhar') {
+            const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+            scoped = scoped.filter(r =>
+              r.property !== 'Glen Oaks' &&
+              !(hilltopGone && r.property === 'Hilltop Townhomes')
+            );
+          }
+        }
+
+        // Group by (property, unit, tenant_name)
+        const byTenant = new Map();
+        for (const r of scoped) {
+          const key = `${r.property}||${r.unit}||${r.tenant_name}`;
+          const arr = byTenant.get(key) || [];
+          arr.push(r);
+          byTenant.set(key, arr);
+        }
+        for (const [, snapshots] of byTenant) {
+          snapshots.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+          let prevState = null; // 'fixed' | 'mtm'
+          for (const s of snapshots) {
+            const isMtm = !s.lease_to || s.lease_to < s.snapshot_date;
+            const state = isMtm ? 'mtm' : 'fixed';
+            if (state === 'mtm' && prevState === 'fixed') {
+              mtmTransitions.push({ month: s.snapshot_date.slice(0, 7) });
+            }
+            prevState = state;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('MTM-transition computation failed:', e?.message || e);
+    }
 
     // Find earliest date across both datasets
     let earliestDate = new Date(today);
@@ -969,20 +1049,20 @@ export async function GET(request) {
       const d = new Date(r.lease_start);
       if (d < earliestDate) earliestDate = d;
     });
-    didNotRenewRecords.forEach(r => {
-      const d = new Date(r.lease_start);
+    mtmTransitions.forEach(t => {
+      const d = new Date(t.month + '-01');
       if (d < earliestDate) earliestDate = d;
     });
     earliestDate.setDate(1); // first of month
 
-    // Find latest date across both datasets (may extend beyond today for upcoming MTM)
+    // Find latest date (may extend beyond today for forward-dated renewals)
     let latestDataDate = new Date(today);
     renewedRecords.forEach(r => {
       const d = new Date(r.lease_start);
       if (d > latestDataDate) latestDataDate = d;
     });
-    didNotRenewRecords.forEach(r => {
-      const d = new Date(r.lease_start);
+    mtmTransitions.forEach(t => {
+      const d = new Date(t.month + '-01');
       if (d > latestDataDate) latestDataDate = d;
     });
 
@@ -1004,11 +1084,9 @@ export async function GET(request) {
       if (monthEntry) monthEntry.count++;
     });
 
-    // Count month-to-month transitions by lease_start month (when current lease expires)
-    didNotRenewRecords.forEach(r => {
-      const leaseStart = new Date(r.lease_start);
-      const monthKey = `${leaseStart.getFullYear()}-${String(leaseStart.getMonth() + 1).padStart(2, '0')}`;
-      const monthEntry = monthToMonthByMonth.find(m => m.month === monthKey);
+    // Count MTM transitions by transition month
+    mtmTransitions.forEach(t => {
+      const monthEntry = monthToMonthByMonth.find(m => m.month === t.month);
       if (monthEntry) monthEntry.count++;
     });
     
