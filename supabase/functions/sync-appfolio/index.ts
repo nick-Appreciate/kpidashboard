@@ -174,7 +174,7 @@ async function syncRenewalSummary(): Promise<SyncResult> {
 async function syncShowings(): Promise<SyncResult> {
   try {
     const data = await fetchAppFolioReport('showings');
-    
+
     const records = data.map((row: any) => ({
       showing_id: row.showing_id || null,
       guest_card_name: row.guest_card_name || null,
@@ -191,19 +191,29 @@ async function syncShowings(): Promise<SyncResult> {
       assigned_user: row.assigned_user || null,
       updated_at: new Date().toISOString()
     }));
-    
-    // Use upsert with composite key (guest_card_name, property, showing_time)
-    // This will insert new records and update existing ones
+
+    // Dedupe on the upsert conflict key (guest_card_name, property,
+    // showing_time). AppFolio occasionally returns multiple rows with
+    // the same triple; Postgres' ON CONFLICT DO UPDATE rejects the
+    // entire batch in that case with "cannot affect row a second time".
+    // Keep the last occurrence — they're effectively identical anyway.
+    const dedupedByKey = new Map<string, typeof records[number]>();
+    for (const r of records) {
+      const key = `${r.guest_card_name ?? ''}||${r.property ?? ''}||${r.showing_time ?? ''}`;
+      dedupedByKey.set(key, r);
+    }
+    const deduped = Array.from(dedupedByKey.values());
+
     const { error } = await supabase
       .from('showings')
-      .upsert(records, { 
+      .upsert(deduped, {
         onConflict: 'guest_card_name,property,showing_time',
-        ignoreDuplicates: false 
+        ignoreDuplicates: false
       });
-    
+
     if (error) throw new Error(JSON.stringify(error));
-    
-    return { report: 'showings', success: true, rowsProcessed: records.length };
+
+    return { report: 'showings', success: true, rowsProcessed: deduped.length };
   } catch (error: any) {
     return { report: 'showings', success: false, rowsProcessed: 0, error: error?.message || String(error) };
   }
