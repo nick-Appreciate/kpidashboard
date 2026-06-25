@@ -188,13 +188,17 @@ export default function RenewalsDashboard() {
     if (!globalFilter.isActive) return base;
     const set = new Set(globalFilter.effectiveProperties);
     return base.filter(l => set.has(l.property || l.property_name));
-  }, [allLeases, globalFilter.isActive, globalFilter.effectiveProperties]);
+  }, [allLeases, activeMonth, globalFilter.isActive, globalFilter.effectiveProperties]);
 
-  // Collect unique renewal statuses and init activeStatuses on first load
+  // Collect every renewal status that could ever appear, including those
+  // only present among 60-180 day leases (which the default capped view
+  // hides). Otherwise the first-load activeStatuses init would miss
+  // them, and clicking a future month would reveal leases whose status
+  // isn't toggled on — they'd silently get filtered out.
   const allRenewalStatuses = useMemo(() => {
-    const statuses = [...new Set(tableleases.map(l => l.renewalStatus || 'Unknown'))].sort();
+    const statuses = [...new Set(allLeases.map(l => l.renewalStatus || 'Unknown'))].sort();
     return statuses;
-  }, [tableleases]);
+  }, [allLeases]);
 
   // Initialize activeStatuses to all on first data load
   useEffect(() => {
