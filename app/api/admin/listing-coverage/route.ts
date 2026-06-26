@@ -28,7 +28,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../../../../lib/auth';
+
+// Service-role client used ONLY for af_listings reads. The default
+// public RLS policy on af_listings hides any listing where
+// available_on IS NULL, which excludes a chunk of our actually-live
+// inventory (e.g. all Oakwood listings carry NULL available_on).
+// This dashboard needs the full active set, not the public-renter
+// subset, so we bypass RLS for that specific query.
+const adminSupabase = () => createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } },
+);
 
 interface RentRollRow {
   property: string;
@@ -102,8 +115,9 @@ export async function GET(req: NextRequest) {
   if (rrErr) return NextResponse.json({ error: rrErr.message }, { status: 500 });
   const allUnits = (latestUnits || []) as RentRollRow[];
 
-  // 3) All active listings
-  const { data: listings, error: lErr } = await supabase
+  // 3) All active listings — service role to bypass RLS that hides
+  //    listings with NULL available_on (see note at top of file).
+  const { data: listings, error: lErr } = await adminSupabase()
     .from('af_listings')
     .select('listing_id, address, rent, bedrooms, bathrooms, square_feet, available_on, default_photo_url, marketing_description, detail_page_url, first_seen_at, scraped_at')
     .is('inactive_since', null);
@@ -195,7 +209,11 @@ export async function GET(req: NextRequest) {
   const properties = Array.from(propMap.values())
     .filter(p => p.vacant_units.length > 0 || p.active_listings.length > 0)
     .map(p => {
-      p.vacant_units.sort((a, b) => (b.days_vacant ?? -1) - (a.days_vacant ?? -1));
+      // Sort by unit number using natural sort so "5" < "23" < "1409D".
+      // Falls back to lexicographic for non-numeric prefixes.
+      p.vacant_units.sort((a, b) => (a.unit || '').localeCompare(b.unit || '', undefined, {
+        numeric: true, sensitivity: 'base',
+      }));
       const listed_count = p.vacant_units.filter(u => u.listed).length;
       return {
         property: p.property,
