@@ -1,9 +1,5 @@
-import PublishingDashboard from '../../../components/PublishingDashboard';
-
-export const metadata = {
-  title: 'Publishing — Appreciate Dashboard',
-};
+import { redirect } from 'next/navigation';
 
 export default function PublishingPage() {
-  return <PublishingDashboard />;
+  redirect('/admin/leasing?tab=publishing');
 }

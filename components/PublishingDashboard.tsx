@@ -123,7 +123,12 @@ async function downloadAllPhotos(property: string, unit: string, photos: string[
   }
 }
 
-export default function PublishingDashboard() {
+interface DashboardProps {
+  /** Hide own sticky header when hosted inside /admin/leasing tabs. */
+  embedded?: boolean;
+}
+
+export default function PublishingDashboard({ embedded }: DashboardProps = {}) {
   const { data, error, isLoading, mutate } = useSWR<ApiResponse>(
     '/api/admin/publishing',
     fetcher,
@@ -207,25 +212,36 @@ export default function PublishingDashboard() {
   if (!data) return null;
 
   return (
-    <div className="min-h-screen">
-      <div className="sticky-header">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
-            <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Publishing</h1>
-            <span className="text-xs text-slate-500">
-              {summary.total} rehab-ready units · {summary.overdue} have a channel due for repost
-            </span>
-            <button
-              onClick={() => mutate()}
-              className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5"
-            >
-              Refresh
-            </button>
+    <div className={embedded ? '' : 'min-h-screen'}>
+      {!embedded && (
+        <div className="sticky-header">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
+              <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Publishing</h1>
+              <span className="text-xs text-slate-500">
+                {summary.total} rehab-ready units · {summary.overdue} have a channel due for repost
+              </span>
+              <button
+                onClick={() => mutate()}
+                className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="px-6 md:px-8 pb-6 md:pb-8">
+      {embedded && (
+        <div className="flex items-center gap-3 px-2 pt-3 mb-2 text-xs text-slate-500">
+          <span>{summary.total} rehab-ready · {summary.overdue} need repost</span>
+          <button onClick={() => mutate()} className="ml-auto text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded hover:bg-white/5">
+            Refresh
+          </button>
+        </div>
+      )}
+
+      <div className={embedded ? 'px-2 pb-6' : 'px-6 md:px-8 pb-6 md:pb-8'}>
         <div className="max-w-7xl mx-auto">
           {summary.overdue > 0 && (
             <div className="glass-card border border-amber-500/30 bg-amber-500/5 p-4 mt-6 mb-4 flex gap-3">

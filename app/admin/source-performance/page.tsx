@@ -1,9 +1,5 @@
-import SourcePerformanceDashboard from '../../../components/SourcePerformanceDashboard';
-
-export const metadata = {
-  title: 'Lead source performance — Appreciate Dashboard',
-};
+import { redirect } from 'next/navigation';
 
 export default function SourcePerformancePage() {
-  return <SourcePerformanceDashboard />;
+  redirect('/admin/leasing?tab=sources');
 }

@@ -82,7 +82,13 @@ function rehabBadge(status: string) {
   );
 }
 
-export default function ListingCoverageDashboard() {
+interface DashboardProps {
+  /** When true, omit the sticky page header — used when this dashboard
+   *  is embedded in a parent tabbed page (/admin/leasing). */
+  embedded?: boolean;
+}
+
+export default function ListingCoverageDashboard({ embedded }: DashboardProps = {}) {
   const { data, error, isLoading, mutate } = useSWR<ApiResponse>(
     '/api/admin/listing-coverage',
     fetcher,
@@ -134,25 +140,27 @@ export default function ListingCoverageDashboard() {
   if (!data) return null;
 
   return (
-    <div className="min-h-screen">
-      <div className="sticky-header">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
-            <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Listing coverage</h1>
-            <span className="text-xs text-slate-500">
-              snapshot {data.summary.snapshot_date} · units sourced from rehabs (In Progress + Complete)
-            </span>
-            <button
-              onClick={() => mutate()}
-              className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5"
-            >
-              Refresh
-            </button>
+    <div className={embedded ? '' : 'min-h-screen'}>
+      {!embedded && (
+        <div className="sticky-header">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
+              <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Listing coverage</h1>
+              <span className="text-xs text-slate-500">
+                snapshot {data.summary.snapshot_date} · units sourced from rehabs (In Progress + Complete)
+              </span>
+              <button
+                onClick={() => mutate()}
+                className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="px-6 md:px-8 pb-6 md:pb-8">
+      <div className={embedded ? 'px-2 pb-6' : 'px-6 md:px-8 pb-6 md:pb-8'}>
         <div className="max-w-7xl mx-auto">
           {/* Summary strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 mb-6">

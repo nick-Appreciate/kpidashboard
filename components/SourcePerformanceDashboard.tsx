@@ -91,7 +91,11 @@ function RecommendationBadge({ rec }: { rec: Recommendation }) {
   );
 }
 
-export default function SourcePerformanceDashboard() {
+interface DashboardProps {
+  embedded?: boolean;
+}
+
+export default function SourcePerformanceDashboard({ embedded }: DashboardProps = {}) {
   const [days, setDays] = useState<Days>(180);
   const [region, setRegion] = useState<Region>('all');
 
@@ -134,45 +138,62 @@ export default function SourcePerformanceDashboard() {
   }
   if (!data) return null;
 
+  // Selectors render either inside the standalone sticky header
+  // or inside an inline toolbar when embedded under /admin/leasing.
+  const selectors = (
+    <div className="flex items-center gap-2 text-xs">
+      <select
+        value={region}
+        onChange={(e) => setRegion(e.target.value as Region)}
+        className="bg-surface-overlay border border-white/10 rounded px-2 py-1 text-xs text-slate-200"
+      >
+        <option value="all">All regions</option>
+        <option value="region_kansas_city">Kansas City</option>
+        <option value="region_columbia">Columbia</option>
+      </select>
+      <select
+        value={days}
+        onChange={(e) => setDays(parseInt(e.target.value, 10) as Days)}
+        className="bg-surface-overlay border border-white/10 rounded px-2 py-1 text-xs text-slate-200"
+      >
+        <option value={30}>Last 30 days</option>
+        <option value={60}>Last 60 days</option>
+        <option value={90}>Last 90 days</option>
+        <option value={180}>Last 180 days</option>
+        <option value={365}>Last 365 days</option>
+      </select>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen">
-      <div className="sticky-header">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
-            <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Lead source performance</h1>
-            <div className="flex items-center gap-2 text-xs">
-              <select
-                value={region}
-                onChange={(e) => setRegion(e.target.value as Region)}
-                className="bg-surface-overlay border border-white/10 rounded px-2 py-1 text-xs text-slate-200"
+    <div className={embedded ? '' : 'min-h-screen'}>
+      {!embedded && (
+        <div className="sticky-header">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
+              <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Lead source performance</h1>
+              {selectors}
+              <button
+                onClick={() => mutate()}
+                className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5"
               >
-                <option value="all">All regions</option>
-                <option value="region_kansas_city">Kansas City</option>
-                <option value="region_columbia">Columbia</option>
-              </select>
-              <select
-                value={days}
-                onChange={(e) => setDays(parseInt(e.target.value, 10) as Days)}
-                className="bg-surface-overlay border border-white/10 rounded px-2 py-1 text-xs text-slate-200"
-              >
-                <option value={30}>Last 30 days</option>
-                <option value={60}>Last 60 days</option>
-                <option value={90}>Last 90 days</option>
-                <option value={180}>Last 180 days</option>
-                <option value={365}>Last 365 days</option>
-              </select>
+                Refresh
+              </button>
             </div>
-            <button
-              onClick={() => mutate()}
-              className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5"
-            >
-              Refresh
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="px-6 md:px-8 pb-6 md:pb-8">
+      {embedded && (
+        <div className="flex items-center gap-3 px-2 pt-3 mb-2">
+          {selectors}
+          <button onClick={() => mutate()} className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-white/5">
+            Refresh
+          </button>
+        </div>
+      )}
+
+      <div className={embedded ? 'px-2 pb-6' : 'px-6 md:px-8 pb-6 md:pb-8'}>
         <div className="max-w-7xl mx-auto">
           {/* Stat strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 mb-4">

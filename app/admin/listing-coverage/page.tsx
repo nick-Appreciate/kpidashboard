@@ -1,9 +1,6 @@
-import ListingCoverageDashboard from '../../../components/ListingCoverageDashboard';
+import { redirect } from 'next/navigation';
 
-export const metadata = {
-  title: 'Listing coverage — Appreciate Dashboard',
-};
-
+// Consolidated into /admin/leasing. Old bookmarks keep working.
 export default function ListingCoveragePage() {
-  return <ListingCoverageDashboard />;
+  redirect('/admin/leasing?tab=coverage');
 }
