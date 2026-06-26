@@ -18,7 +18,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../../../../lib/auth';
+
+// Service-role client used for af_listings + af_listing_photos reads.
+// The public RLS policy on both tables filters to
+//   (inactive_since IS NULL) AND (available_on IS NOT NULL)
+// which hides every Glen Oaks listing (all carry NULL available_on),
+// among others. Mirrors the same setup in /admin/listing-coverage.
+const adminSupabase = () => createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } },
+);
 
 type Channel = 'fb_marketplace' | 'craigslist';
 
@@ -163,12 +175,13 @@ export async function GET(req: NextRequest) {
     return v && v.count > 0 ? Math.round(v.sum / v.count) : null;
   };
 
-  // af_listings (active) — same RLS-bypass note as listing-coverage:
-  // available_on IS NULL hides some live listings under the user-scoped
-  // client. We use requireAuth + service-role-less query here because
-  // af_listings has authenticated SELECT permission too; if you find
-  // missing listings later, swap to a service-role client.
-  const { data: listings } = await supabase
+  // af_listings (active) — service role to bypass the public RLS
+  // policy, which is
+  //   (inactive_since IS NULL) AND (available_on IS NOT NULL)
+  // and hides Glen Oaks listings (all carry NULL available_on) from
+  // the user-scoped client. /admin/listing-coverage already does this.
+  const admin = adminSupabase();
+  const { data: listings } = await admin
     .from('af_listings')
     .select('id, address, city, state, zip, rent, bedrooms, bathrooms, square_feet, available_on, application_fee, deposit, pet_policy, marketing_description, application_url, default_photo_url')
     .is('inactive_since', null);
@@ -185,11 +198,14 @@ export async function GET(req: NextRequest) {
     listingsByProperty.set(property, arr);
   }
 
-  // Photos per listing — used in the UI grid + bulk-download proxy
+  // Photos per listing — used in the UI grid + bulk-download proxy.
+  // The RLS policy on af_listing_photos joins back through af_listings
+  // and inherits the same available_on IS NOT NULL filter that hides
+  // Glen Oaks's listings, so route through admin too.
   const listingIds = (listings || []).map(l => l.id).filter(Boolean);
   const photosByListing = new Map<string, string[]>();
   if (listingIds.length > 0) {
-    const { data: photoRows } = await supabase
+    const { data: photoRows } = await admin
       .from('af_listing_photos')
       .select('listing_id, photo_url, position')
       .in('listing_id', listingIds)
