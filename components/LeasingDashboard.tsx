@@ -10,11 +10,16 @@
  *   publishing — pre-formatted post copy + photos for FB / CL
  *   sources    — lead source scorecard + trim-spend recommendations
  *
- * Tab is stored in the URL (?tab=...) so deep links from the old
- * standalone routes survive (and so the browser back button works).
+ * Implementation notes:
+ *   - Active tab lives in the URL (?tab=…) and is the single source
+ *     of truth; no local state to drift out of sync.
+ *   - All three children mount on first render and stay mounted —
+ *     switching tabs just toggles `display`. That preserves each
+ *     tab's scroll position + SWR data and stops the page from
+ *     jumping when content heights differ across tabs.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, Megaphone, BarChart3 } from 'lucide-react';
 import ListingCoverageDashboard from './ListingCoverageDashboard';
@@ -23,10 +28,10 @@ import SourcePerformanceDashboard from './SourcePerformanceDashboard';
 
 type Tab = 'coverage' | 'publishing' | 'sources';
 
-const TABS: { id: Tab; label: string; Icon: any; description: string }[] = [
-  { id: 'coverage',   label: 'Coverage',   Icon: Eye,       description: 'Rehab-ready units vs active public listings' },
-  { id: 'publishing', label: 'Publishing', Icon: Megaphone, description: 'Copy-paste posts for FB Marketplace + Craigslist' },
-  { id: 'sources',    label: 'Sources',    Icon: BarChart3, description: 'Per-source funnel + trim/invest recommendations' },
+const TABS: { id: Tab; label: string; Icon: any }[] = [
+  { id: 'coverage',   label: 'Coverage',   Icon: Eye       },
+  { id: 'publishing', label: 'Publishing', Icon: Megaphone },
+  { id: 'sources',    label: 'Sources',    Icon: BarChart3 },
 ];
 
 function isTab(s: string | null | undefined): s is Tab {
@@ -36,28 +41,15 @@ function isTab(s: string | null | undefined): s is Tab {
 export default function LeasingDashboard() {
   const router = useRouter();
   const params = useSearchParams();
-  const initial: Tab = isTab(params.get('tab')) ? (params.get('tab') as Tab) : 'coverage';
-  const [tab, setTab] = useState<Tab>(initial);
+  const fromUrl = params.get('tab');
+  const tab: Tab = isTab(fromUrl) ? fromUrl : 'coverage';
 
-  // Keep URL ?tab= in sync when user clicks a tab
-  useEffect(() => {
-    const current = params.get('tab');
-    if (current === tab) return;
-    const next = new URLSearchParams(params.toString());
-    next.set('tab', tab);
-    router.replace(`/admin/leasing?${next.toString()}`, { scroll: false });
+  const select = useCallback((next: Tab) => {
+    if (next === tab) return;
+    const search = new URLSearchParams(params.toString());
+    search.set('tab', next);
+    router.replace(`/admin/leasing?${search.toString()}`, { scroll: false });
   }, [tab, params, router]);
-
-  // If the URL changes (back/forward, external link) reflect it
-  useEffect(() => {
-    const fromUrl = params.get('tab');
-    if (isTab(fromUrl) && fromUrl !== tab) setTab(fromUrl);
-  }, [params, tab]);
-
-  const description = useMemo(
-    () => TABS.find(t => t.id === tab)?.description ?? '',
-    [tab],
-  );
 
   return (
     <div className="min-h-screen">
@@ -71,7 +63,7 @@ export default function LeasingDashboard() {
                 return (
                   <button
                     key={t.id}
-                    onClick={() => setTab(t.id)}
+                    onClick={() => select(t.id)}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                       active
                         ? 'bg-accent/20 text-accent-light'
@@ -84,16 +76,24 @@ export default function LeasingDashboard() {
                 );
               })}
             </nav>
-            <span className="text-xs text-slate-500 truncate">{description}</span>
           </div>
         </div>
       </div>
 
       <div className="px-6 md:px-8 pb-6 md:pb-8">
         <div className="max-w-7xl mx-auto">
-          {tab === 'coverage'   && <ListingCoverageDashboard embedded />}
-          {tab === 'publishing' && <PublishingDashboard embedded />}
-          {tab === 'sources'    && <SourcePerformanceDashboard embedded />}
+          {/* All three stay mounted; only one is visible. Preserves SWR
+              cache + scroll position and avoids layout jumps when the
+              user switches between very-different-height tabs. */}
+          <div style={{ display: tab === 'coverage'   ? 'block' : 'none' }}>
+            <ListingCoverageDashboard embedded />
+          </div>
+          <div style={{ display: tab === 'publishing' ? 'block' : 'none' }}>
+            <PublishingDashboard embedded />
+          </div>
+          <div style={{ display: tab === 'sources'    ? 'block' : 'none' }}>
+            <SourcePerformanceDashboard embedded />
+          </div>
         </div>
       </div>
     </div>
