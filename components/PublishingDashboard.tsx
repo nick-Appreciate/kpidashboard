@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
-import { Clipboard, Check, ExternalLink, Clock, AlertCircle } from 'lucide-react';
+import { Clipboard, Check, ExternalLink, Clock, AlertCircle, Download, Image as ImageIcon } from 'lucide-react';
 
 type Channel = 'fb_marketplace' | 'craigslist' | 'nextdoor';
 
@@ -47,6 +47,7 @@ interface UnitRow {
   rent: number;
   available_on: string | null;
   photo: string | null;
+  photos: string[];
   application_url: string | null;
   has_listing: boolean;
   channels: ChannelPayload[];
@@ -85,15 +86,53 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
+function photoBaseName(property: string, unit: string): string {
+  return `${property}-${unit}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
+function photoExtFromUrl(url: string): string {
+  const m = url.split('?')[0].match(/\.([a-zA-Z0-9]{2,4})$/);
+  return m ? m[1].toLowerCase() : 'jpg';
+}
+
+function buildProxyHref(url: string, filename: string): string {
+  const qs = new URLSearchParams({ url, filename });
+  return `/api/admin/publishing/photo?${qs.toString()}`;
+}
+
+/**
+ * Triggers sequential downloads via temporary <a download> clicks
+ * routed through our same-origin proxy. Spaced ~250ms apart so the
+ * browser doesn't bundle them into a single "this site is downloading
+ * multiple files" prompt.
+ */
+async function downloadAllPhotos(property: string, unit: string, photos: string[]) {
+  const base = photoBaseName(property, unit);
+  for (let i = 0; i < photos.length; i++) {
+    const ext = photoExtFromUrl(photos[i]);
+    const filename = `${base}-${String(i + 1).padStart(2, '0')}.${ext}`;
+    const href = buildProxyHref(photos[i], filename);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (i < photos.length - 1) await new Promise(r => setTimeout(r, 250));
+  }
+}
+
 export default function PublishingDashboard() {
   const { data, error, isLoading, mutate } = useSWR<ApiResponse>(
     '/api/admin/publishing',
     fetcher,
     { revalidateOnMount: true }
   );
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [copied, setCopied]     = useState<string | null>(null);
-  const [marking, setMarking]   = useState<string | null>(null);
+  const [expanded, setExpanded]         = useState<Set<string>>(new Set());
+  const [copied, setCopied]             = useState<string | null>(null);
+  const [marking, setMarking]           = useState<string | null>(null);
+  const [bulkDownloading, setBulkDownloading] = useState<string | null>(null);
 
   // Auto-expand any unit with a due-for-repost channel on first load
   useEffect(() => {
@@ -251,6 +290,94 @@ export default function PublishingDashboard() {
                           first for best copy quality.
                         </div>
                       )}
+
+                      {/* Photo strip */}
+                      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 text-xs">
+                            <ImageIcon className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="font-semibold uppercase tracking-wide text-slate-300">
+                              Photos
+                            </span>
+                            <span className="text-slate-500">·</span>
+                            <span className="text-slate-400 tabular-nums">
+                              {u.photos.length} available
+                            </span>
+                          </div>
+                          {u.photos.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={async () => {
+                                  const ok = await copyToClipboard(u.photos.join('\n'));
+                                  if (ok) {
+                                    const k = `urls:${key}`;
+                                    setCopied(k);
+                                    setTimeout(() => setCopied(prev => prev === k ? null : prev), 2000);
+                                  }
+                                }}
+                                className="text-xs px-2 py-1 rounded text-slate-300 hover:text-white hover:bg-white/10 flex items-center gap-1"
+                                title="Copy all photo URLs to clipboard"
+                              >
+                                {copied === `urls:${key}` ? (
+                                  <><Check className="w-3 h-3 text-emerald-400" /> URLs copied</>
+                                ) : (
+                                  <><Clipboard className="w-3 h-3" /> Copy URLs</>
+                                )}
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  setBulkDownloading(key);
+                                  try { await downloadAllPhotos(u.property, u.unit, u.photos); }
+                                  finally { setBulkDownloading(null); }
+                                }}
+                                disabled={bulkDownloading === key}
+                                className="text-xs px-2 py-1 rounded bg-accent/15 text-accent-light hover:bg-accent/25 disabled:opacity-60 flex items-center gap-1"
+                                title={`Download all ${u.photos.length} photos to your computer`}
+                              >
+                                <Download className="w-3 h-3" />
+                                {bulkDownloading === key ? `Downloading ${u.photos.length}…` : `Download all (${u.photos.length})`}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {u.photos.length === 0 ? (
+                          <div className="text-xs text-slate-500 py-4 text-center">
+                            No photos uploaded yet. Add photos to this unit in AppFolio so
+                            Marketplace and Craigslist posts have visuals.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                            {u.photos.map((src, i) => {
+                              const filename = `${photoBaseName(u.property, u.unit)}-${String(i+1).padStart(2,'0')}.${photoExtFromUrl(src)}`;
+                              const proxyHref = buildProxyHref(src, filename);
+                              return (
+                                <a
+                                  key={i}
+                                  href={proxyHref}
+                                  download={filename}
+                                  className="relative group block aspect-square rounded overflow-hidden border border-white/10 bg-black/40 hover:border-accent/50 transition-colors"
+                                  title={`Photo ${i+1} — click to download`}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={src}
+                                    alt={`Photo ${i+1}`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                  />
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <Download className="w-4 h-4 text-white" />
+                                  </div>
+                                  <span className="absolute top-1 left-1 text-[10px] font-semibold text-white bg-black/60 px-1.5 py-0.5 rounded">
+                                    {i + 1}
+                                  </span>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
                       {u.channels.map(c => {
                         const channelKey = `${u.property}||${u.unit}||${c.channel}`;
                         const f = freshnessLabel(c);

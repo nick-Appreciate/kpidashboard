@@ -42,6 +42,7 @@ interface RehabRow {
 }
 
 interface ListingRow {
+  id: string;
   address: string;
   city: string | null;
   state: string | null;
@@ -104,13 +105,30 @@ export async function GET(req: NextRequest) {
   // missing listings later, swap to a service-role client.
   const { data: listings } = await supabase
     .from('af_listings')
-    .select('address, city, state, zip, rent, bedrooms, bathrooms, square_feet, available_on, application_fee, deposit, pet_policy, marketing_description, application_url, default_photo_url')
+    .select('id, address, city, state, zip, rent, bedrooms, bathrooms, square_feet, available_on, application_fee, deposit, pet_policy, marketing_description, application_url, default_photo_url')
     .is('inactive_since', null);
   const listingsByAddress = new Map<string, ListingRow>();
   for (const l of (listings || []) as ListingRow[]) {
     if (!l.address) continue;
     const key = l.address.toLowerCase().trim();
     if (!listingsByAddress.has(key)) listingsByAddress.set(key, l);
+  }
+
+  // Photos per listing — used in the UI grid + bulk-download proxy
+  const listingIds = (listings || []).map(l => l.id).filter(Boolean);
+  const photosByListing = new Map<string, string[]>();
+  if (listingIds.length > 0) {
+    const { data: photoRows } = await supabase
+      .from('af_listing_photos')
+      .select('listing_id, photo_url, position')
+      .in('listing_id', listingIds)
+      .order('position', { ascending: true });
+    for (const p of photoRows || []) {
+      if (!p.listing_id || !p.photo_url) continue;
+      const arr = photosByListing.get(p.listing_id) || [];
+      arr.push(p.photo_url);
+      photosByListing.set(p.listing_id, arr);
+    }
   }
 
   // Latest publishing log per (property, unit, channel)
@@ -169,6 +187,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const photos = (listing && photosByListing.get(listing.id)) || (photo ? [photo] : []);
+
     return {
       property: r.property,
       unit: r.unit,
@@ -177,6 +197,7 @@ export async function GET(req: NextRequest) {
       bedrooms, bathrooms, sqft, rent,
       available_on: availableOn,
       photo,
+      photos,
       application_url: applicationUrl,
       has_listing: !!listing,
       channels,
