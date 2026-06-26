@@ -3,9 +3,10 @@
 /**
  * ListingCoverageDashboard — /admin/listing-coverage
  *
- * Shows the gap between vacant rent_roll units and active public
- * listings in af_listings. Built after Phase 4 of the leasing audit
- * surfaced that ~half of KC vacant units had no public listing.
+ * Shows the gap between rehab-ready units and active public listings.
+ * "Rehab-ready" = an active rehab record with rehab_status of
+ * 'In Progress' or 'Complete'. Not Started / Notice / Eviction /
+ * Rented are out of scope on purpose.
  *
  * Per-unit match strategy mirrors the API route:
  *   address-substring match (best, e.g. unit 2625F → "2625 Farrow"),
@@ -18,9 +19,10 @@ import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
 import { AlertTriangle, CheckCircle2, ExternalLink, ImageOff } from 'lucide-react';
 
-interface VacantUnit {
+interface ListableUnit {
   unit: string;
-  status: string;
+  rehab_status: string;
+  rent_roll_status: string | null;
   bed_bath: string | null;
   sqft: number | null;
   days_vacant: number | null;
@@ -36,17 +38,17 @@ interface VacantUnit {
 interface PropertyRow {
   property: string;
   occupied: number;
-  vacant_count: number;
+  listable_count: number;
   listed_count: number;
   gap: number;
   active_listings_count: number;
-  vacant_units: VacantUnit[];
+  units: ListableUnit[];
 }
 
 interface ApiResponse {
   summary: {
     snapshot_date: string | null;
-    total_vacant: number;
+    total_listable: number;
     total_listed: number;
     total_gap: number;
     total_active_listings: number;
@@ -65,6 +67,19 @@ function tenureColor(days: number | null): string {
 function tenureLabel(days: number | null): string {
   if (days == null) return 'no history';
   return `${days}d vacant`;
+}
+
+function rehabBadge(status: string) {
+  const cfg = status === 'Complete'
+    ? { bg: 'bg-emerald-500/15', text: 'text-emerald-300' }
+    : status === 'In Progress'
+    ? { bg: 'bg-blue-500/15',    text: 'text-blue-300' }
+    : { bg: 'bg-slate-500/15',   text: 'text-slate-300' };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cfg.bg} ${cfg.text}`}>
+      {status}
+    </span>
+  );
 }
 
 export default function ListingCoverageDashboard() {
@@ -95,8 +110,8 @@ export default function ListingCoverageDashboard() {
   };
 
   const coveragePct = useMemo(() => {
-    if (!data || data.summary.total_vacant === 0) return 100;
-    return Math.round(100 * data.summary.total_listed / data.summary.total_vacant);
+    if (!data || data.summary.total_listable === 0) return 100;
+    return Math.round(100 * data.summary.total_listed / data.summary.total_listable);
   }, [data]);
 
   if (isLoading && !data) {
@@ -125,7 +140,7 @@ export default function ListingCoverageDashboard() {
           <div className="flex items-center gap-4 h-10 px-6 border-b border-[var(--glass-border)]">
             <h1 className="text-sm font-semibold text-slate-100 whitespace-nowrap">Listing coverage</h1>
             <span className="text-xs text-slate-500">
-              snapshot {data.summary.snapshot_date}
+              snapshot {data.summary.snapshot_date} · units sourced from rehabs (In Progress + Complete)
             </span>
             <button
               onClick={() => mutate()}
@@ -141,22 +156,22 @@ export default function ListingCoverageDashboard() {
         <div className="max-w-7xl mx-auto">
           {/* Summary strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 mb-6">
-            <StatCard label="Vacant units"   value={data.summary.total_vacant} />
-            <StatCard label="Listed"          value={data.summary.total_listed}
+            <StatCard label="Rehab-ready units" value={data.summary.total_listable} />
+            <StatCard label="Listed"             value={data.summary.total_listed}
                       sub={`${coveragePct}% coverage`} />
-            <StatCard label="Coverage gap"    value={data.summary.total_gap}
+            <StatCard label="Coverage gap"       value={data.summary.total_gap}
                       tone={data.summary.total_gap > 0 ? 'warn' : 'good'} />
-            <StatCard label="Active listings" value={data.summary.total_active_listings} />
+            <StatCard label="Active listings"    value={data.summary.total_active_listings} />
           </div>
 
           {data.summary.total_gap > 0 && (
             <div className="glass-card border border-amber-500/30 bg-amber-500/5 p-4 mb-4 flex gap-3">
               <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               <div className="text-sm text-slate-200">
-                <strong className="text-amber-300">{data.summary.total_gap} vacant units have no active public listing.</strong>
-                {' '}These units are invisible to renters searching Apartments.com, Zillow, etc. Open
-                AppFolio for each and confirm the "Post" toggle is on and all required fields (photos,
-                bed/bath, description) are populated.
+                <strong className="text-amber-300">{data.summary.total_gap} rehab-ready units have no active public listing.</strong>
+                {' '}These are units whose rehab is In Progress or Complete — they should be on every public
+                feed. Open AppFolio for each and confirm the "Post" toggle is on plus required fields
+                (photos, bed/bath, description) are populated.
               </div>
             </div>
           )}
@@ -172,12 +187,12 @@ export default function ListingCoverageDashboard() {
                   <div className="flex-1 flex items-center gap-3 text-left">
                     <span className="font-semibold text-slate-100">{p.property}</span>
                     <span className="text-xs text-slate-500 tabular-nums">
-                      {p.occupied} occupied · {p.vacant_count} vacant
+                      {p.occupied} occupied · {p.listable_count} rehab-ready
                     </span>
                   </div>
                   <CoveragePill
                     listed={p.listed_count}
-                    total={p.vacant_count}
+                    total={p.listable_count}
                     gap={p.gap}
                   />
                   <span className="text-xs text-slate-500 tabular-nums">
@@ -187,12 +202,13 @@ export default function ListingCoverageDashboard() {
                     {expanded.has(p.property) ? '▼' : '▶'}
                   </span>
                 </button>
-                {expanded.has(p.property) && p.vacant_units.length > 0 && (
+                {expanded.has(p.property) && p.units.length > 0 && (
                   <div className="border-t border-[var(--glass-border)]">
                     <table className="w-full text-sm">
-                      <thead className="bg-surface-raised/80 text-xs text-slate-400">
+                      <thead className="bg-surface-raised/80 text-xs text-slate-400 sticky top-0 z-10">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Unit</th>
+                          <th className="px-3 py-2 text-left font-medium">Rehab</th>
                           <th className="px-3 py-2 text-left font-medium">Bed/Bath</th>
                           <th className="px-3 py-2 text-left font-medium">Sqft</th>
                           <th className="px-3 py-2 text-left font-medium">Tenure</th>
@@ -202,9 +218,10 @@ export default function ListingCoverageDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {p.vacant_units.map((u, i) => (
+                        {p.units.map((u, i) => (
                           <tr key={u.unit + i} className="hover:bg-white/5">
                             <td className="px-3 py-2 font-medium text-slate-100">{u.unit}</td>
+                            <td className="px-3 py-2">{rehabBadge(u.rehab_status)}</td>
                             <td className="px-3 py-2 text-slate-300 tabular-nums">{u.bed_bath || '—'}</td>
                             <td className="px-3 py-2 text-slate-300 tabular-nums">{u.sqft || '—'}</td>
                             <td className={`px-3 py-2 tabular-nums ${tenureColor(u.days_vacant)}`}>
@@ -252,7 +269,7 @@ export default function ListingCoverageDashboard() {
             ))}
             {data.properties.length === 0 && (
               <div className="text-center py-12 text-slate-500 text-sm">
-                No vacant units in the latest snapshot.
+                No rehab-ready units. Set a rehab to "In Progress" or "Complete" on /rehabs to start tracking.
               </div>
             )}
           </div>
@@ -281,7 +298,7 @@ function StatCard({ label, value, sub, tone }: {
 
 function CoveragePill({ listed, total, gap }: { listed: number; total: number; gap: number }) {
   if (total === 0) {
-    return <span className="text-xs text-slate-500 px-2 py-0.5 rounded bg-slate-500/10">no vacancies</span>;
+    return <span className="text-xs text-slate-500 px-2 py-0.5 rounded bg-slate-500/10">none ready</span>;
   }
   const pct = Math.round(100 * listed / total);
   const tone = gap === 0 ? 'emerald' : gap <= 2 ? 'amber' : 'rose';

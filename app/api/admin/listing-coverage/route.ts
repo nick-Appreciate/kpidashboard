@@ -1,30 +1,29 @@
 /**
  * /api/admin/listing-coverage
  *
- *   GET — per-property breakdown of vacant units vs active public
- *         listings. Surfaces the gap between what's vacant in
- *         rent_roll_snapshots and what's actually live on the
- *         AppFolio listings feed (af_listings).
+ *   GET — per-property breakdown of rehab-ready units vs active
+ *         public listings. The source of truth for "should this unit
+ *         be on the market right now?" is the rehabs table — units
+ *         whose rehab_status is 'In Progress' or 'Complete' belong
+ *         on every public feed. Units at 'Not Started', 'Notice',
+ *         'Eviction', or 'Rented' are out of scope (work hasn't begun,
+ *         tenant still in unit, or already leased).
  *
- * Built in response to the discovery that 14 of 27 KC vacant units
- * had no active af_listings record — they were invisible to the
- * public market. A daily check of this view should keep that gap
- * from re-opening as units come off rehab.
+ * Built in response to the discovery that ~half of KC rehab-ready
+ * units had no active af_listings record — they were invisible to
+ * the public market. Cross-referencing with rehab status filters
+ * out the units that legitimately shouldn't be listed yet (rehab
+ * not started, notice tenant still occupying, etc.) so the gap
+ * count reflects only actionable inventory.
  *
- * Each vacant unit gets:
- *   - days_vacant         (since last 'Current' snapshot, or null if
- *                          never occupied in our 18-month window)
- *   - bed_bath, sqft      (so the user can see what they're listing)
- *   - listed              (true if at least one active af_listings row
- *                          matches by property + bed/bath, OR if the
- *                          address contains the unit number)
- *   - listing_match_kind  ('address' | 'bed_bath' | null) — surfaces
- *                          how confident the match is
- *
- * The per-property summary also includes a count of active listings
- * at that property that DON'T match any vacant unit — those are
- * either occupied units still showing as listed (stale) or listings
- * for units we don't have rent_roll coverage on.
+ * Each unit gets:
+ *   - rehab_status        ('In Progress' | 'Complete')
+ *   - days_vacant         (from rehabs.vacancy_start_date if set,
+ *                          else from snapshot history)
+ *   - bed_bath, sqft      (from latest rent_roll_snapshot)
+ *   - rent_roll_status    (latest snapshot status, e.g. Vacant-Unrented)
+ *   - listed              (true if matching active af_listings row)
+ *   - listing_match_kind  ('address' | 'bed_bath' | null)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,14 +33,24 @@ import { requireAuth } from '../../../../lib/auth';
 // Service-role client used ONLY for af_listings reads. The default
 // public RLS policy on af_listings hides any listing where
 // available_on IS NULL, which excludes a chunk of our actually-live
-// inventory (e.g. all Oakwood listings carry NULL available_on).
-// This dashboard needs the full active set, not the public-renter
-// subset, so we bypass RLS for that specific query.
+// inventory. This dashboard needs the full active set.
 const adminSupabase = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } },
 );
+
+// Rehab statuses that mean "this unit should be on the public market."
+// Anything outside this set is filtered out of the coverage dashboard.
+const LISTABLE_REHAB_STATUSES = new Set(['In Progress', 'Complete']);
+
+interface RehabRow {
+  id: string;
+  property: string;
+  unit: string;
+  rehab_status: string;
+  vacancy_start_date: string | null;
+}
 
 interface RentRollRow {
   property: string;
@@ -67,8 +76,6 @@ interface ListingRow {
   scraped_at: string | null;
 }
 
-// AppFolio listings address fragments → property name map.
-// Used to attribute af_listings rows to a rent_roll property.
 const PROPERTY_ADDRESS_HINTS: Array<{ contains: string[]; property: string }> = [
   { contains: ['delavan', 'farrow'],                  property: 'Hilltop Townhomes' },
   { contains: ['n 58th', 'north 58th'],               property: 'Glen Oaks' },
@@ -106,7 +113,16 @@ export async function GET(req: NextRequest) {
   const latestDate = latestSnap?.[0]?.snapshot_date;
   if (!latestDate) return NextResponse.json({ properties: [], summary: emptySummary() });
 
-  // 2) Latest snapshot — every unit so we can count occupied vs vacant per property
+  // 2) Active rehabs — the source of truth for "listable inventory"
+  const { data: rehabsData, error: rehabsErr } = await supabase
+    .from('rehabs')
+    .select('id, property, unit, rehab_status, vacancy_start_date')
+    .eq('status', 'in_progress')
+    .in('rehab_status', Array.from(LISTABLE_REHAB_STATUSES));
+  if (rehabsErr) return NextResponse.json({ error: rehabsErr.message }, { status: 500 });
+  const rehabs = (rehabsData || []) as RehabRow[];
+
+  // 3) Latest snapshot — every unit so we can pull bed/bath/sqft + occupied count
   const { data: latestUnits, error: rrErr } = await supabase
     .from('rent_roll_snapshots')
     .select('property, unit, status, bed_bath, sqft, total_rent')
@@ -114,9 +130,16 @@ export async function GET(req: NextRequest) {
     .range(0, 9999);
   if (rrErr) return NextResponse.json({ error: rrErr.message }, { status: 500 });
   const allUnits = (latestUnits || []) as RentRollRow[];
+  const unitByKey = new Map<string, RentRollRow>();
+  for (const u of allUnits) unitByKey.set(`${u.property}||${u.unit}`, u);
+  const occupiedByProperty = new Map<string, number>();
+  for (const u of allUnits) {
+    if (u.status === 'Current') {
+      occupiedByProperty.set(u.property, (occupiedByProperty.get(u.property) || 0) + 1);
+    }
+  }
 
-  // 3) All active listings — service role to bypass RLS that hides
-  //    listings with NULL available_on (see note at top of file).
+  // 4) All active af_listings — service role to bypass RLS
   const { data: listings, error: lErr } = await adminSupabase()
     .from('af_listings')
     .select('listing_id, address, rent, bedrooms, bathrooms, square_feet, available_on, default_photo_url, marketing_description, detail_page_url, first_seen_at, scraped_at')
@@ -124,7 +147,8 @@ export async function GET(req: NextRequest) {
   if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
   const activeListings = (listings || []) as ListingRow[];
 
-  // 4) History last 18 months for days-vacant computation
+  // 5) History last 18 months — fallback days-vacant when rehabs row
+  //    doesn't have vacancy_start_date (rare).
   const eighteenAgo = new Date();
   eighteenAgo.setMonth(eighteenAgo.getMonth() - 18);
   const since = eighteenAgo.toISOString().slice(0, 10);
@@ -142,7 +166,7 @@ export async function GET(req: NextRequest) {
     if (!prev || r.snapshot_date > prev) lastCurrentByUnit.set(key, r.snapshot_date);
   }
 
-  // 5) Attribute each listing to a property + (where possible) a unit
+  // 6) Attribute each listing to a property
   const listingsByProperty = new Map<string, ListingRow[]>();
   for (const l of activeListings) {
     const property = inferPropertyFromAddress(l.address || '');
@@ -152,84 +176,86 @@ export async function GET(req: NextRequest) {
     listingsByProperty.set(property, arr);
   }
 
-  // 6) Build per-unit vacant rows with listing match
+  // 7) Build per-property breakdown driven by the rehabs list
   const today = new Date();
-  const vacantStatuses = new Set(['Vacant-Unrented', 'Notice-Unrented']);
   const propMap = new Map<string, {
     property: string;
     occupied: number;
-    vacant_units: any[];
+    units: any[];
     active_listings: ListingRow[];
   }>();
 
-  for (const u of allUnits) {
-    if (!u.property) continue;
-    const bucket = propMap.get(u.property) || {
-      property: u.property,
-      occupied: 0,
-      vacant_units: [],
-      active_listings: listingsByProperty.get(u.property) || [],
+  for (const r of rehabs) {
+    if (!r.property || !r.unit) continue;
+    const bucket = propMap.get(r.property) || {
+      property: r.property,
+      occupied: occupiedByProperty.get(r.property) || 0,
+      units: [],
+      active_listings: listingsByProperty.get(r.property) || [],
     };
-    if (u.status === 'Current') bucket.occupied++;
-    if (vacantStatuses.has(u.status)) {
-      const lastCurrent = lastCurrentByUnit.get(`${u.property}||${u.unit}`);
-      const daysVacant = lastCurrent
-        ? Math.max(0, Math.floor((today.getTime() - new Date(lastCurrent).getTime()) / 86_400_000))
-        : null;
-      const bb = u.bed_bath; // already "B/BA" format
-      // address match (e.g. "2625F" → "2625 Farrow")
-      const unitNum = (u.unit || '').replace(/[^0-9]/g, '');
-      const addressMatch = bucket.active_listings.find(l =>
-        unitNum && (l.address || '').toLowerCase().includes(unitNum)
-      ) || null;
-      // bed/bath fallback match
-      const bbMatch = !addressMatch && bb
-        ? bucket.active_listings.find(l => bedBathString(l.bedrooms, l.bathrooms) === bb) || null
-        : null;
-      const matched = addressMatch || bbMatch;
-      bucket.vacant_units.push({
-        unit: u.unit,
-        status: u.status,
-        bed_bath: bb,
-        sqft: u.sqft,
-        days_vacant: daysVacant,
-        last_occupied: lastCurrent || null,
-        listed: !!matched,
-        listing_match_kind: addressMatch ? 'address' : (bbMatch ? 'bed_bath' : null),
-        listed_rent: matched?.rent ?? null,
-        listing_url: matched?.detail_page_url ?? null,
-        listing_photo: matched?.default_photo_url ?? null,
-        listing_first_seen: matched?.first_seen_at ?? null,
-      });
-    }
-    propMap.set(u.property, bucket);
+    const rr = unitByKey.get(`${r.property}||${r.unit}`);
+    const bb = rr?.bed_bath ?? null;
+    const sqft = rr?.sqft ?? null;
+    const rentRollStatus = rr?.status ?? null;
+
+    // Prefer rehab.vacancy_start_date, fall back to last 'Current' snapshot
+    const startDate = r.vacancy_start_date
+      || lastCurrentByUnit.get(`${r.property}||${r.unit}`)
+      || null;
+    const daysVacant = startDate
+      ? Math.max(0, Math.floor((today.getTime() - new Date(startDate).getTime()) / 86_400_000))
+      : null;
+
+    // Match: address-substring first, then bed/bath at same property
+    const unitNum = (r.unit || '').replace(/[^0-9]/g, '');
+    const addressMatch = bucket.active_listings.find(l =>
+      unitNum && (l.address || '').toLowerCase().includes(unitNum)
+    ) || null;
+    const bbMatch = !addressMatch && bb
+      ? bucket.active_listings.find(l => bedBathString(l.bedrooms, l.bathrooms) === bb) || null
+      : null;
+    const matched = addressMatch || bbMatch;
+
+    bucket.units.push({
+      unit: r.unit,
+      rehab_status: r.rehab_status,
+      rent_roll_status: rentRollStatus,
+      bed_bath: bb,
+      sqft,
+      days_vacant: daysVacant,
+      last_occupied: lastCurrentByUnit.get(`${r.property}||${r.unit}`) || null,
+      listed: !!matched,
+      listing_match_kind: addressMatch ? 'address' : (bbMatch ? 'bed_bath' : null),
+      listed_rent: matched?.rent ?? null,
+      listing_url: matched?.detail_page_url ?? null,
+      listing_photo: matched?.default_photo_url ?? null,
+      listing_first_seen: matched?.first_seen_at ?? null,
+    });
+    propMap.set(r.property, bucket);
   }
 
-  // 7) Sort + summarize
+  // 8) Sort + summarize
   const properties = Array.from(propMap.values())
-    .filter(p => p.vacant_units.length > 0 || p.active_listings.length > 0)
     .map(p => {
-      // Sort by unit number using natural sort so "5" < "23" < "1409D".
-      // Falls back to lexicographic for non-numeric prefixes.
-      p.vacant_units.sort((a, b) => (a.unit || '').localeCompare(b.unit || '', undefined, {
+      p.units.sort((a, b) => (a.unit || '').localeCompare(b.unit || '', undefined, {
         numeric: true, sensitivity: 'base',
       }));
-      const listed_count = p.vacant_units.filter(u => u.listed).length;
+      const listed_count = p.units.filter(u => u.listed).length;
       return {
         property: p.property,
         occupied: p.occupied,
-        vacant_count: p.vacant_units.length,
+        listable_count: p.units.length,
         listed_count,
-        gap: p.vacant_units.length - listed_count,
+        gap: p.units.length - listed_count,
         active_listings_count: p.active_listings.length,
-        vacant_units: p.vacant_units,
+        units: p.units,
       };
     })
-    .sort((a, b) => b.gap - a.gap);
+    .sort((a, b) => b.gap - a.gap || a.property.localeCompare(b.property));
 
   const summary = {
     snapshot_date: latestDate,
-    total_vacant:   properties.reduce((s, p) => s + p.vacant_count, 0),
+    total_listable: properties.reduce((s, p) => s + p.listable_count, 0),
     total_listed:   properties.reduce((s, p) => s + p.listed_count, 0),
     total_gap:      properties.reduce((s, p) => s + p.gap, 0),
     total_active_listings: properties.reduce((s, p) => s + p.active_listings_count, 0),
@@ -239,5 +265,11 @@ export async function GET(req: NextRequest) {
 }
 
 function emptySummary() {
-  return { snapshot_date: null, total_vacant: 0, total_listed: 0, total_gap: 0, total_active_listings: 0 };
+  return {
+    snapshot_date: null,
+    total_listable: 0,
+    total_listed: 0,
+    total_gap: 0,
+    total_active_listings: 0,
+  };
 }
