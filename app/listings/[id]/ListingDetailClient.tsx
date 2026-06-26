@@ -6,6 +6,7 @@ import Image from 'next/image';
 import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
 import PhotoLightbox from '../../../components/public/PhotoLightbox';
+import PreQualModal from '../../../components/public/PreQualModal';
 import {
   TENANT_PORTAL_URL,
   getFullAddress,
@@ -24,6 +25,7 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
   const t = getDictionary(locale);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [prequalOpen, setPrequalOpen] = useState(false);
 
   const openLightbox = (idx: number) => {
     setLightboxIndex(idx);
@@ -107,14 +109,13 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
               {listing.pet_policy && <Row label={t.detail.petPolicy} value={listing.pet_policy} />}
             </dl>
 
-            <a
-              href={listing.application_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setPrequalOpen(true)}
               className="flex items-center justify-center w-full px-4 py-3.5 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
             >
               {t.detail.applyNow}
-            </a>
+            </button>
             <a
               href={TENANT_PORTAL_URL}
               target="_blank"
@@ -193,6 +194,16 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
         open={lightboxOpen}
         onClose={() => setLightboxOpen(false)}
         initialIndex={lightboxIndex}
+        locale={locale}
+      />
+
+      <PreQualModal
+        open={prequalOpen}
+        onClose={() => setPrequalOpen(false)}
+        listingId={listing.id}
+        listingRent={listing.rent}
+        listingAddress={fullAddress}
+        applicationUrl={listing.application_url}
         locale={locale}
       />
     </main>

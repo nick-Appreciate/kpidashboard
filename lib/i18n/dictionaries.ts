@@ -107,6 +107,39 @@ interface Dictionary {
     /** aria-label for the switcher link. */
     ariaLabel: string;
   };
+  prequal: {
+    title: string;
+    subtitle: string;
+    emailLabel: string;
+    emailPlaceholder: string;
+    incomeLabel: string;
+    incomeHelp: (minIncome: string) => string;
+    incomePlaceholder: string;
+    creditLabel: string;
+    creditBands: {
+      below_580: string;
+      '580_619': string;
+      '620_679': string;
+      '680_plus': string;
+      unsure: string;
+    };
+    moveInLabel: string;
+    moveInHelp: string;
+    submit: string;
+    submitting: string;
+    cancel: string;
+    /** Error shown when the user submits with missing required fields. */
+    errorRequired: string;
+    errorSubmit: string;
+    passedTitle: string;
+    passedBody: string;
+    continueToApp: string;
+    failedTitle: string;
+    failedBody: (minIncome: string) => string;
+    failedRequirementIncome: (minIncome: string) => string;
+    failedRequirementCredit: string;
+    close: string;
+  };
 }
 
 const en: Dictionary = {
@@ -206,6 +239,41 @@ const en: Dictionary = {
   languageSwitcher: {
     switchTo: 'Español',
     ariaLabel: 'Switch to Spanish',
+  },
+  prequal: {
+    title: 'Quick pre-qualification',
+    subtitle:
+      'Two questions so we can confirm this unit fits your situation before you start the full application.',
+    emailLabel: 'Email',
+    emailPlaceholder: 'you@example.com',
+    incomeLabel: 'Monthly household income',
+    incomeHelp: (minIncome) => `We typically look for income at or above ${minIncome}/month for this unit.`,
+    incomePlaceholder: '3,500',
+    creditLabel: 'Approximate credit score',
+    creditBands: {
+      below_580: 'Below 580',
+      '580_619': '580 – 619',
+      '620_679': '620 – 679',
+      '680_plus': '680+',
+      unsure: 'I\'m not sure',
+    },
+    moveInLabel: 'Desired move-in date (optional)',
+    moveInHelp: 'Helps us match you with the right unit if this one isn\'t ready in time.',
+    submit: 'Continue to application',
+    submitting: 'Checking…',
+    cancel: 'Cancel',
+    errorRequired: 'Please fill in your email, income, and credit range.',
+    errorSubmit: 'Something went wrong. Please try again or contact us directly.',
+    passedTitle: 'You\'re a good fit — let\'s get you started.',
+    passedBody:
+      'You meet our basic criteria for this unit. Click below to complete the full application in AppFolio.',
+    continueToApp: 'Open application ↗',
+    failedTitle: 'Thanks for your interest.',
+    failedBody: (minIncome) =>
+      `Based on what you\'ve shared, this unit may not be the right fit. We typically look for income of at least ${minIncome}/month and a credit score of 620 or higher. We\'ve saved your contact information and will reach out if a unit matching your situation becomes available.`,
+    failedRequirementIncome: (minIncome) => `Monthly income of at least ${minIncome}`,
+    failedRequirementCredit: 'Credit score of 620 or higher',
+    close: 'Close',
   },
 };
 
@@ -307,6 +375,41 @@ const es: Dictionary = {
   languageSwitcher: {
     switchTo: 'English',
     ariaLabel: 'Cambiar a inglés',
+  },
+  prequal: {
+    title: 'Pre-calificación rápida',
+    subtitle:
+      'Dos preguntas para confirmar que esta unidad encaja con tu situación antes de comenzar la aplicación completa.',
+    emailLabel: 'Correo electrónico',
+    emailPlaceholder: 'tu@ejemplo.com',
+    incomeLabel: 'Ingreso mensual del hogar',
+    incomeHelp: (minIncome) => `Para esta unidad normalmente buscamos un ingreso de al menos ${minIncome}/mes.`,
+    incomePlaceholder: '3,500',
+    creditLabel: 'Puntaje de crédito aproximado',
+    creditBands: {
+      below_580: 'Menos de 580',
+      '580_619': '580 – 619',
+      '620_679': '620 – 679',
+      '680_plus': '680+',
+      unsure: 'No estoy seguro',
+    },
+    moveInLabel: 'Fecha deseada de mudanza (opcional)',
+    moveInHelp: 'Nos ayuda a recomendarte la unidad correcta si esta no está lista a tiempo.',
+    submit: 'Continuar con la aplicación',
+    submitting: 'Verificando…',
+    cancel: 'Cancelar',
+    errorRequired: 'Por favor completa tu correo, ingreso y rango de crédito.',
+    errorSubmit: 'Algo salió mal. Intenta de nuevo o contáctanos directamente.',
+    passedTitle: 'Eres un buen candidato — vamos a comenzar.',
+    passedBody:
+      'Cumples con nuestros criterios básicos para esta unidad. Haz clic abajo para completar la aplicación en AppFolio.',
+    continueToApp: 'Abrir aplicación ↗',
+    failedTitle: 'Gracias por tu interés.',
+    failedBody: (minIncome) =>
+      `Con base en lo que compartiste, esta unidad podría no ser la mejor opción. Normalmente buscamos un ingreso de al menos ${minIncome}/mes y un puntaje de crédito de 620 o más. Guardamos tu información de contacto y te avisaremos si surge una unidad que coincida con tu situación.`,
+    failedRequirementIncome: (minIncome) => `Ingreso mensual de al menos ${minIncome}`,
+    failedRequirementCredit: 'Puntaje de crédito de 620 o más',
+    close: 'Cerrar',
   },
 };
 
