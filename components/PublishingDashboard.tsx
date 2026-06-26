@@ -280,164 +280,159 @@ export default function PublishingDashboard() {
                   </button>
 
                   {isOpen && (
-                    <div className="border-t border-[var(--glass-border)] p-4 space-y-3 bg-black/10">
+                    <div className="border-t border-[var(--glass-border)] p-3 bg-black/10">
                       {!u.has_listing && (
-                        <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2">
-                          No active af_listing for this unit — descriptions below use a generic
-                          fallback. Check /admin/listing-coverage and post the listing in AppFolio
-                          first for best copy quality.
+                        <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-1.5 mb-2">
+                          No active af_listing for this unit — descriptions use a generic fallback.
+                          Add the listing in AppFolio for best copy quality.
                         </div>
                       )}
 
-                      {/* Photo strip */}
-                      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2 text-xs">
-                            <ImageIcon className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="font-semibold uppercase tracking-wide text-slate-300">
-                              Photos
-                            </span>
-                            <span className="text-slate-500">·</span>
-                            <span className="text-slate-400 tabular-nums">
-                              {u.photos.length} available
-                            </span>
+                      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                        {/* LEFT: photo strip — fixed-height scrollable */}
+                        <div className="md:col-span-2 rounded-lg border border-white/10 bg-white/[0.02] p-2.5 flex flex-col">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <ImageIcon className="w-3 h-3 text-slate-400" />
+                              <span className="font-semibold uppercase tracking-wide text-slate-300">
+                                Photos
+                              </span>
+                              <span className="text-slate-400 tabular-nums">· {u.photos.length}</span>
+                            </div>
+                            {u.photos.length > 0 && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={async () => {
+                                    const ok = await copyToClipboard(u.photos.join('\n'));
+                                    if (ok) {
+                                      const k = `urls:${key}`;
+                                      setCopied(k);
+                                      setTimeout(() => setCopied(prev => prev === k ? null : prev), 2000);
+                                    }
+                                  }}
+                                  className="text-[11px] px-1.5 py-0.5 rounded text-slate-300 hover:text-white hover:bg-white/10 flex items-center gap-1"
+                                  title="Copy all photo URLs"
+                                >
+                                  {copied === `urls:${key}` ? (
+                                    <><Check className="w-3 h-3 text-emerald-400" />URLs</>
+                                  ) : (
+                                    <><Clipboard className="w-3 h-3" />URLs</>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    setBulkDownloading(key);
+                                    try { await downloadAllPhotos(u.property, u.unit, u.photos); }
+                                    finally { setBulkDownloading(null); }
+                                  }}
+                                  disabled={bulkDownloading === key}
+                                  className="text-[11px] px-1.5 py-0.5 rounded bg-accent/15 text-accent-light hover:bg-accent/25 disabled:opacity-60 flex items-center gap-1"
+                                  title={`Download all ${u.photos.length} photos`}
+                                >
+                                  <Download className="w-3 h-3" />
+                                  {bulkDownloading === key ? `…${u.photos.length}` : `Download all`}
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          {u.photos.length > 0 && (
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={async () => {
-                                  const ok = await copyToClipboard(u.photos.join('\n'));
-                                  if (ok) {
-                                    const k = `urls:${key}`;
-                                    setCopied(k);
-                                    setTimeout(() => setCopied(prev => prev === k ? null : prev), 2000);
-                                  }
-                                }}
-                                className="text-xs px-2 py-1 rounded text-slate-300 hover:text-white hover:bg-white/10 flex items-center gap-1"
-                                title="Copy all photo URLs to clipboard"
-                              >
-                                {copied === `urls:${key}` ? (
-                                  <><Check className="w-3 h-3 text-emerald-400" /> URLs copied</>
-                                ) : (
-                                  <><Clipboard className="w-3 h-3" /> Copy URLs</>
-                                )}
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  setBulkDownloading(key);
-                                  try { await downloadAllPhotos(u.property, u.unit, u.photos); }
-                                  finally { setBulkDownloading(null); }
-                                }}
-                                disabled={bulkDownloading === key}
-                                className="text-xs px-2 py-1 rounded bg-accent/15 text-accent-light hover:bg-accent/25 disabled:opacity-60 flex items-center gap-1"
-                                title={`Download all ${u.photos.length} photos to your computer`}
-                              >
-                                <Download className="w-3 h-3" />
-                                {bulkDownloading === key ? `Downloading ${u.photos.length}…` : `Download all (${u.photos.length})`}
-                              </button>
+                          {u.photos.length === 0 ? (
+                            <div className="text-xs text-slate-500 py-6 text-center flex-1 flex items-center justify-center">
+                              No photos. Add some in AppFolio first.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 overflow-y-auto max-h-[420px] pr-1">
+                              {u.photos.map((src, i) => {
+                                const filename = `${photoBaseName(u.property, u.unit)}-${String(i+1).padStart(2,'0')}.${photoExtFromUrl(src)}`;
+                                const proxyHref = buildProxyHref(src, filename);
+                                return (
+                                  <a
+                                    key={i}
+                                    href={proxyHref}
+                                    download={filename}
+                                    className="relative group block aspect-square rounded overflow-hidden border border-white/10 bg-black/40 hover:border-accent/50 transition-colors"
+                                    title={`Photo ${i+1} — click to download`}
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={src}
+                                      alt={`Photo ${i+1}`}
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                    />
+                                    <span className="absolute top-0.5 left-0.5 text-[9px] font-semibold text-white bg-black/60 px-1 py-0.5 rounded">
+                                      {i + 1}
+                                    </span>
+                                  </a>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
-                        {u.photos.length === 0 ? (
-                          <div className="text-xs text-slate-500 py-4 text-center">
-                            No photos uploaded yet. Add photos to this unit in AppFolio so
-                            Marketplace and Craigslist posts have visuals.
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                            {u.photos.map((src, i) => {
-                              const filename = `${photoBaseName(u.property, u.unit)}-${String(i+1).padStart(2,'0')}.${photoExtFromUrl(src)}`;
-                              const proxyHref = buildProxyHref(src, filename);
-                              return (
-                                <a
-                                  key={i}
-                                  href={proxyHref}
-                                  download={filename}
-                                  className="relative group block aspect-square rounded overflow-hidden border border-white/10 bg-black/40 hover:border-accent/50 transition-colors"
-                                  title={`Photo ${i+1} — click to download`}
-                                >
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={src}
-                                    alt={`Photo ${i+1}`}
-                                    className="w-full h-full object-cover"
-                                    loading="lazy"
-                                  />
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <Download className="w-4 h-4 text-white" />
-                                  </div>
-                                  <span className="absolute top-1 left-1 text-[10px] font-semibold text-white bg-black/60 px-1.5 py-0.5 rounded">
-                                    {i + 1}
+
+                        {/* RIGHT: channel cards stacked */}
+                        <div className="md:col-span-3 space-y-2 flex flex-col">
+                          {u.channels.map(c => {
+                            const channelKey = `${u.property}||${u.unit}||${c.channel}`;
+                            const f = freshnessLabel(c);
+                            const titleKey = `title:${channelKey}`;
+                            const bodyKey  = `body:${channelKey}`;
+                            return (
+                              <div key={c.channel} className={`rounded-lg border ${CHANNEL_ACCENT[c.channel]} bg-white/[0.02] p-2.5 flex flex-col`}>
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide">
+                                    {CHANNEL_LABELS[c.channel]}
                                   </span>
-                                </a>
-                              );
-                            })}
-                          </div>
-                        )}
+                                  <FreshnessBadge tone={f.tone}>
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {f.text}
+                                  </FreshnessBadge>
+                                  <div className="ml-auto flex items-center gap-1">
+                                    <a
+                                      href={c.open_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[11px] px-1.5 py-0.5 rounded bg-accent/15 text-accent-light hover:bg-accent/25 flex items-center gap-1"
+                                      title={`Open ${CHANNEL_LABELS[c.channel]} new-post page`}
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                      Open form
+                                    </a>
+                                    <button
+                                      onClick={() => markPosted(u.property, u.unit, c.channel)}
+                                      disabled={marking === channelKey}
+                                      className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+                                    >
+                                      {marking === channelKey ? '…' : 'Mark posted'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <CompactCopy
+                                  label="Title"
+                                  value={c.title}
+                                  copyKey={titleKey}
+                                  copied={copied === titleKey}
+                                  onCopy={() => handleCopy(titleKey, c.title)}
+                                />
+                                <CompactCopy
+                                  label="Body"
+                                  value={c.body}
+                                  copyKey={bodyKey}
+                                  copied={copied === bodyKey}
+                                  onCopy={() => handleCopy(bodyKey, c.body)}
+                                  multiline
+                                  maxHeight="max-h-32"
+                                />
+                                <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
+                                  <span>Price <span className="text-slate-300 tabular-nums">${c.price.toLocaleString()}/mo</span></span>
+                                  <span>·</span>
+                                  <span>Re-post: {c.threshold_days}d</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-
-                      {u.channels.map(c => {
-                        const channelKey = `${u.property}||${u.unit}||${c.channel}`;
-                        const f = freshnessLabel(c);
-                        const titleKey = `title:${channelKey}`;
-                        const bodyKey  = `body:${channelKey}`;
-                        return (
-                          <div key={c.channel} className={`rounded-lg border ${CHANNEL_ACCENT[c.channel]} bg-white/[0.02] p-3`}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-xs font-semibold uppercase tracking-wide">
-                                {CHANNEL_LABELS[c.channel]}
-                              </span>
-                              <span className="text-[11px] text-slate-500">·</span>
-                              <FreshnessBadge tone={f.tone}>
-                                <Clock className="w-3 h-3" />
-                                {f.text}
-                              </FreshnessBadge>
-                              <div className="ml-auto flex items-center gap-1.5">
-                                <a
-                                  href={c.open_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs px-2 py-1 rounded bg-accent/15 text-accent-light hover:bg-accent/25 flex items-center gap-1"
-                                  title={`Open ${CHANNEL_LABELS[c.channel]} new-post page`}
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                  Open form
-                                </a>
-                                <button
-                                  onClick={() => markPosted(u.property, u.unit, c.channel)}
-                                  disabled={marking === channelKey}
-                                  className="text-xs px-2 py-1 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
-                                >
-                                  {marking === channelKey ? 'Marking…' : 'Mark posted'}
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              <CopyableField
-                                label="Title"
-                                value={c.title}
-                                copyKey={titleKey}
-                                copied={copied === titleKey}
-                                onCopy={() => handleCopy(titleKey, c.title)}
-                              />
-                              <CopyableField
-                                label="Body"
-                                value={c.body}
-                                copyKey={bodyKey}
-                                copied={copied === bodyKey}
-                                onCopy={() => handleCopy(bodyKey, c.body)}
-                                multiline
-                              />
-                              <div className="flex items-center gap-3 text-xs text-slate-400">
-                                <span>Price: <span className="text-slate-200 tabular-nums">${c.price.toLocaleString()}/mo</span></span>
-                                <span>·</span>
-                                <span>Re-post window: {c.threshold_days}d</span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
                   )}
                 </div>
@@ -455,31 +450,32 @@ export default function PublishingDashboard() {
   );
 }
 
-function CopyableField({ label, value, copyKey, copied, onCopy, multiline }: {
+function CompactCopy({ label, value, copyKey, copied, onCopy, multiline, maxHeight }: {
   label: string;
   value: string;
   copyKey: string;
   copied: boolean;
   onCopy: () => void;
   multiline?: boolean;
+  maxHeight?: string;
 }) {
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] uppercase tracking-wide text-slate-500">{label}</span>
+    <div className="mt-1">
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
         <button
           onClick={onCopy}
-          className="text-xs px-1.5 py-0.5 rounded text-slate-300 hover:text-white hover:bg-white/10 flex items-center gap-1"
+          className="text-[11px] px-1 py-0.5 rounded text-slate-300 hover:text-white hover:bg-white/10 flex items-center gap-1"
         >
-          {copied ? <><Check className="w-3 h-3 text-emerald-400" /> Copied</> : <><Clipboard className="w-3 h-3" /> Copy</>}
+          {copied ? <><Check className="w-2.5 h-2.5 text-emerald-400" /> Copied</> : <><Clipboard className="w-2.5 h-2.5" /> Copy</>}
         </button>
       </div>
       {multiline ? (
-        <pre className="text-xs text-slate-200 bg-black/30 border border-white/5 rounded p-2 whitespace-pre-wrap break-words max-h-48 overflow-y-auto font-sans">
+        <pre className={`text-[11px] leading-snug text-slate-200 bg-black/30 border border-white/5 rounded p-1.5 whitespace-pre-wrap break-words overflow-y-auto font-sans ${maxHeight || 'max-h-32'}`}>
           {value}
         </pre>
       ) : (
-        <div className="text-sm text-slate-100 bg-black/30 border border-white/5 rounded px-2 py-1.5 break-words">
+        <div className="text-[12px] text-slate-100 bg-black/30 border border-white/5 rounded px-2 py-1 break-words">
           {value}
         </div>
       )}
