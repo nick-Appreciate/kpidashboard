@@ -50,6 +50,8 @@ interface UnitRow {
   photos: string[];
   application_url: string | null;
   has_listing: boolean;
+  match_kind: 'direct' | 'address' | 'bed_bath' | null;
+  matched_listing_id: string | null;
   channels: ChannelPayload[];
 }
 

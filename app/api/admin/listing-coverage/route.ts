@@ -139,13 +139,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 4) All active af_listings — service role to bypass RLS
-  const { data: listings, error: lErr } = await adminSupabase()
-    .from('af_listings')
-    .select('listing_id, address, rent, bedrooms, bathrooms, square_feet, available_on, default_photo_url, marketing_description, detail_page_url, first_seen_at, scraped_at')
-    .is('inactive_since', null);
+  // 4) All active af_listings — service role to bypass RLS.
+  //    Also load af_unit_directory so we can resolve unit ↔ listing
+  //    via the canonical rentable_uid → af_listings.id join.
+  const [
+    { data: listings, error: lErr },
+    { data: unitDirRows },
+  ] = await Promise.all([
+    adminSupabase()
+      .from('af_listings')
+      .select('id, listing_id, address, rent, bedrooms, bathrooms, square_feet, available_on, default_photo_url, marketing_description, detail_page_url, first_seen_at, scraped_at')
+      .is('inactive_since', null),
+    supabase
+      .from('af_unit_directory')
+      .select('property_name, unit_name, rentable_uid'),
+  ]);
   if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
-  const activeListings = (listings || []) as ListingRow[];
+  const activeListings = (listings || []) as (ListingRow & { id?: string })[];
+  const rentableUidByUnit = new Map<string, string>();
+  for (const r of unitDirRows || []) {
+    if (r.property_name && r.unit_name && r.rentable_uid) {
+      rentableUidByUnit.set(`${r.property_name}||${r.unit_name}`, r.rentable_uid);
+    }
+  }
 
   // 5) History last 18 months — fallback days-vacant when rehabs row
   //    doesn't have vacancy_start_date (rare).
@@ -206,15 +222,21 @@ export async function GET(req: NextRequest) {
       ? Math.max(0, Math.floor((today.getTime() - new Date(startDate).getTime()) / 86_400_000))
       : null;
 
-    // Match: address-substring first, then bed/bath at same property
+    // Match: canonical rentable_uid join first, then address-substring,
+    // then bed/bath. The first is authoritative — it's AppFolio telling
+    // us "this unit's marketing listing is THIS UUID".
+    const rentableUid = rentableUidByUnit.get(`${r.property}||${r.unit}`) ?? null;
+    const directMatch = rentableUid
+      ? (bucket.active_listings as Array<ListingRow & { id?: string }>).find(l => l.id === rentableUid) ?? null
+      : null;
     const unitNum = (r.unit || '').replace(/[^0-9]/g, '');
-    const addressMatch = bucket.active_listings.find(l =>
+    const addressMatch = !directMatch && bucket.active_listings.find(l =>
       unitNum && (l.address || '').toLowerCase().includes(unitNum)
     ) || null;
-    const bbMatch = !addressMatch && bb
+    const bbMatch = !directMatch && !addressMatch && bb
       ? bucket.active_listings.find(l => bedBathString(l.bedrooms, l.bathrooms) === bb) || null
       : null;
-    const matched = addressMatch || bbMatch;
+    const matched = directMatch || addressMatch || bbMatch;
 
     bucket.units.push({
       unit: r.unit,
@@ -225,7 +247,7 @@ export async function GET(req: NextRequest) {
       days_vacant: daysVacant,
       last_occupied: lastCurrentByUnit.get(`${r.property}||${r.unit}`) || null,
       listed: !!matched,
-      listing_match_kind: addressMatch ? 'address' : (bbMatch ? 'bed_bath' : null),
+      listing_match_kind: directMatch ? 'direct' : addressMatch ? 'address' : (bbMatch ? 'bed_bath' : null),
       listed_rent: matched?.rent ?? null,
       listing_url: matched?.detail_page_url ?? null,
       listing_photo: matched?.default_photo_url ?? null,

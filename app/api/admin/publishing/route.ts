@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
 
-  const [{ data: rehabsData, error: rehabsErr }, { data: latestSnap }] = await Promise.all([
+  const [{ data: rehabsData, error: rehabsErr }, { data: latestSnap }, { data: unitDirRows }] = await Promise.all([
     supabase
       .from('rehabs')
       .select('property, unit, rehab_status, vacancy_start_date')
@@ -114,10 +114,24 @@ export async function GET(req: NextRequest) {
       .select('snapshot_date')
       .order('snapshot_date', { ascending: false })
       .limit(1),
+    // Canonical unit ↔ listing join: af_unit_directory.rentable_uid
+    // matches af_listings.id, sourced from AppFolio's unit_directory
+    // report. Lets us know exactly which listing belongs to which
+    // physical unit — no more bed/bath guessing on shared addresses.
+    supabase
+      .from('af_unit_directory')
+      .select('property_name, unit_name, rentable_uid'),
   ]);
   if (rehabsErr) return NextResponse.json({ error: rehabsErr.message }, { status: 500 });
   const rehabs = (rehabsData || []) as RehabRow[];
   const latestDate = latestSnap?.[0]?.snapshot_date;
+
+  const rentableUidByUnit = new Map<string, string>();
+  for (const r of unitDirRows || []) {
+    if (r.property_name && r.unit_name && r.rentable_uid) {
+      rentableUidByUnit.set(`${r.property_name}||${r.unit_name}`, r.rentable_uid);
+    }
+  }
 
   // Pull bed/bath/sqft fallback from rent_roll for units that aren't in af_listings.
   // Also build an "avg rent for occupied same-bed/bath at same property" map
@@ -206,18 +220,24 @@ export async function GET(req: NextRequest) {
     const bucket = listingsByProperty.get(r.property) || [];
 
     // Match within the same property, in order of confidence:
-    //   1. Address-substring (best — works for Hilltop townhomes whose
-    //      address literally IS "2625 Farrow Avenue").
-    //   2. Bed/bath at same property (good for apartment buildings where
-    //      every unit shares one of two building addresses).
+    //   1. af_unit_directory.rentable_uid → af_listings.id (canonical).
+    //   2. Address-substring (Hilltop townhomes whose address IS the unit).
+    //   3. Bed/bath at same property (apartment buildings — last-resort
+    //      proxy when AppFolio hasn't published a listing for this unit yet).
+    const rentableUid = rentableUidByUnit.get(`${r.property}||${r.unit}`) ?? null;
+    const directMatch = rentableUid
+      ? bucket.find(l => l.id === rentableUid) ?? null
+      : null;
     const unitNum = (r.unit || '').replace(/[^0-9]/g, '');
-    const addressMatch = unitNum
+    const addressMatch = !directMatch && unitNum
       ? bucket.find(l => (l.address || '').toLowerCase().includes(unitNum)) ?? null
       : null;
-    const bbMatch = !addressMatch && rrBedBath
+    const bbMatch = !directMatch && !addressMatch && rrBedBath
       ? bucket.find(l => bedBathStringFromListing(l.bedrooms, l.bathrooms) === rrBedBath) ?? null
       : null;
-    const listing = addressMatch || bbMatch;
+    const listing = directMatch || addressMatch || bbMatch;
+    const matchKind: 'direct' | 'address' | 'bed_bath' | null =
+      directMatch ? 'direct' : addressMatch ? 'address' : bbMatch ? 'bed_bath' : null;
 
     const bedrooms = listing?.bedrooms ?? parseBeds(rrBedBath);
     const bathrooms = listing?.bathrooms ?? parseBaths(rrBedBath);
@@ -275,6 +295,8 @@ export async function GET(req: NextRequest) {
       photos,
       application_url: applicationUrl,
       has_listing: !!listing,
+      match_kind: matchKind,
+      matched_listing_id: listing?.id ?? null,
       channels,
     };
   });

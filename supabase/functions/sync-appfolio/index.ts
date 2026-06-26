@@ -403,6 +403,62 @@ async function debugReport(reportName: string, filters: Record<string, unknown> 
   }
 }
 
+async function syncUnitDirectory(): Promise<SyncResult> {
+  try {
+    const data = await fetchAppFolioReport('unit_directory');
+
+    const records = data.map((row: any) => ({
+      unit_id: row.unit_id ? Number(row.unit_id) : null,
+      property_id: row.property_id ? Number(row.property_id) : null,
+      property_name: row.property_name || null,
+      property_full: row.property || null,
+      unit_name: row.unit_name || null,
+      unit_address: row.unit_address || null,
+      unit_street: row.unit_street || null,
+      unit_city: row.unit_city || null,
+      unit_state: row.unit_state || null,
+      unit_zip: row.unit_zip || null,
+      unit_type: row.unit_type || null,
+      rentable: row.rentable || null,
+      rent_ready: row.rent_ready || null,
+      visibility: row.visibility || null,
+      posted_to_website: row.posted_to_website || null,
+      posted_to_internet: row.posted_to_internet || null,
+      sqft: row.sqft ? parseInt(row.sqft) : null,
+      bedrooms: row.bedrooms != null ? Number(row.bedrooms) : null,
+      bathrooms: row.bathrooms != null ? Number(row.bathrooms) : null,
+      market_rent: row.market_rent ? Number(row.market_rent) : null,
+      advertised_rent: row.advertised_rent ? Number(row.advertised_rent) : null,
+      computed_market_rent: row.computed_market_rent ? Number(row.computed_market_rent) : null,
+      legal_rent: row.legal_rent ? Number(row.legal_rent) : null,
+      application_fee: row.application_fee ? Number(row.application_fee) : null,
+      default_deposit: row.default_deposit ? Number(row.default_deposit) : null,
+      marketing_title: row.marketing_title || null,
+      marketing_description: row.marketing_description || null,
+      unit_amenities: row.unit_amenities || null,
+      unit_appliances: row.unit_appliances || null,
+      unit_utilities: row.unit_utilities || null,
+      resident_obligated_utilities: row.resident_obligated_utilities || null,
+      you_tube_url: row.you_tube_url || null,
+      ready_for_showing_on: row.ready_for_showing_on || null,
+      created_on: row.created_on || null,
+      rentable_uid: row.rentable_uid || null,
+      unit_integration_id: row.unit_integration_id || null,
+      portfolio_id: row.portfolio_id ? Number(row.portfolio_id) : null,
+      synced_at: new Date().toISOString(),
+    })).filter(r => r.unit_id != null);
+
+    const { error } = await supabase
+      .from('af_unit_directory')
+      .upsert(records, { onConflict: 'unit_id' });
+    if (error) throw new Error(JSON.stringify(error));
+
+    return { report: 'unit_directory', success: true, rowsProcessed: records.length };
+  } catch (error: any) {
+    return { report: 'unit_directory', success: false, rowsProcessed: 0, error: error?.message || String(error) };
+  }
+}
+
 async function syncOwnerDirectory(): Promise<SyncResult> {
   try {
     const data = await fetchAppFolioReport('owner_directory');
@@ -1431,6 +1487,7 @@ Deno.serve(async (req: Request) => {
       results.push(await syncTrialBalance()); await delay();
       results.push(await syncProspectSourceTracking()); await delay();
       results.push(await syncTenantDirectory()); await delay();
+      results.push(await syncUnitDirectory()); await delay();
       results.push(await syncWorkOrders());
       // syncCashFlow is NOT in the 'all' bundle. It appends snapshot history
       // rows (no truncate), so running it every 15 min would multiply table
@@ -1482,6 +1539,7 @@ Deno.serve(async (req: Request) => {
         'trial_balance': syncTrialBalance,
         'prospect_source_tracking': syncProspectSourceTracking,
         'tenant_directory': syncTenantDirectory,
+        'unit_directory': syncUnitDirectory,
         'work_order': syncWorkOrders,
         'cash_flow': syncCashFlow,
         'owner_directory': syncOwnerDirectory
