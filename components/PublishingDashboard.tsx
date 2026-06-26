@@ -20,7 +20,7 @@ import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
 import { Clipboard, Check, ExternalLink, Clock, AlertCircle, Download, Image as ImageIcon } from 'lucide-react';
 
-type Channel = 'fb_marketplace' | 'craigslist' | 'nextdoor';
+type Channel = 'fb_marketplace' | 'craigslist';
 
 interface ChannelPayload {
   channel: Channel;
@@ -62,13 +62,11 @@ interface ApiResponse {
 const CHANNEL_LABELS: Record<Channel, string> = {
   fb_marketplace: 'Facebook Marketplace',
   craigslist:     'Craigslist',
-  nextdoor:       'NextDoor',
 };
 
 const CHANNEL_ACCENT: Record<Channel, string> = {
   fb_marketplace: 'text-blue-300 border-blue-500/20',
   craigslist:     'text-violet-300 border-violet-500/20',
-  nextdoor:       'text-emerald-300 border-emerald-500/20',
 };
 
 function freshnessLabel(c: ChannelPayload): { text: string; tone: 'good' | 'warn' | 'rose' } {
@@ -493,8 +491,7 @@ function ChannelDot({ channel, due }: { channel: Channel; due: boolean }) {
   const color = due
     ? 'bg-amber-400'
     : channel === 'fb_marketplace' ? 'bg-blue-400'
-    : channel === 'craigslist'     ? 'bg-violet-400'
-    : 'bg-emerald-400';
+    : 'bg-violet-400';
   return (
     <span
       title={`${CHANNEL_LABELS[channel]}${due ? ' — due for repost' : ' — fresh'}`}

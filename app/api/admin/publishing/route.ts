@@ -20,19 +20,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
 
-type Channel = 'fb_marketplace' | 'craigslist' | 'nextdoor';
+type Channel = 'fb_marketplace' | 'craigslist';
 
 // Re-post freshness thresholds (in days). After this, the UI flags the
 // channel as "due for repost." Tuned to each platform's freshness decay:
 // FB Marketplace listings sink fast (~1 week visibility), Craigslist
-// posts expire from search around 48 hrs, NextDoor stays useful longer.
+// posts expire from search around 48 hrs.
 const FRESHNESS_DAYS: Record<Channel, number> = {
   fb_marketplace: 7,
   craigslist: 2,
-  nextdoor: 14,
 };
 
+const CHANNELS: Channel[] = ['fb_marketplace', 'craigslist'];
+
 const LISTABLE_REHAB_STATUSES = ['In Progress', 'Complete'];
+
+// AppFolio listings address fragments → property name map.
+// Used to bucket af_listings rows by property so we can search for a
+// matching listing only within the same property (avoids cross-property
+// substring collisions and enables bed/bath fallback matching when the
+// building address doesn't contain a unit number — e.g. Glen Oaks's
+// "3052 N 58th St" can never substring-match unit "29").
+//
+// Kept in sync with the same constant in /api/admin/listing-coverage.
+const PROPERTY_ADDRESS_HINTS: Array<{ contains: string[]; property: string }> = [
+  { contains: ['delavan', 'farrow'],                  property: 'Hilltop Townhomes' },
+  { contains: ['n 58th', 'north 58th'],               property: 'Glen Oaks' },
+  { contains: ['maple'],                              property: 'Maple Manor Apartments' },
+  { contains: ['wood ave', 'wood avenue'],            property: 'Oakwood Gardens' },
+  { contains: ['n 77th', 'north 77th'],               property: 'Normandy Apartments' },
+  { contains: ['pioneer'],                            property: 'Pioneer Apartments' },
+];
+
+function inferPropertyFromAddress(address: string): string | null {
+  const lower = (address || '').toLowerCase();
+  for (const hint of PROPERTY_ADDRESS_HINTS) {
+    if (hint.contains.some(needle => lower.includes(needle))) return hint.property;
+  }
+  return null;
+}
+
+function bedBathStringFromListing(b: number | null, ba: number | null): string | null {
+  if (b == null || ba == null) return null;
+  return `${b}/${ba.toFixed(2)}`;
+}
 
 interface RehabRow {
   property: string;
@@ -88,15 +119,35 @@ export async function GET(req: NextRequest) {
   const rehabs = (rehabsData || []) as RehabRow[];
   const latestDate = latestSnap?.[0]?.snapshot_date;
 
-  // Pull bed/bath/sqft fallback from rent_roll for units that aren't in af_listings
-  let rentRollByUnit = new Map<string, any>();
+  // Pull bed/bath/sqft fallback from rent_roll for units that aren't in af_listings.
+  // Also build an "avg rent for occupied same-bed/bath at same property" map
+  // so vacant units without an active listing still get a sensible asking-rent
+  // proxy instead of $0 (the Glen Oaks bug — building addresses like "3052
+  // N 58th St" never substring-match unit numbers, so the listing fallback
+  // silently produced 0/mo before this).
+  const rentRollByUnit = new Map<string, any>();
+  const occupiedAvgByPropertyBB = new Map<string, { sum: number; count: number }>();
   if (latestDate) {
     const { data: rrows } = await supabase
       .from('rent_roll_snapshots')
-      .select('property, unit, bed_bath, sqft, total_rent')
+      .select('property, unit, bed_bath, sqft, total_rent, status')
       .eq('snapshot_date', latestDate);
-    for (const r of rrows || []) rentRollByUnit.set(`${r.property}||${r.unit}`, r);
+    for (const r of rrows || []) {
+      rentRollByUnit.set(`${r.property}||${r.unit}`, r);
+      if (r.status === 'Current' && r.total_rent != null && r.bed_bath) {
+        const key = `${r.property}||${r.bed_bath}`;
+        const cur = occupiedAvgByPropertyBB.get(key) || { sum: 0, count: 0 };
+        cur.sum += Number(r.total_rent);
+        cur.count += 1;
+        occupiedAvgByPropertyBB.set(key, cur);
+      }
+    }
   }
+  const occupiedAvgRent = (property: string, bedBath: string | null): number | null => {
+    if (!bedBath) return null;
+    const v = occupiedAvgByPropertyBB.get(`${property}||${bedBath}`);
+    return v && v.count > 0 ? Math.round(v.sum / v.count) : null;
+  };
 
   // af_listings (active) — same RLS-bypass note as listing-coverage:
   // available_on IS NULL hides some live listings under the user-scoped
@@ -107,11 +158,17 @@ export async function GET(req: NextRequest) {
     .from('af_listings')
     .select('id, address, city, state, zip, rent, bedrooms, bathrooms, square_feet, available_on, application_fee, deposit, pet_policy, marketing_description, application_url, default_photo_url')
     .is('inactive_since', null);
-  const listingsByAddress = new Map<string, ListingRow>();
+  // Bucket listings by inferred property name so unit-matching only
+  // searches within the same property — and so we can do a bed/bath
+  // fallback when address-substring fails.
+  const listingsByProperty = new Map<string, ListingRow[]>();
   for (const l of (listings || []) as ListingRow[]) {
     if (!l.address) continue;
-    const key = l.address.toLowerCase().trim();
-    if (!listingsByAddress.has(key)) listingsByAddress.set(key, l);
+    const property = inferPropertyFromAddress(l.address);
+    if (!property) continue;
+    const arr = listingsByProperty.get(property) || [];
+    arr.push(l);
+    listingsByProperty.set(property, arr);
   }
 
   // Photos per listing — used in the UI grid + bulk-download proxy
@@ -144,17 +201,35 @@ export async function GET(req: NextRequest) {
 
   const today = new Date();
   const out = rehabs.map(r => {
-    // Match this rehab to an af_listing — prefer address-substring on unit
-    const unitNum = (r.unit || '').replace(/[^0-9]/g, '');
-    const listing = unitNum
-      ? Array.from(listingsByAddress.values()).find(l => (l.address || '').toLowerCase().includes(unitNum)) ?? null
-      : null;
     const rr = rentRollByUnit.get(`${r.property}||${r.unit}`);
+    const rrBedBath = rr?.bed_bath ?? null;
+    const bucket = listingsByProperty.get(r.property) || [];
 
-    const bedrooms = listing?.bedrooms ?? parseBeds(rr?.bed_bath);
-    const bathrooms = listing?.bathrooms ?? parseBaths(rr?.bed_bath);
+    // Match within the same property, in order of confidence:
+    //   1. Address-substring (best — works for Hilltop townhomes whose
+    //      address literally IS "2625 Farrow Avenue").
+    //   2. Bed/bath at same property (good for apartment buildings where
+    //      every unit shares one of two building addresses).
+    const unitNum = (r.unit || '').replace(/[^0-9]/g, '');
+    const addressMatch = unitNum
+      ? bucket.find(l => (l.address || '').toLowerCase().includes(unitNum)) ?? null
+      : null;
+    const bbMatch = !addressMatch && rrBedBath
+      ? bucket.find(l => bedBathStringFromListing(l.bedrooms, l.bathrooms) === rrBedBath) ?? null
+      : null;
+    const listing = addressMatch || bbMatch;
+
+    const bedrooms = listing?.bedrooms ?? parseBeds(rrBedBath);
+    const bathrooms = listing?.bathrooms ?? parseBaths(rrBedBath);
     const sqft = listing?.square_feet ?? rr?.sqft ?? null;
-    const rent = Number(listing?.rent ?? rr?.total_rent ?? 0);
+    // Rent priority: matched listing → vacant unit's snapshot rent (often
+    // null) → avg-occupied-rent at same property + bed/bath → 0. The third
+    // step is what stops Glen Oaks from showing $0/mo.
+    const rent =
+      Number(listing?.rent ?? 0) ||
+      Number(rr?.total_rent ?? 0) ||
+      Number(occupiedAvgRent(r.property, rrBedBath) ?? 0) ||
+      0;
     const address = listing?.address ?? `${r.property} #${r.unit}`;
     const city  = listing?.city ?? 'Kansas City';
     const state = listing?.state ?? 'KS';
@@ -164,7 +239,7 @@ export async function GET(req: NextRequest) {
     const petPolicy = listing?.pet_policy ?? null;
     const photo = listing?.default_photo_url ?? null;
 
-    const channels = (['fb_marketplace', 'craigslist', 'nextdoor'] as Channel[]).map(channel => {
+    const channels = CHANNELS.map(channel => {
       const key = `${r.property}||${r.unit}||${channel}`;
       const lastPosted = latestPostByKey.get(key) ?? null;
       const daysSince = lastPosted
@@ -234,7 +309,7 @@ export async function POST(req: NextRequest) {
   const channel = String(body.channel || '').trim();
   const notes = body.notes ? String(body.notes).slice(0, 500) : null;
   if (!property || !unit) return NextResponse.json({ error: 'property and unit required' }, { status: 400 });
-  if (!['fb_marketplace','craigslist','nextdoor'].includes(channel))
+  if (!CHANNELS.includes(channel as Channel))
     return NextResponse.json({ error: 'invalid channel' }, { status: 400 });
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -280,8 +355,7 @@ function availabilityPhrase(iso: string | null): string {
 
 function buildPost(channel: Channel, p: PostInputs) {
   if (channel === 'fb_marketplace') return buildFBMarketplace(p);
-  if (channel === 'craigslist')     return buildCraigslist(p);
-  return buildNextdoor(p);
+  return buildCraigslist(p);
 }
 
 function buildFBMarketplace(p: PostInputs) {
@@ -327,23 +401,6 @@ function buildCraigslist(p: PostInputs) {
     body,
     price: p.rent,
     open_url: craigslistAreaUrl(p.city, p.state),
-  };
-}
-
-function buildNextdoor(p: PostInputs) {
-  // Friendly neighborly tone; short.
-  const title = `Rental available — ${p.address}`;
-  const sentences = [
-    `Hi neighbors — we have a ${specsLine(p)} unit at ${p.address} available.`,
-    `${availabilityPhrase(p.availableOn)} for $${p.rent.toLocaleString()}/month.`,
-    p.applicationUrl ? `Full listing + application: ${p.applicationUrl}` : '',
-    'If you know someone looking, please share!',
-  ].filter(Boolean);
-  return {
-    title,
-    body: sentences.join(' '),
-    price: p.rent,
-    open_url: 'https://nextdoor.com/news_feed/post/',
   };
 }
 
