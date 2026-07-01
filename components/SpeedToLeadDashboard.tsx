@@ -63,6 +63,32 @@ function latColor(min: number | null, sla: number, warn: number): string {
   if (min <= warn) return 'text-amber-400';
   return 'text-rose-400';
 }
+// Compact elapsed time since an ISO date, e.g. "3d", "5h", "12m".
+function fmtAge(iso: string | null): string {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return '0m';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
+}
+
+// AppFolio guest-card link. Verify the path against a real guest card URL —
+// AppFolio deep links use the `appreciateinc` subdomain.
+const APPFOLIO_BASE = 'https://appreciateinc.appfolio.com';
+const guestCardUrl = (id: string | null) => (id ? `${APPFOLIO_BASE}/leads/guest_cards/${id}` : null);
+
+function AppFolioIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 512 512" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="256" cy="256" r="256" fill="#0f76d0" />
+      <circle cx="230" cy="300" r="94" fill="none" stroke="#fff" strokeWidth="60" />
+      <rect x="326" y="158" width="60" height="242" rx="30" fill="#fff" />
+    </svg>
+  );
+}
 
 interface Agent {
   name: string; outbound: number; connected: number; inbound_answered: number;
@@ -71,9 +97,10 @@ interface Agent {
 interface TimelineEvent { at: string; kind: string; label: string; detail: string | null }
 interface Lead {
   name: string | null; source: string; phone: string | null; inquiry_received: string;
+  property: string | null; unit: string | null; guest_card_id: string | null;
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
-  stage: string; stage_label: string; stage_date: string | null;
+  stage: string; stage_label: string; stage_date: string | null; column_since: string;
   awaiting: boolean; flag_reason: string | null; column: string; sort_at: string;
   disq_reason: string | null; disq_detail: string | null;
   lease_unit: string | null; lease_start: string | null; lease_start_confirmed: boolean;
@@ -313,16 +340,31 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
       className={`glass-card cursor-pointer p-2.5 border ${lead.awaiting ? 'border-rose-500/30' : 'border-white/5'} hover:border-white/15 transition-colors`}>
       <div className="flex items-start justify-between gap-2">
         <span className="text-xs font-medium text-slate-200 truncate">{lead.name || '—'}</span>
-        {lead.phone && (
-          <button onClick={(e) => { e.stopPropagation(); onCall(); }} title="Call via JustCall"
-            className="flex-shrink-0 text-accent-light hover:text-accent">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {lead.guest_card_id && (
+            <a href={guestCardUrl(lead.guest_card_id)!} target="_blank" rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()} title="Open guest card in AppFolio"
+              className="opacity-80 hover:opacity-100 transition-opacity">
+              <AppFolioIcon className="w-4 h-4" />
+            </a>
+          )}
+          {lead.phone && (
+            <button onClick={(e) => { e.stopPropagation(); onCall(); }} title="Call via JustCall"
+              className="text-accent-light hover:text-accent">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+            </button>
+          )}
+        </div>
       </div>
       <div className="text-[10px] text-slate-500 mt-0.5 truncate">{lead.source} · {fmtDateTime(lead.inquiry_received)}</div>
+      {(lead.property || lead.unit) && (
+        <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+          <span className="text-slate-500">🏠</span> {[lead.property, lead.unit].filter(Boolean).join(' · ')}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1 mt-1.5">
         <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[lead.dial].cls}`}>{DIAL_BADGE[lead.dial].label}</span>
+        <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" title="Time in this stage">◷ {fmtAge(lead.column_since)}</span>
         {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
         {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}
       </div>

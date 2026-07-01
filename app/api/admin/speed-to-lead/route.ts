@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
 
   const [leadRes, callRes, showRes, appRes, leaseHistRes] = await Promise.all([
     supabase.from('leasing_reports')
-      .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id, status, notes')
+      .select('name, source, property, unit, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id, status, notes')
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
@@ -319,19 +319,25 @@ export async function GET(req: NextRequest) {
   // inquiry as the origin, and aggregate every guest_card_id / inquiry_id so
   // the furthest stage spans all of their activity.
   type Disq = { reason: string | null; detail: string | null; at: string | null };
-  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null };
+  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null; property: string | null; unit: string | null; latestGcid: string | null };
   const byPerson = new Map<string, Acc>();
   for (const l of rawLeads) {
     const key = phone10(l.phone) || `name:${(l.name || '').toLowerCase().trim()}`;
     let a = byPerson.get(key);
     if (!a) {
-      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null };
+      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null, property: l.property ?? null, unit: l.unit ?? null, latestGcid: l.guest_card_id ? String(l.guest_card_id) : null };
       byPerson.set(key, a);
     }
     if (l.inquiry_received < a.earliest) { a.earliest = l.inquiry_received; a.source = norm(l.source); }
-    // Current status = the status of this person's most recent guest card, so a
-    // re-inquiry (Active) after an old disqualification wins back "live" status.
-    if (l.inquiry_received >= a.latestReceived) { a.latestReceived = l.inquiry_received; a.latestStatus = l.status ?? a.latestStatus; }
+    // Current status/property/unit = those of this person's most recent guest
+    // card, so a re-inquiry (Active) after a disqualification wins back "live".
+    if (l.inquiry_received >= a.latestReceived) {
+      a.latestReceived = l.inquiry_received;
+      a.latestStatus = l.status ?? a.latestStatus;
+      if (l.property) a.property = l.property;
+      if (l.unit) a.unit = l.unit;
+      if (l.guest_card_id) a.latestGcid = String(l.guest_card_id);
+    }
     if (l.first_response_at && (!a.firstRespAt || l.first_response_at < a.firstRespAt)) { a.firstRespAt = l.first_response_at; a.firstRespType = l.first_response_type ?? null; }
     const d = parseInactive(l.notes as string | null);
     if (d && (!a.disq || (d.at && (!a.disq.at || d.at > a.disq.at)))) a.disq = d;
@@ -433,14 +439,27 @@ export async function GET(req: NextRequest) {
       : dial === 'none' ? 'first_touch'
       : 'follow_up';
 
+    // When the lead entered its current column, for the "time in stage" timer.
+    // Fall back to the inquiry date for pre-stage columns and future showings.
+    const stageEntry =
+      column === 'signed_lease' ? (bestApp?.received ?? stage_date)
+      : column === 'disqualified' ? (a.disq?.at ?? bestApp?.received ?? (disqualified ? a.latestReceived : null))
+      : (column === 'app_approved' || column === 'app_sent') ? (bestApp?.received ?? a.latestReceived)
+      : (column === 'showing_completed' || column === 'showing_scheduled') ? stage_date
+      : null;
+    const column_since = (stageEntry && stageEntry <= nowIso) ? stageEntry : a.earliest;
+
     return {
       name: a.name,
       source: a.source,
       phone: a.phone,
+      property: a.property,
+      unit: bestApp?.unit ? (bestApp.unit.split(' - ')[1]?.trim() ?? a.unit) : a.unit,
+      guest_card_id: a.latestGcid,
       inquiry_received: a.earliest,
       dial,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
-      stage, stage_label, stage_date,
+      stage, stage_label, stage_date, column_since,
       awaiting, flag_reason, column,
       // Latest known date for this lead (most recent timeline event), used to
       // order each pipeline column newest-first.
