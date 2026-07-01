@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
     return true;
   };
 
-  const [leadRes, callRes, showRes, appRes] = await Promise.all([
+  const [leadRes, callRes, showRes, appRes, leaseHistRes] = await Promise.all([
     supabase.from('leasing_reports')
       .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id')
       .gte('inquiry_received', sinceIso)
@@ -114,8 +114,11 @@ export async function GET(req: NextRequest) {
       .gte('showing_time', sinceIso)
       .range(0, 9999),
     supabase.from('rental_applications')
-      .select('inquiry_id, status, received')
+      .select('inquiry_id, status, received, unit, lease_start_date, desired_move_in')
       .gte('received', sinceIso)
+      .range(0, 9999),
+    supabase.from('af_lease_history')
+      .select('tenant_name, lease_start')
       .range(0, 9999),
   ]);
   if (leadRes.error) return NextResponse.json({ error: leadRes.error.message }, { status: 500 });
@@ -130,13 +133,27 @@ export async function GET(req: NextRequest) {
     if (!showsByGcid.has(k)) showsByGcid.set(k, []);
     showsByGcid.get(k)!.push({ status: s.status || '', at: s.showing_time });
   }
-  const appByInqid = new Map<string, { status: string; received: string }>();
+  const appByInqid = new Map<string, { status: string; received: string; unit: string | null; lease_start: string | null; desired: string | null }>();
   for (const a of (appRes.data || [])) {
     if (!a.inquiry_id) continue;
     const k = String(a.inquiry_id);
     const prev = appByInqid.get(k);
     // keep the most recent application per inquiry
-    if (!prev || a.received > prev.received) appByInqid.set(k, { status: a.status || '', received: a.received });
+    if (!prev || a.received > prev.received) appByInqid.set(k, { status: a.status || '', received: a.received, unit: a.unit ?? null, lease_start: a.lease_start_date ?? null, desired: a.desired_move_in ?? null });
+  }
+  // Real lease start from af_lease_history, keyed by "Last|First" (its
+  // tenant_name shares the leasing_reports "Last, First" format).
+  const leaseKey = (name: string | null | undefined) => {
+    if (!name) return '';
+    const [last, rest = ''] = name.toLowerCase().split(',');
+    return `${last.trim()}|${(rest.trim().split(/\s+/)[0] || '')}`;
+  };
+  const leaseStartByName = new Map<string, string>();
+  for (const lh of (leaseHistRes.data || [])) {
+    if (!lh.tenant_name || !lh.lease_start) continue;
+    const k = leaseKey(lh.tenant_name);
+    const prev = leaseStartByName.get(k);
+    if (!prev || lh.lease_start > prev) leaseStartByName.set(k, lh.lease_start); // most recent lease
   }
   const showRank = (st: string) => {
     const s = st.toLowerCase();
@@ -295,7 +312,7 @@ export async function GET(req: NextRequest) {
       answered.length ? 'connected' : calls.length ? 'no_answer' : 'none';
 
     // Furthest leasing stage across ALL of this person's inquiries + guest cards.
-    let bestApp: { status: string; received: string } | undefined;
+    let bestApp: { status: string; received: string; unit: string | null; lease_start: string | null; desired: string | null } | undefined;
     for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap && (!bestApp || ap.received > bestApp.received)) bestApp = ap; }
     const shows: { status: string; at: string }[] = [];
     for (const g of a.gcids) shows.push(...(showsByGcid.get(g) || []));
@@ -373,6 +390,9 @@ export async function GET(req: NextRequest) {
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
       awaiting, flag_reason, column,
+      lease_unit: bestApp?.unit ? bestApp.unit.split(' - ').slice(0, 2).join(' - ') : null,
+      lease_start: leaseStartByName.get(leaseKey(a.name)) ?? bestApp?.lease_start ?? bestApp?.desired ?? null,
+      lease_start_confirmed: (leaseStartByName.get(leaseKey(a.name)) ?? bestApp?.lease_start) != null,
       timeline,
     };
   });

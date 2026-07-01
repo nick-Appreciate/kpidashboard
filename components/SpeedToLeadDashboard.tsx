@@ -46,6 +46,11 @@ function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+function fmtDateOnly(d: string | null): string {
+  if (!d) return '—';
+  const [y, m, day] = d.slice(0, 10).split('-');
+  return new Date(Number(y), Number(m) - 1, Number(day)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 function fmtLatency(min: number | null): string {
   if (min == null) return '—';
   if (min < 60) return `${min}m`;
@@ -70,6 +75,7 @@ interface Lead {
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null;
   awaiting: boolean; flag_reason: string | null; column: string;
+  lease_unit: string | null; lease_start: string | null; lease_start_confirmed: boolean;
   timeline: TimelineEvent[];
 }
 
@@ -316,6 +322,12 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
         {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
         {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}
       </div>
+      {lead.column === 'signed_lease' && (lead.lease_unit || lead.lease_start) && (
+        <div className="mt-1.5 pt-1.5 border-t border-white/5 text-[10px] text-emerald-300/90">
+          <div className="truncate">{lead.lease_unit || 'Unit —'}</div>
+          {lead.lease_start && <div className="text-slate-400">{lead.lease_start_confirmed ? 'Lease starts' : 'Target move-in'} {fmtDateOnly(lead.lease_start)}</div>}
+        </div>
+      )}
       {open && <div className="mt-2 pt-2 border-t border-white/5"><LeadTimeline events={lead.timeline} /></div>}
     </div>
   );
