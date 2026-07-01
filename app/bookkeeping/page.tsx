@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import AdminOnly from '../../components/AdminOnly';
 import BookkeepingDashboard from '../../components/BookkeepingDashboard';
 
 export const metadata = {
@@ -8,8 +9,10 @@ export const metadata = {
 
 export default function BookkeepingPage() {
   return (
-    <Suspense>
-      <BookkeepingDashboard />
-    </Suspense>
+    <AdminOnly>
+      <Suspense>
+        <BookkeepingDashboard />
+      </Suspense>
+    </AdminOnly>
   );
 }

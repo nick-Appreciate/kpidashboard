@@ -1,3 +1,4 @@
+import AdminOnly from '../../components/AdminOnly';
 import FinancialsDashboard from '../../components/FinancialsDashboard';
 
 export const metadata = {
@@ -6,5 +7,9 @@ export const metadata = {
 };
 
 export default function FinancialsPage() {
-  return <FinancialsDashboard />;
+  return (
+    <AdminOnly>
+      <FinancialsDashboard />
+    </AdminOnly>
+  );
 }

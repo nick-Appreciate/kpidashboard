@@ -74,13 +74,15 @@ const DOMAINS = [
     ],
   },
   {
-    key: 'financials', label: 'Financials', icon: Icon.financials,
+    // Whole section is admin-only (hidden for non-admins). Pages are also
+    // guarded server-of-client-side so direct URLs are blocked too.
+    key: 'financials', label: 'Financials', icon: Icon.financials, admin: true,
     items: [
       { name: 'Bookkeeping', href: '/bookkeeping' },
-      { name: 'Overview',    href: '/financials',        admin: true },  // portfolio cash flow / net income
-      { name: 'Cash',        href: '/admin/cash',        admin: true },
-      { name: 'Deposits',    href: '/admin/simmons',     admin: true },
-      { name: 'Duplicates',  href: '/admin/duplicates',  admin: true },
+      { name: 'Overview',    href: '/financials' },     // portfolio cash flow / net income
+      { name: 'Cash',        href: '/admin/cash' },
+      { name: 'Deposits',    href: '/admin/simmons' },
+      { name: 'Duplicates',  href: '/admin/duplicates' },
     ],
   },
   {
