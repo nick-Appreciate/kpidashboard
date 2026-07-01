@@ -15,3 +15,6 @@ verify_jwt = false
 
 [functions.sync-appfolio-listings]
 verify_jwt = false
+
+[functions.sync-justcall]
+verify_jwt = false
