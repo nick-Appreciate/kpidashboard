@@ -1,32 +1,19 @@
-import Dashboard from '../../components/Dashboard';
-import SpeedToLeadDashboard from '../../components/SpeedToLeadDashboard';
+import { Suspense } from 'react';
+import LeasingDashboard from '../../components/LeasingDashboard';
 
 export const metadata = {
   title: 'Leasing — Appreciate Dashboard',
-  description: 'Leasing funnel analytics and speed-to-lead response tracking',
+  description: 'Unified leasing hub: funnel, speed-to-lead, occupancy, renewals, listing ops',
 };
 
 /**
- * /leasing — the Leasing landing page (Overview).
- *
- * Combines the two things the team checks most: the inquiry-funnel charts
- * (formerly the standalone /dashboard) and the Speed to Lead response tracker.
- * Occupancy, Renewals, and the listing-ops tabs (Coverage/Publishing/Sources)
- * are reached from the Leasing group in the sidebar.
+ * /leasing — the unified Leasing hub. One tab bar for every leasing view
+ * (Overview, Speed to Lead, Occupancy, Renewals, Coverage, Publishing, Sources).
  */
 export default function LeasingPage() {
   return (
-    <div>
-      {/* Inquiry funnel + source/property charts */}
-      <Dashboard />
-
-      {/* Speed to Lead */}
-      <section className="px-6 md:px-8 pb-8">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-sm font-semibold text-slate-100 mb-3">Speed to Lead</h2>
-          <SpeedToLeadDashboard embedded />
-        </div>
-      </section>
-    </div>
+    <Suspense fallback={null}>
+      <LeasingDashboard />
+    </Suspense>
   );
 }

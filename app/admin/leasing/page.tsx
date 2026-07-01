@@ -1,14 +1,6 @@
-import { Suspense } from 'react';
-import LeasingDashboard from '../../../components/LeasingDashboard';
+import { redirect } from 'next/navigation';
 
-export const metadata = {
-  title: 'Leasing — Appreciate Dashboard',
-};
-
-export default function LeasingPage() {
-  return (
-    <Suspense fallback={null}>
-      <LeasingDashboard />
-    </Suspense>
-  );
+// Merged into the unified Leasing hub at /leasing. Old bookmarks keep working.
+export default function AdminLeasingPage() {
+  redirect('/leasing?tab=coverage');
 }

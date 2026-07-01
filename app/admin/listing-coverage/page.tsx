@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-// Consolidated into /admin/leasing. Old bookmarks keep working.
+// Consolidated into the unified Leasing hub. Old bookmarks keep working.
 export default function ListingCoveragePage() {
-  redirect('/admin/leasing?tab=coverage');
+  redirect('/leasing?tab=coverage');
 }
