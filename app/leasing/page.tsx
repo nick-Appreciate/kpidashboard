@@ -1,19 +1,13 @@
-import { Suspense } from 'react';
-import LeasingDashboard from '../../components/LeasingDashboard';
+import Dashboard from '../../components/Dashboard';
 
 export const metadata = {
-  title: 'Leasing — Appreciate Dashboard',
-  description: 'Unified leasing hub: funnel, speed-to-lead, occupancy, renewals, listing ops',
+  title: 'Leasing Overview — Appreciate Dashboard',
+  description: 'Leasing inquiry-funnel analytics',
 };
 
-/**
- * /leasing — the unified Leasing hub. One tab bar for every leasing view
- * (Overview, Speed to Lead, Occupancy, Renewals, Coverage, Publishing, Sources).
- */
-export default function LeasingPage() {
-  return (
-    <Suspense fallback={null}>
-      <LeasingDashboard />
-    </Suspense>
-  );
+// Leasing → Overview: the inquiry-funnel charts. Sibling views (Speed to Lead,
+// Renewals, Coverage, Publishing, Sources) are their own pages under the
+// Leasing section in the sidebar.
+export default function LeasingOverviewPage() {
+  return <Dashboard />;
 }

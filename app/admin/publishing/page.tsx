@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
-export default function PublishingPage() {
-  redirect('/leasing?tab=publishing');
+export default function PublishingRedirect() {
+  redirect('/leasing/publishing');
 }

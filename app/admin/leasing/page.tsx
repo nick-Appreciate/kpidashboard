@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
-// Merged into the unified Leasing hub at /leasing. Old bookmarks keep working.
+// Leasing views are now individual pages under the Leasing section. Old
+// bookmarks land on the Leasing overview.
 export default function AdminLeasingPage() {
-  redirect('/leasing?tab=coverage');
+  redirect('/leasing');
 }

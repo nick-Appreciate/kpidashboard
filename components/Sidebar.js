@@ -46,15 +46,22 @@ const Chevron = ({ open }) => (
 // domain) from non-admins. Order reflects daily-use frequency.
 const DOMAINS = [
   {
-    // Single unified link — every leasing view (Overview, Speed to Lead,
-    // Occupancy, Renewals, Coverage, Publishing, Sources) lives in the tab
-    // bar on the /leasing hub, not as separate sidebar sub-items.
     key: 'leasing', label: 'Leasing', icon: Icon.leasing,
-    items: [{ name: 'Leasing', href: '/leasing' }],
+    items: [
+      { name: 'Overview',      href: '/leasing' },
+      { name: 'Speed to Lead', href: '/leasing/speed-to-lead' },
+      { name: 'Renewals',      href: '/renewals' },
+      { name: 'Coverage',      href: '/leasing/coverage',   admin: true },
+      { name: 'Publishing',    href: '/leasing/publishing', admin: true },
+      { name: 'Sources',       href: '/leasing/sources',    admin: true },
+    ],
   },
   {
-    key: 'collections', label: 'Collections', icon: Icon.collections,
-    items: [{ name: 'Collections', href: '/collections' }],
+    key: 'operations', label: 'Operations', icon: Icon.collections,
+    items: [
+      { name: 'Collections', href: '/collections' },
+      { name: 'Occupancy',   href: '/occupancy' },
+    ],
   },
   {
     key: 'maintenance', label: 'Maintenance', icon: Icon.maintenance,

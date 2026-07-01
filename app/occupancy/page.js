@@ -1,7 +1,5 @@
-import { redirect } from 'next/navigation';
+import OccupancyDashboard from '../../components/OccupancyDashboard';
 
-// Occupancy is now a tab in the unified Leasing hub. Keep this route as a
-// redirect so old links/bookmarks work.
 export default function OccupancyPage() {
-  redirect('/leasing?tab=occupancy');
+  return <OccupancyDashboard />;
 }

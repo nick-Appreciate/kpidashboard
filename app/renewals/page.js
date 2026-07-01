@@ -1,7 +1,5 @@
-import { redirect } from 'next/navigation';
+import RenewalsDashboard from '../../components/RenewalsDashboard';
 
-// Renewals is now a tab in the unified Leasing hub. Keep this route as a
-// redirect so old links/bookmarks work.
 export default function RenewalsPage() {
-  redirect('/leasing?tab=renewals');
+  return <RenewalsDashboard />;
 }
