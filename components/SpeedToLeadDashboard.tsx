@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { fetcher } from '../lib/swr';
 import { RECHARTS_THEME } from '../lib/chartTheme';
 import JustCallDialerBase, { useJustCall } from './JustCallDialer';
@@ -26,9 +26,22 @@ function formatPhoneForJustCall(phone: string | null): string | null {
   if (!c.startsWith('+')) c = (c.startsWith('1') && c.length === 11) ? '+' + c : '+1' + c;
   return c;
 }
-function fmtDay(date: string): string {
-  const [y, m, d] = date.split('-');
-  return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const CAP_MIN = 180; // scatter Y-axis cap: 3 hours
+// Fractional hour-of-day (0–24) in the market's timezone (Central).
+function hourOfDayCentral(iso: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date(iso));
+  const h = Number(parts.find((p) => p.type === 'hour')?.value || 0) % 24;
+  const m = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+  return h + m / 60;
+}
+function fmtHour(h: number): string {
+  const hr = ((h % 24) + 24) % 24; const ap = hr < 12 ? 'a' : 'p'; let d = Math.floor(hr) % 12; if (d === 0) d = 12; return `${d}${ap}`;
+}
+function fmtToCall(v: number): string {
+  if (v >= CAP_MIN) return '3h+';
+  if (v <= 0) return '0';
+  if (v >= 60) return v % 60 === 0 ? `${v / 60}h` : `${Math.floor(v / 60)}h${v % 60}`;
+  return `${v}m`;
 }
 function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
@@ -114,6 +127,22 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
   const { warm, sla_min, warn_min } = data;
 
+  // 48-hour scatter: each lead by inquiry time-of-day (x) vs time-to-warm (y, capped 3h).
+  const cutoff = Date.now() - 48 * 3600 * 1000;
+  const scatterPts = data.leads
+    .filter((l) => new Date(l.inquiry_received).getTime() >= cutoff)
+    .map((l) => {
+      const contacted = l.warm_min != null;
+      const wm = l.warm_min as number;
+      return {
+        x: hourOfDayCentral(l.inquiry_received),
+        y: Math.min(contacted ? wm : CAP_MIN, CAP_MIN),
+        bucket: !contacted ? 'none' : wm <= sla_min ? 'fast' : wm <= warn_min ? 'ok' : 'slow',
+        name: l.name, stage: l.stage_label, warm_min: l.warm_min, inquiry_received: l.inquiry_received,
+      };
+    });
+  const bucket = (b: string) => scatterPts.filter((p) => p.bucket === b);
+
   return (
     <div className={`${wrap} space-y-6`}>
       {/* Filters */}
@@ -169,33 +198,35 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         )}
       </section>
 
-      {/* ── DAILY SUCCESS RATE (accountability) ─────────────────────── */}
-      {data.daily.length > 1 && (
-        <section className="glass-card p-4">
-          <div className="flex items-baseline justify-between mb-3">
-            <h3 className="text-sm font-semibold text-slate-100">
-              Daily success rate <span className="text-slate-500 font-normal">· warm call within {sla_min} min</span>
-            </h3>
-            <span className="text-[11px] text-slate-500">goal: reach every lead within {sla_min} minutes</span>
-          </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={data.daily} margin={{ top: 5, right: 16, left: -8, bottom: 4 }}>
+      {/* ── TIME-TO-CONTACT SCATTER (last 48h) ──────────────────────── */}
+      <section className="glass-card p-4">
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· last 48 hours</span></h3>
+          <span className="text-[11px] text-slate-500">{scatterPts.length} leads · goal {sla_min} min · Y capped at 3h</span>
+        </div>
+        {scatterPts.length === 0 ? (
+          <div className="py-10 text-center text-xs text-slate-500">No inquiries in the last 48 hours.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
-              <XAxis dataKey="date" tickFormatter={fmtDay} stroke={RECHARTS_THEME.axis.stroke}
-                fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} minTickGap={24} />
-              <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} stroke={RECHARTS_THEME.axis.stroke}
-                fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} width={44} />
-              <Tooltip
-                contentStyle={{ background: 'var(--surface-overlay)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-                labelFormatter={(d) => fmtDay(String(d))}
-                formatter={(v: any, n: any) => [v == null ? '—' : `${v}%`, n]} />
+              <XAxis type="number" dataKey="x" domain={[0, 24]} ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]} tickFormatter={fmtHour}
+                stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily}
+                label={{ value: 'Inquiry time of day (CT)', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#64748b' }} />
+              <YAxis type="number" dataKey="y" domain={[0, CAP_MIN]} ticks={[0, 30, 60, 90, 120, 150, 180]} tickFormatter={fmtToCall}
+                stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} width={40} />
+              <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
+                label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} content={<ScatterTip slaMin={sla_min} />} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Line type="monotone" dataKey="within_sla_pct" name={`Within ${sla_min} min`} stroke="#22d3ee" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls />
-              <Line type="monotone" dataKey="within_warn_pct" name="Within 1 hour" stroke="#64748b" strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
-            </LineChart>
+              <Scatter name={`≤${sla_min} min`} data={bucket('fast')} fill="#10b981" fillOpacity={0.85} />
+              <Scatter name="≤1 hour" data={bucket('ok')} fill="#f59e0b" fillOpacity={0.85} />
+              <Scatter name=">1 hour" data={bucket('slow')} fill="#f43f5e" fillOpacity={0.85} />
+              <Scatter name="No contact yet" data={bucket('none')} fill="#64748b" fillOpacity={0.9} shape="cross" />
+            </ScatterChart>
           </ResponsiveContainer>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* ── LEAD TRACKER ────────────────────────────────────────────── */}
       <section className="glass-card">
@@ -254,6 +285,21 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
       {/* Embedded dialer so the Call buttons place calls via JustCall */}
       <JustCallDialer />
+    </div>
+  );
+}
+
+function ScatterTip({ active, payload, slaMin }: any) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg px-3 py-2 text-xs shadow-lg">
+      <div className="font-medium text-slate-200 mb-0.5">{p.name || '—'}</div>
+      <div className="text-slate-400">Inquiry: {fmtDateTime(p.inquiry_received)}</div>
+      <div className={p.warm_min == null ? 'text-rose-300' : p.warm_min <= slaMin ? 'text-emerald-400' : p.warm_min <= 60 ? 'text-amber-400' : 'text-rose-400'}>
+        {p.warm_min == null ? 'No warm contact yet' : `Called in ${fmtToCall(Math.min(p.warm_min, CAP_MIN))}`}
+      </div>
+      {p.stage && <div className="text-slate-500 mt-0.5">{p.stage}</div>}
     </div>
   );
 }
