@@ -47,7 +47,10 @@ function latColor(min: number | null, sla: number, warn: number): string {
   return 'text-rose-400';
 }
 
-interface Agent { name: string; connects: number; median_warm_min: number | null; }
+interface Agent {
+  name: string; outbound: number; connected: number; inbound_answered: number;
+  contacts: number; warm_leads: number; median_warm_min: number | null;
+}
 interface Lead {
   name: string | null; source: string; phone: string | null; inquiry_received: string;
   dial: 'connected' | 'no_answer' | 'none';
@@ -137,19 +140,26 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
         {warm.agents.length > 0 && (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[420px]">
+            <div className="px-1 pb-1 text-[11px] text-slate-500">Per agent · all calls in window</div>
+            <table className="w-full text-sm min-w-[600px]">
               <thead className="bg-surface-raised/80 text-xs text-slate-400">
                 <tr>
                   <th className="text-left font-medium px-3 py-1.5">Agent</th>
-                  <th className="text-right font-medium px-3 py-1.5">Warm contacts</th>
+                  <th className="text-right font-medium px-3 py-1.5">Outbound</th>
+                  <th className="text-right font-medium px-3 py-1.5">Connected</th>
+                  <th className="text-right font-medium px-3 py-1.5">Inbound</th>
+                  <th className="text-right font-medium px-3 py-1.5">Contacts</th>
                   <th className="text-right font-medium px-3 py-1.5">Median to warm</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {warm.agents.map(a => (
                   <tr key={a.name} className="hover:bg-white/[0.02]">
-                    <td className="px-3 py-1.5 text-slate-200">{a.name}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-300">{a.connects}</td>
+                    <td className="px-3 py-1.5 text-slate-200 whitespace-nowrap">{a.name}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-300">{a.outbound}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-300">{a.connected}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-300">{a.inbound_answered}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{a.contacts}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums ${latColor(a.median_warm_min, sla_min, warn_min)}`}>{fmtLatency(a.median_warm_min)}</td>
                   </tr>
                 ))}

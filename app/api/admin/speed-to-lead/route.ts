@@ -115,14 +115,24 @@ export async function GET(req: NextRequest) {
 
   // Index outbound calls by matched phone (last-10).
   const outByPhone = new Map<string, { at: number; answered: boolean; agent: string | null }[]>();
+  // Full per-agent activity across ALL calls, so every VA appears — not just
+  // whoever happened to get the first warm contact on a lead.
+  const agentScore = new Map<string, { outbound: number; connected: number; inbound_answered: number; contacts: Set<string> }>();
   for (const c of (callRes.data || [])) {
-    if (!c.contact_number_norm || (c.direction || '').toLowerCase() !== 'outgoing') continue;
-    if (!outByPhone.has(c.contact_number_norm)) outByPhone.set(c.contact_number_norm, []);
-    outByPhone.get(c.contact_number_norm)!.push({
-      at: new Date(c.call_at).getTime(),
-      answered: (c.call_type || '').toLowerCase() === 'answered',
-      agent: c.agent_name ?? null,
-    });
+    const dir = (c.direction || '').toLowerCase();
+    const answered = (c.call_type || '').toLowerCase() === 'answered';
+
+    if (c.contact_number_norm && dir === 'outgoing') {
+      if (!outByPhone.has(c.contact_number_norm)) outByPhone.set(c.contact_number_norm, []);
+      outByPhone.get(c.contact_number_norm)!.push({ at: new Date(c.call_at).getTime(), answered, agent: c.agent_name ?? null });
+    }
+
+    const name = c.agent_name || '(unknown)';
+    let a = agentScore.get(name);
+    if (!a) { a = { outbound: 0, connected: 0, inbound_answered: 0, contacts: new Set() }; agentScore.set(name, a); }
+    if (dir === 'outgoing') { a.outbound++; if (answered) a.connected++; }
+    else if (dir === 'incoming' && answered) a.inbound_answered++;
+    if (answered && c.contact_number_norm) a.contacts.add(c.contact_number_norm);
   }
 
   // ---- Automated track (unchanged semantics) -------------------------------
@@ -199,9 +209,17 @@ export async function GET(req: NextRequest) {
     median_warm_min: median(warmLat),
     within_sla_pct: pct(within5, withPhone.length),
     within_warn_pct: pct(within1h, withPhone.length),
-    agents: Array.from(agentAgg.entries())
-      .map(([name, lats]) => ({ name, connects: lats.length, median_warm_min: median(lats) }))
-      .sort((a, b) => b.connects - a.connects),
+    agents: Array.from(agentScore.entries())
+      .map(([name, v]) => ({
+        name,
+        outbound: v.outbound,
+        connected: v.connected,
+        inbound_answered: v.inbound_answered,
+        contacts: v.contacts.size,
+        warm_leads: (agentAgg.get(name) || []).length,
+        median_warm_min: median(agentAgg.get(name) || []),
+      }))
+      .sort((a, b) => (b.connected + b.inbound_answered) - (a.connected + a.inbound_answered)),
   };
 
   // Collapse a person's multiple inquiries into ONE tracker row. A lead can
