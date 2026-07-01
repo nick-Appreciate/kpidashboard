@@ -350,6 +350,20 @@ export async function GET(req: NextRequest) {
       : (dial === 'connected' && lastMissedCall) ? 'missed callback'
       : dial === 'none' ? 'never called' : 'no answer';
 
+    // Pipeline column. Application status wins; then pending action; then stage.
+    // (AppFolio has no "disqualified" lead status — a denied application is the
+    // only rejection signal.)
+    const appStatus = bestApp?.status?.toLowerCase() || null;
+    const column =
+      appStatus === 'denied' ? 'disqualified'
+      : appStatus === 'converted' ? 'signed_lease'
+      : (appStatus === 'converting' || appStatus === 'approved') ? 'app_approved'
+      : bestApp ? 'app_sent'
+      : awaiting ? 'needs_contacted'
+      : stage === 'showing_completed' ? 'showing_completed'
+      : stage === 'showing_scheduled' ? 'showing_scheduled'
+      : 'needs_contacted';
+
     return {
       name: a.name,
       source: a.source,
@@ -358,7 +372,7 @@ export async function GET(req: NextRequest) {
       dial,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
-      awaiting, flag_reason,
+      awaiting, flag_reason, column,
       timeline,
     };
   });

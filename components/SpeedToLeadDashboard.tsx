@@ -10,7 +10,7 @@
  *     follow-ups are forced. Each row has a JustCall click-to-dial button.
  */
 
-import { useState, Fragment } from 'react';
+import { useState } from 'react';
 import useSWR from 'swr';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { fetcher } from '../lib/swr';
@@ -69,9 +69,19 @@ interface Lead {
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null;
-  awaiting: boolean; flag_reason: string | null;
+  awaiting: boolean; flag_reason: string | null; column: string;
   timeline: TimelineEvent[];
 }
+
+const COLUMNS: { id: string; label: string; head: string; ring: string }[] = [
+  { id: 'needs_contacted',   label: 'Needs Contacted',      head: 'text-rose-300',    ring: 'border-rose-500/30' },
+  { id: 'showing_scheduled', label: 'Showing Scheduled',    head: 'text-cyan-300',    ring: 'border-cyan-500/25' },
+  { id: 'showing_completed', label: 'Showing Completed',    head: 'text-amber-300',   ring: 'border-amber-500/25' },
+  { id: 'app_sent',          label: 'Application Sent',     head: 'text-violet-300',  ring: 'border-violet-500/25' },
+  { id: 'app_approved',      label: 'Application Approved', head: 'text-sky-300',     ring: 'border-sky-500/25' },
+  { id: 'signed_lease',      label: 'Signed Lease',         head: 'text-emerald-300', ring: 'border-emerald-500/25' },
+  { id: 'disqualified',      label: 'Disqualified',         head: 'text-slate-400',   ring: 'border-white/10' },
+];
 
 const KIND_TEXT: Record<string, string> = {
   inquiry: 'text-cyan-300', auto: 'text-sky-300', call: 'text-violet-300', showing: 'text-amber-300', application: 'text-emerald-300',
@@ -135,7 +145,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
   const focusLead = (idx?: number) => {
     if (idx == null) return;
     setExpandedIdx(idx);
-    setTimeout(() => document.getElementById(`lead-row-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+    setTimeout(() => document.getElementById(`lead-card-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
 
   const wrap = embedded ? 'px-2 pb-6' : 'px-6 md:px-8 pb-6 md:pb-8';
@@ -247,83 +257,66 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         )}
       </section>
 
-      {/* ── LEAD TRACKER ────────────────────────────────────────────── */}
-      <section className="glass-card">
-        <div className="flex items-baseline justify-between px-4 pt-3 pb-2">
-          <h3 className="text-sm font-semibold text-slate-100">Lead tracker</h3>
+      {/* ── LEAD BOARD (pipeline) ───────────────────────────────────── */}
+      <section>
+        <div className="flex items-baseline justify-between px-1 pb-2">
+          <h3 className="text-sm font-semibold text-slate-100">Lead board</h3>
           <span className="text-[11px] text-slate-500">
-            <span className="text-rose-300 font-medium">{data.leads_awaiting}</span> need follow-up · {data.leads_total} leads · flagged on top
+            <span className="text-rose-300 font-medium">{data.leads_awaiting}</span> need follow-up · {data.leads_total} leads
           </span>
         </div>
-        <div className="overflow-auto max-h-[70vh]">
-          <table className="w-full text-sm min-w-[880px]">
-            <thead className="bg-surface-raised text-xs text-slate-400 sticky top-0 z-10">
-              <tr>
-                <th className="text-left font-medium px-4 py-2">Lead</th>
-                <th className="text-left font-medium px-4 py-2">Source</th>
-                <th className="text-left font-medium px-4 py-2">Inquiry</th>
-                <th className="text-left font-medium px-4 py-2">Dial</th>
-                <th className="text-right font-medium px-4 py-2">Warm call</th>
-                <th className="text-left font-medium px-4 py-2 pl-5">Leasing stage</th>
-                <th className="text-left font-medium px-4 py-2">Stage date</th>
-                <th className="text-right font-medium px-4 py-2">Call</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {data.leads.map((l, i) => {
-                const open = expandedIdx === i;
-                return (
-                  <Fragment key={i}>
-                    <tr id={`lead-row-${i}`} onClick={() => toggleRow(i)} className={`cursor-pointer hover:bg-white/[0.03] ${l.awaiting ? 'bg-rose-500/[0.035]' : ''}`}>
-                      <td className={`px-4 py-1.5 text-slate-200 whitespace-nowrap ${l.awaiting ? 'border-l-2 border-rose-500/50' : 'border-l-2 border-transparent'}`}>
-                        <span className="inline-flex items-center gap-1.5">
-                          <svg className={`w-3 h-3 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                          <span className="truncate max-w-[150px]">{l.name || '—'}</span>
-                          {l.flag_reason === 'missed callback' && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300 whitespace-nowrap">missed callback</span>
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{l.source}</td>
-                      <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.inquiry_received)}</td>
-                      <td className="px-4 py-1.5 whitespace-nowrap">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[l.dial].cls}`}>{DIAL_BADGE[l.dial].label}</span>
-                      </td>
-                      <td className={`px-4 py-1.5 text-right tabular-nums whitespace-nowrap ${latColor(l.warm_min, sla_min, warn_min)}`}>
-                        {l.warm_min != null ? fmtLatency(l.warm_min) : '—'}
-                      </td>
-                      <td className="px-4 py-1.5 pl-5 whitespace-nowrap">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${stageBadge(l.stage)}`}>{l.stage_label}</span>
-                      </td>
-                      <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.stage_date)}</td>
-                      <td className="px-4 py-1.5 text-right whitespace-nowrap">
-                        {l.phone ? (
-                          <button onClick={(e) => { e.stopPropagation(); dial(l.phone, l.name); }}
-                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-accent/20 text-accent-light hover:bg-accent/30 transition-colors"
-                            title={`Call ${l.name || 'lead'} via JustCall`}>
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                            Call
-                          </button>
-                        ) : <span className="text-[10px] text-slate-600">no #</span>}
-                      </td>
-                    </tr>
-                    {open && (
-                      <tr className="bg-black/20">
-                        <td colSpan={8} className="px-6 py-3">
-                          <LeadTimeline events={l.timeline} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {COLUMNS.map((col) => {
+            const items = data.leads.map((l, idx) => ({ l, idx })).filter(({ l }) => l.column === col.id);
+            return (
+              <div key={col.id} className="flex-shrink-0 w-[240px]">
+                <div className={`flex items-center justify-between px-2 py-1.5 border-b ${col.ring}`}>
+                  <span className={`text-xs font-semibold ${col.head}`}>{col.label}</span>
+                  <span className="text-[10px] text-slate-500 tabular-nums">{items.length}</span>
+                </div>
+                <div className="mt-2 space-y-2 max-h-[72vh] overflow-y-auto pr-0.5">
+                  {items.length === 0
+                    ? <div className="text-[11px] text-slate-600 px-2 py-4 text-center">—</div>
+                    : items.map(({ l, idx }) => (
+                      <LeadCard key={idx} lead={l} idx={idx} open={expandedIdx === idx}
+                        onToggle={() => toggleRow(idx)} onCall={() => dial(l.phone, l.name)}
+                        slaMin={sla_min} warnMin={warn_min} />
+                    ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
       {/* Embedded dialer so the Call buttons place calls via JustCall */}
       <JustCallDialer />
+    </div>
+  );
+}
+
+function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
+  lead: Lead; idx: number; open: boolean; onToggle: () => void; onCall: () => void; slaMin: number; warnMin: number;
+}) {
+  return (
+    <div id={`lead-card-${idx}`} onClick={onToggle}
+      className={`glass-card cursor-pointer p-2.5 border ${lead.awaiting ? 'border-rose-500/30' : 'border-white/5'} hover:border-white/15 transition-colors`}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-medium text-slate-200 truncate">{lead.name || '—'}</span>
+        {lead.phone && (
+          <button onClick={(e) => { e.stopPropagation(); onCall(); }} title="Call via JustCall"
+            className="flex-shrink-0 text-accent-light hover:text-accent">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+          </button>
+        )}
+      </div>
+      <div className="text-[10px] text-slate-500 mt-0.5 truncate">{lead.source} · {fmtDateTime(lead.inquiry_received)}</div>
+      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[lead.dial].cls}`}>{DIAL_BADGE[lead.dial].label}</span>
+        {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
+        {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}
+      </div>
+      {open && <div className="mt-2 pt-2 border-t border-white/5"><LeadTimeline events={lead.timeline} /></div>}
     </div>
   );
 }
