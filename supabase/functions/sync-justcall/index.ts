@@ -87,7 +87,7 @@ Deno.serve(async (req: Request) => {
       agent_id: row.agent_id != null ? String(row.agent_id) : null,
       agent_name: row.agent_name ?? null,
       agent_email: row.agent_email ?? null,
-      recording: row.recording ?? null,
+      recording: row.call_info?.recording ?? row.recording ?? null,
       synced_at: new Date().toISOString(),
     })).filter((r: any) => r.id && r.id !== 'undefined');
 

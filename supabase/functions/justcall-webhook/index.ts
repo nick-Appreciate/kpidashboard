@@ -87,7 +87,7 @@ Deno.serve(async (req: Request) => {
       agent_id: d.agent_id != null ? String(d.agent_id) : null,
       agent_name: d.agent_name ?? null,
       agent_email: d.agent_email ?? null,
-      recording: d.recording ?? null,
+      recording: d.call_info?.recording ?? d.recording ?? null,
       synced_at: new Date().toISOString(),
     };
     const { error } = await supabase.from('justcall_calls').upsert(record, { onConflict: 'id' });
