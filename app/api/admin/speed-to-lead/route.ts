@@ -101,6 +101,16 @@ function parseInactive(notes: string | null | undefined): { reason: string | nul
   return { at: mdyToIso(m[1]), reason: (m[2] || '').trim() || null, detail: detail || null };
 }
 
+// Furthest-along wins when a person has multiple applications.
+function appRank(status: string): number {
+  const s = (status || '').toLowerCase();
+  if (s === 'converted') return 5;
+  if (s === 'approved' || s === 'converting') return 4;
+  if (s === 'decision pending' || s === 'new') return 3;
+  if (s === 'denied') return 1;
+  return 2;
+}
+
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if ('error' in auth) return auth.error;
@@ -132,7 +142,7 @@ export async function GET(req: NextRequest) {
       .gte('showing_time', sinceIso)
       .range(0, 9999),
     supabase.from('rental_applications')
-      .select('inquiry_id, status, received, unit, lease_start_date, desired_move_in')
+      .select('phone_number, status, received, unit, lease_start_date, desired_move_in')
       .gte('received', sinceIso)
       .range(0, 9999),
     supabase.from('af_lease_history')
@@ -151,13 +161,18 @@ export async function GET(req: NextRequest) {
     if (!showsByGcid.has(k)) showsByGcid.set(k, []);
     showsByGcid.get(k)!.push({ status: s.status || '', at: s.showing_time });
   }
-  const appByInqid = new Map<string, { status: string; received: string; unit: string | null; lease_start: string | null; desired: string | null }>();
+  // Applications link to leads by PHONE, not inquiry_id: AppFolio gives each
+  // application its own inquiry_id, distinct from the guest card's, so they
+  // don't join. Phone10 is how leads are keyed everywhere, so match the same
+  // way and keep the furthest-along application per person.
+  type AppRec = { status: string; received: string; unit: string | null; lease_start: string | null; desired: string | null };
+  const appByPhone = new Map<string, AppRec>();
   for (const a of (appRes.data || [])) {
-    if (!a.inquiry_id) continue;
-    const k = String(a.inquiry_id);
-    const prev = appByInqid.get(k);
-    // keep the most recent application per inquiry
-    if (!prev || a.received > prev.received) appByInqid.set(k, { status: a.status || '', received: a.received, unit: a.unit ?? null, lease_start: a.lease_start_date ?? null, desired: a.desired_move_in ?? null });
+    const p10 = phone10(a.phone_number);
+    if (!p10) continue;
+    const cand: AppRec = { status: a.status || '', received: a.received, unit: a.unit ?? null, lease_start: a.lease_start_date ?? null, desired: a.desired_move_in ?? null };
+    const prev = appByPhone.get(p10);
+    if (!prev || appRank(cand.status) > appRank(prev.status) || (appRank(cand.status) === appRank(prev.status) && cand.received > prev.received)) appByPhone.set(p10, cand);
   }
   // Real lease start from af_lease_history, keyed by "Last|First" (its
   // tenant_name shares the leasing_reports "Last, First" format).
@@ -335,9 +350,11 @@ export async function GET(req: NextRequest) {
     const dial: 'connected' | 'no_answer' | 'none' =
       answered.length ? 'connected' : calls.length ? 'no_answer' : 'none';
 
-    // Furthest leasing stage across ALL of this person's inquiries + guest cards.
-    let bestApp: { status: string; received: string; unit: string | null; lease_start: string | null; desired: string | null } | undefined;
-    for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap && (!bestApp || ap.received > bestApp.received)) bestApp = ap; }
+    // Furthest leasing stage. Application is matched by the person's phone.
+    const bestApp = (p10 ? appByPhone.get(p10) : undefined) || undefined;
+    // AppFolio's guest card says they submitted an application, even when we
+    // can't link the specific application row (e.g. it aged out of the report).
+    const gcApplied = a.latestStatus === 'Application Completed';
     const shows: { status: string; at: string }[] = [];
     for (const g of a.gcids) shows.push(...(showsByGcid.get(g) || []));
 
@@ -377,7 +394,8 @@ export async function GET(req: NextRequest) {
       const r = showRank(s.status);
       timeline.push({ at: s.at, kind: 'showing', label: r === 3 ? 'Showing completed' : r === 2 ? 'Showing scheduled' : `Showing ${s.status}`, detail: null });
     }
-    for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap) timeline.push({ at: ap.received, kind: 'application', label: 'Application', detail: ap.status || null }); }
+    if (bestApp) timeline.push({ at: bestApp.received, kind: 'application', label: 'Application', detail: bestApp.status || null });
+    else if (gcApplied) timeline.push({ at: a.latestReceived, kind: 'application', label: 'Application submitted', detail: 'per AppFolio guest card' });
     // Disqualified in AppFolio (guest card Marked Inactive with a reason).
     const disqualified = a.latestStatus === 'Inactive';
     const disq_reason = a.disq?.reason ?? null;
@@ -409,7 +427,7 @@ export async function GET(req: NextRequest) {
       appStatus === 'converted' ? 'signed_lease'
       : (disqualified || appStatus === 'denied') ? 'disqualified'
       : (appStatus === 'converting' || appStatus === 'approved') ? 'app_approved'
-      : bestApp ? 'app_sent'
+      : (bestApp || gcApplied) ? 'app_sent'
       : stage === 'showing_completed' ? 'showing_completed'
       : stage === 'showing_scheduled' ? 'showing_scheduled'
       : dial === 'none' ? 'first_touch'

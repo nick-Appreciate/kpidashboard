@@ -230,10 +230,16 @@ async function syncRentalApplications(): Promise<SyncResult> {
       applicants: row.applicants || null,
       received: row.received || null,
       desired_move_in: row.desired_move_in || null,
+      lease_start_date: row.lease_start_date || null,
       lead_source: row.lead_source || null,
       status: row.status || null,
       unit: row.unit_title || null,
       rental_application_id: row.rental_application_id ? String(row.rental_application_id) : null,
+      // Applicant phone is the reliable link to a lead: the report's inquiry_id
+      // is the APPLICATION's own inquiry (distinct from the guest card's
+      // inquiry_id), so it can't be joined to leasing_reports. Leads are keyed
+      // by phone10 everywhere else, so match applications the same way.
+      phone_number: row.phone_number || null,
       updated_at: new Date().toISOString()
     })).filter((r: any) => r.applicants && r.received);
     
