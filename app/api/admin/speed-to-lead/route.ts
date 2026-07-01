@@ -319,7 +319,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Chronological timeline of everything we know about this lead.
-    const timeline: { at: string; kind: string; label: string; detail: string | null }[] = [];
+    const timeline: { at: string; kind: string; label: string; detail: string | null; missed?: boolean }[] = [];
     timeline.push({ at: a.earliest, kind: 'inquiry', label: 'Inquiry', detail: a.source });
     if (a.firstRespAt) timeline.push({ at: a.firstRespAt, kind: 'auto', label: a.firstRespType || 'Auto-response', detail: 'automated' });
     for (const c of (p10 ? (callsByPhone.get(p10) || []) : [])) {
@@ -329,6 +329,7 @@ export async function GET(req: NextRequest) {
         at: c.atIso, kind: 'call',
         label: `${out ? 'Outbound' : 'Inbound'} call`,
         detail: `${c.agent || '—'} · ${c.call_type}${c.duration != null ? ` · ${durStr(c.duration)}` : ''}`,
+        missed: (c.call_type || '').toLowerCase() !== 'answered',
       });
     }
     for (const g of a.gcids) for (const s of (showsByGcid.get(g) || [])) {
@@ -338,6 +339,17 @@ export async function GET(req: NextRequest) {
     for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap) timeline.push({ at: ap.received, kind: 'application', label: 'Application', detail: ap.status || null }); }
     timeline.sort((x, y) => x.at.localeCompare(y.at));
 
+    // Flag for follow-up if never connected OR the most recent event that has
+    // actually happened is a missed call (e.g. the lead called back and we
+    // missed it). A future scheduled showing doesn't count as "most recent".
+    const nowIso = new Date().toISOString();
+    const lastPast = [...timeline].reverse().find((e) => e.at <= nowIso);
+    const lastMissedCall = !!(lastPast && lastPast.kind === 'call' && lastPast.missed);
+    const awaiting = dial !== 'connected' || lastMissedCall;
+    const flag_reason = !awaiting ? null
+      : (dial === 'connected' && lastMissedCall) ? 'missed callback'
+      : dial === 'none' ? 'never called' : 'no answer';
+
     return {
       name: a.name,
       source: a.source,
@@ -346,7 +358,7 @@ export async function GET(req: NextRequest) {
       dial,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
-      awaiting: dial !== 'connected',
+      awaiting, flag_reason,
       timeline,
     };
   });

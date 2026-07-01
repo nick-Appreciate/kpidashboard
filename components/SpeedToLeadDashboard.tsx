@@ -69,7 +69,7 @@ interface Lead {
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null;
-  awaiting: boolean;
+  awaiting: boolean; flag_reason: string | null;
   timeline: TimelineEvent[];
 }
 
@@ -244,7 +244,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         <div className="flex items-baseline justify-between px-4 pt-3 pb-2">
           <h3 className="text-sm font-semibold text-slate-100">Lead tracker</h3>
           <span className="text-[11px] text-slate-500">
-            <span className="text-rose-300 font-medium">{data.leads_awaiting}</span> awaiting a warm call · {data.leads_total} leads · follow-ups on top
+            <span className="text-rose-300 font-medium">{data.leads_awaiting}</span> need follow-up · {data.leads_total} leads · flagged on top
           </span>
         </div>
         <div className="overflow-auto max-h-[70vh]">
@@ -271,6 +271,9 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
                         <span className="inline-flex items-center gap-1.5">
                           <svg className={`w-3 h-3 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                           <span className="truncate max-w-[150px]">{l.name || '—'}</span>
+                          {l.flag_reason === 'missed callback' && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300 whitespace-nowrap">missed callback</span>
+                          )}
                         </span>
                       </td>
                       <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{l.source}</td>
