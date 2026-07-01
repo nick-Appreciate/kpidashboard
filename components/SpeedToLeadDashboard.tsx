@@ -81,7 +81,7 @@ interface Lead {
 }
 
 const COLUMNS: { id: string; label: string; head: string; ring: string }[] = [
-  { id: 'needs_contacted',   label: 'Needs Contacted',      head: 'text-rose-300',    ring: 'border-rose-500/30' },
+  { id: 'first_touch',       label: 'First Touch',          head: 'text-rose-300',    ring: 'border-rose-500/30' },
   { id: 'showing_scheduled', label: 'Showing Scheduled',    head: 'text-cyan-300',    ring: 'border-cyan-500/25' },
   { id: 'showing_completed', label: 'Showing Completed',    head: 'text-amber-300',   ring: 'border-amber-500/25' },
   { id: 'app_sent',          label: 'Application Sent',     head: 'text-violet-300',  ring: 'border-violet-500/25' },
