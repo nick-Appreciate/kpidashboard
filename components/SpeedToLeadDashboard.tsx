@@ -130,6 +130,12 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const toggleRow = (i: number) => setExpanded((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  // Clicking a scatter point expands that lead's row and scrolls to it.
+  const focusLead = (idx?: number) => {
+    if (idx == null) return;
+    setExpanded((prev) => new Set(prev).add(idx));
+    setTimeout(() => document.getElementById(`lead-row-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  };
 
   const wrap = embedded ? 'px-2 pb-6' : 'px-6 md:px-8 pb-6 md:pb-8';
   if (isLoading && !data) return <div className={`${wrap} text-sm text-slate-500 py-10 text-center`}>Loading speed-to-lead…</div>;
@@ -141,15 +147,16 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
   // 48-hour scatter: each lead by inquiry time-of-day (x) vs time-to-warm (y, capped 3h).
   const cutoff = Date.now() - 48 * 3600 * 1000;
   const scatterPts = data.leads
-    .filter((l) => new Date(l.inquiry_received).getTime() >= cutoff)
-    .map((l) => {
+    .map((l, idx) => ({ l, idx }))
+    .filter(({ l }) => new Date(l.inquiry_received).getTime() >= cutoff)
+    .map(({ l, idx }) => {
       const contacted = l.warm_min != null;
       return {
         x: hourOfDayCentral(l.inquiry_received),
         // Connected leads sit at their business-minutes-to-contact; not-connected
         // leads pin at the cap (no contact time to plot).
         y: Math.min(contacted ? (l.warm_min as number) : CAP_MIN, CAP_MIN),
-        dial: l.dial, // connected | no_answer | none
+        dial: l.dial, idx, // idx = row index in data.leads (for click-to-expand)
         name: l.name, stage: l.stage_label, warm_min: l.warm_min, inquiry_received: l.inquiry_received,
       };
     });
@@ -230,10 +237,10 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
               <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} content={<ScatterTip slaMin={sla_min} />} />
-              <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Scatter name="Connected" data={byDial('connected')} fill="#10b981" fillOpacity={0.85} />
-              <Scatter name="Called, no answer" data={byDial('no_answer')} fill="#eab308" fillOpacity={0.85} />
-              <Scatter name="Not called" data={byDial('none')} fill="#f43f5e" fillOpacity={0.85} />
+              <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+              <Scatter name="Connected" data={byDial('connected')} fill="#10b981" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
+              <Scatter name="Called, no answer" data={byDial('no_answer')} fill="#eab308" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
+              <Scatter name="Not called" data={byDial('none')} fill="#f43f5e" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
             </ScatterChart>
           </ResponsiveContainer>
         )}
@@ -266,7 +273,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
                 const open = expanded.has(i);
                 return (
                   <Fragment key={i}>
-                    <tr onClick={() => toggleRow(i)} className={`cursor-pointer hover:bg-white/[0.03] ${l.awaiting ? 'bg-rose-500/[0.035]' : ''}`}>
+                    <tr id={`lead-row-${i}`} onClick={() => toggleRow(i)} className={`cursor-pointer hover:bg-white/[0.03] ${l.awaiting ? 'bg-rose-500/[0.035]' : ''}`}>
                       <td className={`px-4 py-1.5 text-slate-200 whitespace-nowrap ${l.awaiting ? 'border-l-2 border-rose-500/50' : 'border-l-2 border-transparent'}`}>
                         <span className="inline-flex items-center gap-1.5">
                           <svg className={`w-3 h-3 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
