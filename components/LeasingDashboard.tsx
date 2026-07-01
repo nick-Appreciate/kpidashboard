@@ -21,23 +21,21 @@
 
 import { useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, Megaphone, BarChart3, Timer } from 'lucide-react';
+import { Eye, Megaphone, BarChart3 } from 'lucide-react';
 import ListingCoverageDashboard from './ListingCoverageDashboard';
 import PublishingDashboard from './PublishingDashboard';
 import SourcePerformanceDashboard from './SourcePerformanceDashboard';
-import SpeedToLeadDashboard from './SpeedToLeadDashboard';
 
-type Tab = 'coverage' | 'publishing' | 'sources' | 'speed';
+type Tab = 'coverage' | 'publishing' | 'sources';
 
 const TABS: { id: Tab; label: string; Icon: any }[] = [
   { id: 'coverage',   label: 'Coverage',   Icon: Eye       },
   { id: 'publishing', label: 'Publishing', Icon: Megaphone },
   { id: 'sources',    label: 'Sources',    Icon: BarChart3 },
-  { id: 'speed',      label: 'Speed to Lead', Icon: Timer   },
 ];
 
 function isTab(s: string | null | undefined): s is Tab {
-  return s === 'coverage' || s === 'publishing' || s === 'sources' || s === 'speed';
+  return s === 'coverage' || s === 'publishing' || s === 'sources';
 }
 
 export default function LeasingDashboard() {
@@ -95,9 +93,6 @@ export default function LeasingDashboard() {
           </div>
           <div style={{ display: tab === 'sources'    ? 'block' : 'none' }}>
             <SourcePerformanceDashboard embedded />
-          </div>
-          <div style={{ display: tab === 'speed'      ? 'block' : 'none' }}>
-            <SpeedToLeadDashboard embedded />
           </div>
         </div>
       </div>

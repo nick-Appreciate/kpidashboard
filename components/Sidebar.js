@@ -1,200 +1,130 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+/**
+ * Sidebar — primary site navigation.
+ *
+ * Intent-based domains (Leasing, Collections, Maintenance, Financials, Admin),
+ * each expandable to its sub-views. The domain containing the current route is
+ * auto-expanded; any domain can be expanded manually via its chevron to jump
+ * straight to a sub-view. Admin-only items/domains are hidden for non-admins.
+ *
+ * Behavior preserved from the previous version: hover to expand the rail,
+ * glass chrome, active-route highlight, user card + logout, Alerts pulse badge.
+ */
+
+// --- icons (kept inline to avoid a new dependency) -------------------------
+const Icon = {
+  leasing: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+  ),
+  collections: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+  ),
+  maintenance: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.42 15.17l-5.1-5.1a1.5 1.5 0 010-2.12l.71-.71a1.5 1.5 0 012.12 0l3.57 3.57 7.07-7.07a1.5 1.5 0 012.12 0l.71.71a1.5 1.5 0 010 2.12l-8.49 8.49a1.5 1.5 0 01-2.12 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 21h18" /></svg>
+  ),
+  financials: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V9m4 8V5m4 12v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+  ),
+  admin: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+  ),
+};
+
+const Chevron = ({ open }) => (
+  <svg className={`w-3 h-3 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+// --- navigation model ------------------------------------------------------
+// Each domain expands to sub-items. `admin: true` hides the item (or whole
+// domain) from non-admins. Order reflects daily-use frequency.
+const DOMAINS = [
+  {
+    key: 'leasing', label: 'Leasing', icon: Icon.leasing,
+    items: [
+      { name: 'Overview',   href: '/leasing' },      // funnel charts + speed-to-lead
+      { name: 'Occupancy',  href: '/occupancy' },
+      { name: 'Renewals',   href: '/renewals' },
+      { name: 'Coverage',   href: '/admin/leasing?tab=coverage',   admin: true },
+      { name: 'Publishing', href: '/admin/leasing?tab=publishing', admin: true },
+      { name: 'Sources',    href: '/admin/leasing?tab=sources',    admin: true },
+    ],
+  },
+  {
+    key: 'collections', label: 'Collections', icon: Icon.collections,
+    items: [{ name: 'Collections', href: '/collections' }],
+  },
+  {
+    key: 'maintenance', label: 'Maintenance', icon: Icon.maintenance,
+    items: [
+      { name: 'Rehabs',      href: '/rehabs' },
+      { name: 'Inspections', href: '/inspections' },
+      { name: 'Work Orders', href: '/work-orders' },
+      { name: 'Time Cards',  href: '/admin/time-cards' },
+      { name: 'Utilities',   href: '/admin/utilities' },
+    ],
+  },
+  {
+    key: 'financials', label: 'Financials', icon: Icon.financials,
+    items: [
+      { name: 'Bookkeeping', href: '/bookkeeping' },
+      { name: 'Overview',    href: '/financials',        admin: true },  // portfolio cash flow / net income
+      { name: 'Cash',        href: '/admin/cash',        admin: true },
+      { name: 'Deposits',    href: '/admin/simmons',     admin: true },
+      { name: 'Duplicates',  href: '/admin/duplicates',  admin: true },
+    ],
+  },
+  {
+    key: 'admin', label: 'Admin', icon: Icon.admin, admin: true,
+    items: [
+      { name: 'Properties', href: '/admin/properties' },
+      { name: 'Users',      href: '/admin/users' },
+      { name: 'Alerts',     href: '/admin/alerts', badge: 'alerts' },
+    ],
+  },
+];
+
+// Path portion of an href (drop ?query) for active matching.
+const pathOf = (href) => href.split('?')[0];
+
 export default function Sidebar({ user, onLogout, alertCount = 0 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [openKeys, setOpenKeys] = useState({});
   const pathname = usePathname();
   const hoverTimeoutRef = useRef(null);
 
   const isAdmin = user?.role === 'admin';
 
-  const navSections = [
-    {
-      label: 'Operations',
-      items: [
-        {
-          name: 'Leasing',
-          href: '/dashboard',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Occupancy',
-          href: '/occupancy',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          )
-        },
-        {
-          name: 'Collections',
-          href: '/collections',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Renewals',
-          href: '/renewals',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          )
-        }
-      ]
-    },
-    {
-      label: 'Maintenance',
-      items: [
-        {
-          name: 'Rehabs',
-          href: '/rehabs',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Inspections',
-          href: '/inspections',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-          )
-        },
-        {
-          name: 'Work Orders',
-          href: '/work-orders',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.42 15.17l-5.1-5.1a1.5 1.5 0 010-2.12l.71-.71a1.5 1.5 0 012.12 0l3.57 3.57 7.07-7.07a1.5 1.5 0 012.12 0l.71.71a1.5 1.5 0 010 2.12l-8.49 8.49a1.5 1.5 0 01-2.12 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 21h18" />
-            </svg>
-          )
-        }
-      ]
-    },
-    {
-      label: 'Administrative',
-      items: [
-        {
-          name: 'Bookkeeping',
-          href: '/bookkeeping',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Utilities',
-          href: '/admin/utilities',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 21a8 8 0 008-8c0-3.5-2.5-6.5-4-8l-4 5-4-5c-1.5 1.5-4 4.5-4 8a8 8 0 008 8z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Time Cards',
-          href: '/admin/time-cards',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          )
-        },
-      ]
-    },
-    ...(isAdmin ? [{
-      label: 'Private',
-      items: [
-        {
-          name: 'Properties',
-          href: '/admin/properties',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m-1 4h1m-1 4h1m4-8h1m-1 4h1m-1 4h1" />
-            </svg>
-          )
-        },
-        {
-          name: 'Leasing',
-          href: '/admin/leasing',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-          )
-        },
-        {
-          name: 'Financials',
-          href: '/financials',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Users',
-          href: '/admin/users',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Cash',
-          href: '/admin/cash',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Simmons',
-          href: '/admin/simmons',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-            </svg>
-          )
-        },
-        {
-          name: 'Alerts',
-          href: '/admin/alerts',
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-          )
-        },
-      ]
-    }] : [])
-  ];
+  // Resolve each domain to only the items this user may see, and drop domains
+  // that end up empty (e.g. the admin-only Admin domain for a normal user).
+  const domains = DOMAINS
+    .filter((d) => !d.admin || isAdmin)
+    .map((d) => ({ ...d, items: d.items.filter((i) => !i.admin || isAdmin) }))
+    .filter((d) => d.items.length > 0);
+
+  const domainLandingHref = (d) => d.items[0].href;
+  const isItemActive = (href) => pathname === pathOf(href);
+  const activeDomainKey = domains.find((d) => d.items.some((i) => isItemActive(i.href)))?.key;
+
+  // Always keep the active domain expanded; other domains stay as the user left them.
+  useEffect(() => {
+    if (activeDomainKey) setOpenKeys((prev) => ({ ...prev, [activeDomainKey]: true }));
+  }, [activeDomainKey]);
+
+  const toggle = (key) => setOpenKeys((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <aside
       className={`fixed left-0 top-0 h-full bg-surface-raised/80 backdrop-blur-[16px] border-r border-[var(--glass-border)] text-white z-50 transition-all duration-300 ease-in-out ${
-        isExpanded ? 'w-36' : 'w-10 overflow-hidden'
+        isExpanded ? 'w-40' : 'w-10 overflow-hidden'
       }`}
-      style={{ width: isExpanded ? '9rem' : '2.5rem' }}
+      style={{ width: isExpanded ? '10rem' : '2.5rem' }}
       onMouseEnter={() => {
         hoverTimeoutRef.current = setTimeout(() => setIsExpanded(true), 300);
       }}
@@ -203,79 +133,90 @@ export default function Sidebar({ user, onLogout, alertCount = 0 }) {
         setIsExpanded(false);
       }}
     >
-      {/* Logo — icon stays fixed, "Appreciate" text fades in beside it */}
+      {/* Logo */}
       <div className="h-10 flex items-center border-b border-[var(--glass-border)] pl-2.5 pr-1.5 gap-1 overflow-hidden">
         <div className="flex-shrink-0 flex items-center justify-center w-5" style={{ minWidth: '1.25rem' }}>
           <svg className="w-4 h-5" viewBox="0 0 163 200" fill="none">
             <path fillRule="evenodd" clipRule="evenodd" d="M81.4 0L0 38.8V161.2L81.4 200l81.4-38.8V38.8L81.4 0zm-.008 25.3L25.99 51.1v96l27.6-13v-71l27.8-12.1 27.8 12.1v71l27.6 13v-96L81.392 25.3z" fill="currentColor" />
           </svg>
         </div>
-        <span className={`text-sm font-semibold text-slate-200 whitespace-nowrap transition-opacity duration-150 ${
-          isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'
-        }`}>
+        <span className={`text-sm font-semibold text-slate-200 whitespace-nowrap transition-opacity duration-150 ${isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'}`}>
           Appreciate
         </span>
       </div>
 
       {/* Navigation */}
       <nav className="mt-2 px-1">
-        {navSections.map((section) => (
-          <div key={section.label} className="mb-1">
-            {/* Section label — bright teal, visible when expanded */}
-            <div className="w-full flex items-center gap-1.5 px-1.5 py-1 relative">
-              {/* Section icon when collapsed */}
-              <div className={`absolute flex-shrink-0 flex items-center justify-center w-5 transition-opacity duration-150 ${
-                isExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 delay-200'
-              }`}>
-                <span className="text-slate-500">{section.items[0].icon}</span>
-              </div>
-              <div className={`transition-opacity duration-150 ${
-                isExpanded ? 'opacity-100 delay-200' : 'opacity-0 pointer-events-none'
-              }`}>
-                <span className="text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-accent">
-                  {section.label}
-                </span>
-              </div>
-            </div>
+        {domains.map((d) => {
+          const open = isExpanded && !!openKeys[d.key];
+          const single = d.items.length === 1;
+          const domainActive = d.key === activeDomainKey;
+          const showAlertDot = d.items.some((i) => i.badge === 'alerts') && alertCount > 0;
 
-            {/* Section items — visible when sidebar is expanded */}
-            <div className={`overflow-hidden transition-all duration-200 ${
-              isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-            }`}>
-              {section.items.map((item) => {
-                const isActive = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2 px-1.5 py-1.5 rounded-md mb-0.5 transition-all duration-200 group ${
-                      isExpanded ? 'pl-5' : ''
-                    } ${
-                      isActive
-                        ? 'bg-accent/15 text-accent-light border-l-2 border-accent'
-                        : 'text-slate-500 hover:bg-white/5 hover:text-slate-200 hover:translate-x-0.5'
-                    }`}
+          return (
+            <div key={d.key} className="mb-0.5">
+              {/* Domain header. Single-item domains link straight to the page;
+                  multi-item domains link to the landing and expose a chevron. */}
+              <div className="relative flex items-center">
+                <Link
+                  href={domainLandingHref(d)}
+                  className={`flex-1 flex items-center gap-2 px-1.5 py-1.5 rounded-md transition-all duration-200 ${
+                    domainActive ? 'text-accent-light' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex-shrink-0 relative">
+                    {d.icon}
+                    {showAlertDot && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+                    )}
+                  </div>
+                  <span className={`text-xs font-semibold whitespace-nowrap transition-opacity duration-150 ${isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'}`}>
+                    {d.label}
+                  </span>
+                </Link>
+                {isExpanded && !single && (
+                  <button
+                    aria-label={`Toggle ${d.label}`}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(d.key); }}
+                    className="px-1.5 py-1.5 text-slate-500 hover:text-slate-200"
                   >
-                    <div className="flex-shrink-0 relative">
-                      {item.icon}
-                      {item.name === 'Alerts' && alertCount > 0 && (
-                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-                      )}
-                    </div>
-                    <span className={`text-xs font-medium whitespace-nowrap transition-opacity duration-150 ${
-                      isExpanded ? 'opacity-100 delay-200' : 'opacity-0 delay-0'
-                    }`}>
-                      {item.name}
-                    </span>
-                  </Link>
-                );
-              })}
+                    <Chevron open={open} />
+                  </button>
+                )}
+              </div>
+
+              {/* Sub-items */}
+              {!single && (
+                <div className={`overflow-hidden transition-all duration-200 ${open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  {d.items.map((item) => {
+                    const active = isItemActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center justify-between pl-8 pr-2 py-1 rounded-md mb-0.5 text-xs font-medium transition-all duration-150 ${
+                          active
+                            ? 'bg-accent/15 text-accent-light border-l-2 border-accent'
+                            : 'text-slate-500 hover:bg-white/5 hover:text-slate-200'
+                        }`}
+                      >
+                        <span className="whitespace-nowrap">{item.name}</span>
+                        {item.badge === 'alerts' && alertCount > 0 && (
+                          <span className="ml-1 min-w-4 h-4 px-1 flex items-center justify-center text-[9px] font-semibold bg-rose-500/90 text-white rounded-full">
+                            {alertCount}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
-      {/* Bottom section - User info and logout */}
+      {/* Bottom section — user info and logout */}
       <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-[var(--glass-border)]">
         <div className="flex items-center gap-2 mb-1.5">
           <div className="w-6 h-6 bg-accent/20 rounded-full flex items-center justify-center flex-shrink-0" style={{ minWidth: '1.5rem' }}>
@@ -289,13 +230,7 @@ export default function Sidebar({ user, onLogout, alertCount = 0 }) {
           </div>
         </div>
         <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (onLogout) {
-              onLogout();
-            }
-          }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (onLogout) onLogout(); }}
           className={`w-full flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-slate-500 hover:text-slate-200 hover:bg-white/5 rounded-md transition-all duration-200 ${isExpanded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         >
           <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

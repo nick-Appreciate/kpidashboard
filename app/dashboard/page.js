@@ -1,10 +1,8 @@
-import Dashboard from '../../components/Dashboard';
+import { redirect } from 'next/navigation';
 
-export const metadata = {
-  title: 'Appreciate Dashboard',
-  description: 'Real-time property inquiry analytics',
-};
-
+// The leasing funnel now lives on the unified Leasing landing page (/leasing),
+// alongside Speed to Lead. Keep this route as a redirect so old links and
+// bookmarks keep working.
 export default function DashboardPage() {
-  return <Dashboard />;
+  redirect('/leasing');
 }
