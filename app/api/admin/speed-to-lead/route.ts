@@ -401,9 +401,9 @@ export async function GET(req: NextRequest) {
 
     // Pipeline column. A signed lease is terminal-success; then disqualified
     // (AppFolio Marked Inactive, or a denied application); then application
-    // progress; then furthest showing stage. First Touch is the fallback: leads
-    // with no showing/application and not disqualified. A lead owed a callback
-    // stays in its stage column (flagged via `awaiting`), it is not pulled out.
+    // progress; then furthest showing stage. For leads with no showing/app and
+    // not disqualified: First Touch if we've never called them, else Follow Up.
+    // A lead owed a callback stays in its stage column (flagged via `awaiting`).
     const appStatus = bestApp?.status?.toLowerCase() || null;
     const column =
       appStatus === 'converted' ? 'signed_lease'
@@ -412,7 +412,8 @@ export async function GET(req: NextRequest) {
       : bestApp ? 'app_sent'
       : stage === 'showing_completed' ? 'showing_completed'
       : stage === 'showing_scheduled' ? 'showing_scheduled'
-      : 'first_touch';
+      : dial === 'none' ? 'first_touch'
+      : 'follow_up';
 
     return {
       name: a.name,
