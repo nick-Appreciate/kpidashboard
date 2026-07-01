@@ -10,7 +10,7 @@
  *     follow-ups are forced. Each row has a JustCall click-to-dial button.
  */
 
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import useSWR from 'swr';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { fetcher } from '../lib/swr';
@@ -63,13 +63,22 @@ interface Agent {
   name: string; outbound: number; connected: number; inbound_answered: number;
   contacts: number; warm_leads: number; median_warm_min: number | null;
 }
+interface TimelineEvent { at: string; kind: string; label: string; detail: string | null }
 interface Lead {
   name: string | null; source: string; phone: string | null; inquiry_received: string;
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null;
   awaiting: boolean;
+  timeline: TimelineEvent[];
 }
+
+const KIND_TEXT: Record<string, string> = {
+  inquiry: 'text-cyan-300', auto: 'text-sky-300', call: 'text-violet-300', showing: 'text-amber-300', application: 'text-emerald-300',
+};
+const KIND_DOT: Record<string, string> = {
+  inquiry: 'bg-cyan-400', auto: 'bg-sky-400', call: 'bg-violet-400', showing: 'bg-amber-400', application: 'bg-emerald-400',
+};
 interface ApiResponse {
   days: number; region: string; sla_min: number; warn_min: number;
   warm: {
@@ -118,6 +127,9 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
     const p = formatPhoneForJustCall(phone);
     if (p) makeCall(p, name || 'Lead');
   };
+
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggleRow = (i: number) => setExpanded((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
 
   const wrap = embedded ? 'px-2 pb-6' : 'px-6 md:px-8 pb-6 md:pb-8';
   if (isLoading && !data) return <div className={`${wrap} text-sm text-slate-500 py-10 text-center`}>Loading speed-to-lead…</div>;
@@ -250,33 +262,50 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {data.leads.map((l, i) => (
-                <tr key={i} className={`hover:bg-white/[0.03] ${l.awaiting ? 'bg-rose-500/[0.035]' : ''}`}>
-                  <td className={`px-4 py-1.5 text-slate-200 truncate max-w-[160px] ${l.awaiting ? 'border-l-2 border-rose-500/50' : 'border-l-2 border-transparent'}`}>{l.name || '—'}</td>
-                  <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{l.source}</td>
-                  <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.inquiry_received)}</td>
-                  <td className="px-4 py-1.5 whitespace-nowrap">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[l.dial].cls}`}>{DIAL_BADGE[l.dial].label}</span>
-                  </td>
-                  <td className={`px-4 py-1.5 text-right tabular-nums whitespace-nowrap ${latColor(l.warm_min, sla_min, warn_min)}`}>
-                    {l.warm_min != null ? fmtLatency(l.warm_min) : '—'}
-                  </td>
-                  <td className="px-4 py-1.5 pl-5 whitespace-nowrap">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${stageBadge(l.stage)}`}>{l.stage_label}</span>
-                  </td>
-                  <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.stage_date)}</td>
-                  <td className="px-4 py-1.5 text-right whitespace-nowrap">
-                    {l.phone ? (
-                      <button onClick={() => dial(l.phone, l.name)}
-                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-accent/20 text-accent-light hover:bg-accent/30 transition-colors"
-                        title={`Call ${l.name || 'lead'} via JustCall`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                        Call
-                      </button>
-                    ) : <span className="text-[10px] text-slate-600">no #</span>}
-                  </td>
-                </tr>
-              ))}
+              {data.leads.map((l, i) => {
+                const open = expanded.has(i);
+                return (
+                  <Fragment key={i}>
+                    <tr onClick={() => toggleRow(i)} className={`cursor-pointer hover:bg-white/[0.03] ${l.awaiting ? 'bg-rose-500/[0.035]' : ''}`}>
+                      <td className={`px-4 py-1.5 text-slate-200 whitespace-nowrap ${l.awaiting ? 'border-l-2 border-rose-500/50' : 'border-l-2 border-transparent'}`}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <svg className={`w-3 h-3 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          <span className="truncate max-w-[150px]">{l.name || '—'}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{l.source}</td>
+                      <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.inquiry_received)}</td>
+                      <td className="px-4 py-1.5 whitespace-nowrap">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[l.dial].cls}`}>{DIAL_BADGE[l.dial].label}</span>
+                      </td>
+                      <td className={`px-4 py-1.5 text-right tabular-nums whitespace-nowrap ${latColor(l.warm_min, sla_min, warn_min)}`}>
+                        {l.warm_min != null ? fmtLatency(l.warm_min) : '—'}
+                      </td>
+                      <td className="px-4 py-1.5 pl-5 whitespace-nowrap">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${stageBadge(l.stage)}`}>{l.stage_label}</span>
+                      </td>
+                      <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.stage_date)}</td>
+                      <td className="px-4 py-1.5 text-right whitespace-nowrap">
+                        {l.phone ? (
+                          <button onClick={(e) => { e.stopPropagation(); dial(l.phone, l.name); }}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-accent/20 text-accent-light hover:bg-accent/30 transition-colors"
+                            title={`Call ${l.name || 'lead'} via JustCall`}>
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                            Call
+                          </button>
+                        ) : <span className="text-[10px] text-slate-600">no #</span>}
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="bg-black/20">
+                        <td colSpan={8} className="px-6 py-3">
+                          <LeadTimeline events={l.timeline} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -285,6 +314,24 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       {/* Embedded dialer so the Call buttons place calls via JustCall */}
       <JustCallDialer />
     </div>
+  );
+}
+
+function LeadTimeline({ events }: { events: TimelineEvent[] }) {
+  if (!events?.length) return <div className="text-xs text-slate-500">No events recorded.</div>;
+  return (
+    <ol className="relative ml-1 border-l border-white/10 space-y-2 pl-4 py-0.5">
+      {events.map((e, i) => (
+        <li key={i} className="relative">
+          <span className={`absolute -left-[21px] top-1 w-2 h-2 rounded-full ${KIND_DOT[e.kind] || 'bg-slate-400'}`} />
+          <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+            <span className="text-slate-500 tabular-nums w-28 flex-shrink-0">{fmtDateTime(e.at)}</span>
+            <span className={`font-medium ${KIND_TEXT[e.kind] || 'text-slate-300'}`}>{e.label}</span>
+            {e.detail && <span className="text-slate-400">· {e.detail}</span>}
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

@@ -39,6 +39,7 @@ function median(nums: number[]): number | null {
   return s.length % 2 ? Math.round(s[mid]) : Math.round((s[mid - 1] + s[mid]) / 2);
 }
 const pct = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
+const durStr = (s: number | null) => { if (s == null) return null; const m = Math.floor(s / 60), sec = s % 60; return m ? `${m}m ${sec}s` : `${sec}s`; };
 
 // Business hours: 9:00–17:00 America/Chicago, Mon–Fri. "Business minutes"
 // between two instants, so an inquiry after hours / on a weekend doesn't count
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
-      .select('contact_number_norm, direction, call_type, call_at, agent_name')
+      .select('contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds')
       .gte('call_at', sinceIso)
       .range(0, 49999),
     supabase.from('showings')
@@ -146,6 +147,8 @@ export async function GET(req: NextRequest) {
 
   // Index outbound calls by matched phone (last-10).
   const outByPhone = new Map<string, { at: number; answered: boolean; agent: string | null }[]>();
+  // ALL calls by phone (any direction) — for the per-lead timeline.
+  const callsByPhone = new Map<string, { atIso: string; atMs: number; direction: string; call_type: string; duration: number | null; agent: string | null }[]>();
   // Full per-agent activity across ALL calls, so every VA appears — not just
   // whoever happened to get the first warm contact on a lead.
   const agentScore = new Map<string, { outbound: number; connected: number; inbound_answered: number; contacts: Set<string> }>();
@@ -156,6 +159,13 @@ export async function GET(req: NextRequest) {
     if (c.contact_number_norm && dir === 'outgoing') {
       if (!outByPhone.has(c.contact_number_norm)) outByPhone.set(c.contact_number_norm, []);
       outByPhone.get(c.contact_number_norm)!.push({ at: new Date(c.call_at).getTime(), answered, agent: c.agent_name ?? null });
+    }
+    if (c.contact_number_norm) {
+      if (!callsByPhone.has(c.contact_number_norm)) callsByPhone.set(c.contact_number_norm, []);
+      callsByPhone.get(c.contact_number_norm)!.push({
+        atIso: c.call_at, atMs: new Date(c.call_at).getTime(),
+        direction: c.direction || '', call_type: c.call_type || '', duration: c.duration_seconds ?? null, agent: c.agent_name ?? null,
+      });
     }
 
     const name = c.agent_name || '(unknown)';
@@ -258,16 +268,17 @@ export async function GET(req: NextRequest) {
   // showings — so we key by phone (last-10, fallback name), keep the earliest
   // inquiry as the origin, and aggregate every guest_card_id / inquiry_id so
   // the furthest stage spans all of their activity.
-  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; gcids: Set<string>; inqids: Set<string> };
+  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string> };
   const byPerson = new Map<string, Acc>();
   for (const l of rawLeads) {
     const key = phone10(l.phone) || `name:${(l.name || '').toLowerCase().trim()}`;
     let a = byPerson.get(key);
     if (!a) {
-      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, gcids: new Set(), inqids: new Set() };
+      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set() };
       byPerson.set(key, a);
     }
     if (l.inquiry_received < a.earliest) { a.earliest = l.inquiry_received; a.source = norm(l.source); }
+    if (l.first_response_at && (!a.firstRespAt || l.first_response_at < a.firstRespAt)) { a.firstRespAt = l.first_response_at; a.firstRespType = l.first_response_type ?? null; }
     if (!a.name && l.name) a.name = l.name;
     if (!a.phone && l.phone) a.phone = l.phone;
     if (l.guest_card_id) a.gcids.add(String(l.guest_card_id));
@@ -307,6 +318,26 @@ export async function GET(req: NextRequest) {
       stage = 'inquiry'; stage_label = 'Inquiry'; stage_date = null;
     }
 
+    // Chronological timeline of everything we know about this lead.
+    const timeline: { at: string; kind: string; label: string; detail: string | null }[] = [];
+    timeline.push({ at: a.earliest, kind: 'inquiry', label: 'Inquiry', detail: a.source });
+    if (a.firstRespAt) timeline.push({ at: a.firstRespAt, kind: 'auto', label: a.firstRespType || 'Auto-response', detail: 'automated' });
+    for (const c of (p10 ? (callsByPhone.get(p10) || []) : [])) {
+      if (c.atMs < inqMs) continue;
+      const out = (c.direction || '').toLowerCase() === 'outgoing';
+      timeline.push({
+        at: c.atIso, kind: 'call',
+        label: `${out ? 'Outbound' : 'Inbound'} call`,
+        detail: `${c.agent || '—'} · ${c.call_type}${c.duration != null ? ` · ${durStr(c.duration)}` : ''}`,
+      });
+    }
+    for (const g of a.gcids) for (const s of (showsByGcid.get(g) || [])) {
+      const r = showRank(s.status);
+      timeline.push({ at: s.at, kind: 'showing', label: r === 3 ? 'Showing completed' : r === 2 ? 'Showing scheduled' : `Showing ${s.status}`, detail: null });
+    }
+    for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap) timeline.push({ at: ap.received, kind: 'application', label: 'Application', detail: ap.status || null }); }
+    timeline.sort((x, y) => x.at.localeCompare(y.at));
+
     return {
       name: a.name,
       source: a.source,
@@ -316,6 +347,7 @@ export async function GET(req: NextRequest) {
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
       awaiting: dial !== 'connected',
+      timeline,
     };
   });
   // Awaiting a warm call first, then freshest inquiry first.
