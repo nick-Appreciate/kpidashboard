@@ -74,7 +74,7 @@ interface Lead {
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null;
-  awaiting: boolean; flag_reason: string | null; column: string;
+  awaiting: boolean; flag_reason: string | null; column: string; sort_at: string;
   disq_reason: string | null; disq_detail: string | null;
   lease_unit: string | null; lease_start: string | null; lease_start_confirmed: boolean;
   timeline: TimelineEvent[];
@@ -274,7 +274,9 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         </div>
         <div className="flex gap-3 overflow-x-auto pb-2">
           {COLUMNS.map((col) => {
-            const items = data.leads.map((l, idx) => ({ l, idx })).filter(({ l }) => l.column === col.id);
+            const items = data.leads.map((l, idx) => ({ l, idx }))
+              .filter(({ l }) => l.column === col.id)
+              .sort((a, b) => b.l.sort_at.localeCompare(a.l.sort_at)); // newest date on top
             return (
               <div key={col.id} className="flex-shrink-0 w-[240px]">
                 <div className={`flex items-center justify-between px-2 py-1.5 border-b ${col.ring}`}>

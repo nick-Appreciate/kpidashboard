@@ -422,6 +422,9 @@ export async function GET(req: NextRequest) {
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
       awaiting, flag_reason, column,
+      // Latest known date for this lead (most recent timeline event), used to
+      // order each pipeline column newest-first.
+      sort_at: timeline.length ? timeline[timeline.length - 1].at : a.earliest,
       disq_reason, disq_detail,
       lease_unit: bestApp?.unit ? bestApp.unit.split(' - ').slice(0, 2).join(' - ') : null,
       lease_start: leaseStartByName.get(leaseKey(a.name)) ?? bestApp?.lease_start ?? bestApp?.desired ?? null,
