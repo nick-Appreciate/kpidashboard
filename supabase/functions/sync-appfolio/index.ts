@@ -297,6 +297,7 @@ async function syncGuestCards(): Promise<SyncResult> {
       source: row.source || null,
       unit: row.unit || null,
       guest_card_id: row.guest_card_id ? String(row.guest_card_id) : null,
+      guest_card_uuid: row.guest_card_uuid ? String(row.guest_card_uuid) : null,
       inquiry_id: row.inquiry_id ? String(row.inquiry_id) : null,
       updated_at: new Date().toISOString()
     }));

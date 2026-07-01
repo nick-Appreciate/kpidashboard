@@ -75,20 +75,10 @@ function fmtAge(iso: string | null): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-// AppFolio guest-card link. Verify the path against a real guest card URL —
-// AppFolio deep links use the `appreciateinc` subdomain.
+// AppFolio prospect (guest card) link — the web URL keys on the guest-card
+// UUID, e.g. https://appreciateinc.appfolio.com/crm/leasing/prospects/<uuid>
 const APPFOLIO_BASE = 'https://appreciateinc.appfolio.com';
-const guestCardUrl = (id: string | null) => (id ? `${APPFOLIO_BASE}/leads/guest_cards/${id}` : null);
-
-function AppFolioIcon({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 512 512" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <circle cx="256" cy="256" r="256" fill="#0f76d0" />
-      <circle cx="230" cy="300" r="94" fill="none" stroke="#fff" strokeWidth="60" />
-      <rect x="326" y="158" width="60" height="242" rx="30" fill="#fff" />
-    </svg>
-  );
-}
+const guestCardUrl = (uuid: string | null) => (uuid ? `${APPFOLIO_BASE}/crm/leasing/prospects/${uuid}` : null);
 
 interface Agent {
   name: string; outbound: number; connected: number; inbound_answered: number;
@@ -97,7 +87,7 @@ interface Agent {
 interface TimelineEvent { at: string; kind: string; label: string; detail: string | null }
 interface Lead {
   name: string | null; source: string; phone: string | null; inquiry_received: string;
-  property: string | null; unit: string | null; guest_card_id: string | null;
+  property: string | null; unit: string | null; guest_card_uuid: string | null;
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null; column_since: string;
@@ -335,17 +325,22 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
   lead: Lead; idx: number; open: boolean; onToggle: () => void; onCall: () => void; slaMin: number; warnMin: number;
 }) {
+  // The "needs action" red treatment (outline + never-dialed badge) only makes
+  // sense in First Touch — once a lead has moved on, it's just noise.
+  const isFirstTouch = lead.column === 'first_touch';
+  const showAwaiting = lead.awaiting && isFirstTouch;
+  const showDialBadge = !(lead.dial === 'none' && !isFirstTouch);
   return (
     <div id={`lead-card-${idx}`} onClick={onToggle}
-      className={`glass-card cursor-pointer p-2.5 border ${lead.awaiting ? 'border-rose-500/30' : 'border-white/5'} hover:border-white/15 transition-colors`}>
+      className={`glass-card cursor-pointer p-2.5 border ${showAwaiting ? 'border-rose-500/30' : 'border-white/5'} hover:border-white/15 transition-colors`}>
       <div className="flex items-start justify-between gap-2">
         <span className="text-xs font-medium text-slate-200 truncate">{lead.name || '—'}</span>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {lead.guest_card_id && (
-            <a href={guestCardUrl(lead.guest_card_id)!} target="_blank" rel="noopener noreferrer"
+          {lead.guest_card_uuid && (
+            <a href={guestCardUrl(lead.guest_card_uuid)!} target="_blank" rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()} title="Open guest card in AppFolio"
               className="opacity-80 hover:opacity-100 transition-opacity">
-              <AppFolioIcon className="w-4 h-4" />
+              <img src="/appfolio-logo.png" alt="AppFolio" className="w-4 h-4" />
             </a>
           )}
           {lead.phone && (
@@ -363,7 +358,7 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
         </div>
       )}
       <div className="flex flex-wrap items-center gap-1 mt-1.5">
-        <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[lead.dial].cls}`}>{DIAL_BADGE[lead.dial].label}</span>
+        {showDialBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[lead.dial].cls}`}>{DIAL_BADGE[lead.dial].label}</span>}
         <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" title="Time in this stage">◷ {fmtAge(lead.column_since)}</span>
         {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
         {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}

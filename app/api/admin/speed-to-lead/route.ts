@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
 
   const [leadRes, callRes, showRes, appRes, leaseHistRes] = await Promise.all([
     supabase.from('leasing_reports')
-      .select('name, source, property, unit, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id, status, notes')
+      .select('name, source, property, unit, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, guest_card_uuid, inquiry_id, status, notes')
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
@@ -319,13 +319,13 @@ export async function GET(req: NextRequest) {
   // inquiry as the origin, and aggregate every guest_card_id / inquiry_id so
   // the furthest stage spans all of their activity.
   type Disq = { reason: string | null; detail: string | null; at: string | null };
-  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null; property: string | null; unit: string | null; latestGcid: string | null };
+  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null; property: string | null; unit: string | null; latestGcid: string | null; latestGcUuid: string | null };
   const byPerson = new Map<string, Acc>();
   for (const l of rawLeads) {
     const key = phone10(l.phone) || `name:${(l.name || '').toLowerCase().trim()}`;
     let a = byPerson.get(key);
     if (!a) {
-      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null, property: l.property ?? null, unit: l.unit ?? null, latestGcid: l.guest_card_id ? String(l.guest_card_id) : null };
+      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null, property: l.property ?? null, unit: l.unit ?? null, latestGcid: l.guest_card_id ? String(l.guest_card_id) : null, latestGcUuid: l.guest_card_uuid ?? null };
       byPerson.set(key, a);
     }
     if (l.inquiry_received < a.earliest) { a.earliest = l.inquiry_received; a.source = norm(l.source); }
@@ -337,6 +337,7 @@ export async function GET(req: NextRequest) {
       if (l.property) a.property = l.property;
       if (l.unit) a.unit = l.unit;
       if (l.guest_card_id) a.latestGcid = String(l.guest_card_id);
+      if (l.guest_card_uuid) a.latestGcUuid = l.guest_card_uuid;
     }
     if (l.first_response_at && (!a.firstRespAt || l.first_response_at < a.firstRespAt)) { a.firstRespAt = l.first_response_at; a.firstRespType = l.first_response_type ?? null; }
     const d = parseInactive(l.notes as string | null);
@@ -455,7 +456,7 @@ export async function GET(req: NextRequest) {
       phone: a.phone,
       property: a.property,
       unit: bestApp?.unit ? (bestApp.unit.split(' - ')[1]?.trim() ?? a.unit) : a.unit,
-      guest_card_id: a.latestGcid,
+      guest_card_uuid: a.latestGcUuid,
       inquiry_received: a.earliest,
       dial,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
