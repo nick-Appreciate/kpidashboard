@@ -278,6 +278,10 @@ async function syncGuestCards(): Promise<SyncResult> {
       phone: row.phone_number || null,
       inquiry_received: row.received,
       last_activity_date: row.last_activity_date || null,
+      // Full-precision copy of the same value. `last_activity_date` is a
+      // date-only column (legacy); `last_activity_at` keeps the time part
+      // when AppFolio provides it, which is what speed-to-lead needs.
+      last_activity_at: row.last_activity_date || null,
       last_activity_type: row.last_activity_type || null,
       status: row.status || null,
       source: row.source || null,
@@ -299,7 +303,14 @@ async function syncGuestCards(): Promise<SyncResult> {
         });
       if (error) throw new Error(JSON.stringify(error));
     }
-    
+
+    // Latch time-to-first-response: the first time we observe an outbound
+    // response activity (Text/Email Sent, Auto-Response, Call) on a guest
+    // card, stamp first_response_at and never overwrite it. Speed-to-lead is
+    // then first_response_at - inquiry_received. Idempotent; safe every sync.
+    const { error: latchError } = await supabase.rpc('latch_leasing_first_response');
+    if (latchError) throw new Error(JSON.stringify(latchError));
+
     return { report: 'guest_cards', success: true, rowsProcessed: records.length };
   } catch (error: any) {
     return { report: 'guest_cards', success: false, rowsProcessed: 0, error: error?.message || String(error) };
