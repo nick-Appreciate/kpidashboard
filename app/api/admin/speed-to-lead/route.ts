@@ -118,11 +118,17 @@ export async function GET(req: NextRequest) {
   const agentAgg = new Map<string, number[]>();
   const nowMs = Date.now();
   let dialed = 0, connected = 0, within5 = 0, within1h = 0;
-  // Leads still without an answered call — the worklist.
-  const uncontacted: { name: string | null; source: string; inquiry_received: string; dialed: boolean; hours_waiting: number }[] = [];
+  // Leads still without an answered call — the worklist (phone included for the dialer).
+  const uncontacted: { name: string | null; source: string; phone: string | null; inquiry_received: string; dialed: boolean; hours_waiting: number }[] = [];
+  // Per-day accountability series: of that day's leads, how many hit the SLA.
+  const dailyMap = new Map<string, { leads: number; w5: number; w60: number }>();
 
   for (const l of withPhone) {
     const inqMs = new Date(l.inquiry_received).getTime();
+    const day = l.inquiry_received.slice(0, 10);
+    const d = dailyMap.get(day) || { leads: 0, w5: 0, w60: 0 };
+    d.leads++;
+
     const calls = (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs);
     if (calls.length > 0) {
       dialed++;
@@ -134,8 +140,8 @@ export async function GET(req: NextRequest) {
       const firstWarm = answered.reduce((m, c) => (c.at < m.at ? c : m));
       const min = Math.round((firstWarm.at - inqMs) / 60000);
       warmLat.push(min);
-      if (min <= SLA_MIN) within5++;
-      if (min <= WARN_MIN) within1h++;
+      if (min <= SLA_MIN) { within5++; d.w5++; }
+      if (min <= WARN_MIN) { within1h++; d.w60++; }
       if (firstWarm.agent) {
         if (!agentAgg.has(firstWarm.agent)) agentAgg.set(firstWarm.agent, []);
         agentAgg.get(firstWarm.agent)!.push(min);
@@ -144,14 +150,26 @@ export async function GET(req: NextRequest) {
       uncontacted.push({
         name: l.name ?? null,
         source: norm(l.source),
+        phone: l.phone ?? null,
         inquiry_received: l.inquiry_received,
         dialed: calls.length > 0,          // dialed but no answer, vs never dialed
         hours_waiting: Math.round((nowMs - inqMs) / 3_600_000),
       });
     }
+    dailyMap.set(day, d);
   }
   // Freshest first — the leads most worth calling now.
   uncontacted.sort((a, b) => b.inquiry_received.localeCompare(a.inquiry_received));
+
+  // Daily SLA success-rate series (chronological), for the accountability chart.
+  const daily = Array.from(dailyMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, v]) => ({
+      date,
+      leads: v.leads,
+      within_sla_pct: pct(v.w5, v.leads),
+      within_warn_pct: pct(v.w60, v.leads),
+    }));
 
   const warm = {
     leads_with_phone: withPhone.length,
@@ -190,7 +208,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     days, region, since: sinceIso, sla_min: SLA_MIN, warn_min: WARN_MIN,
-    automated, warm, recent,
+    automated, warm, recent, daily,
     uncontacted: uncontacted.slice(0, 30),
     uncontacted_total: uncontacted.length,
   });
