@@ -132,15 +132,16 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
     .filter((l) => new Date(l.inquiry_received).getTime() >= cutoff)
     .map((l) => {
       const contacted = l.warm_min != null;
-      const wm = l.warm_min as number;
       return {
         x: hourOfDayCentral(l.inquiry_received),
-        y: Math.min(contacted ? wm : CAP_MIN, CAP_MIN),
-        bucket: !contacted ? 'none' : wm <= sla_min ? 'fast' : wm <= warn_min ? 'ok' : 'slow',
+        // Connected leads sit at their business-minutes-to-contact; not-connected
+        // leads pin at the cap (no contact time to plot).
+        y: Math.min(contacted ? (l.warm_min as number) : CAP_MIN, CAP_MIN),
+        dial: l.dial, // connected | no_answer | none
         name: l.name, stage: l.stage_label, warm_min: l.warm_min, inquiry_received: l.inquiry_received,
       };
     });
-  const bucket = (b: string) => scatterPts.filter((p) => p.bucket === b);
+  const byDial = (d: string) => scatterPts.filter((p) => p.dial === d);
 
   return (
     <div className={`${wrap} space-y-6`}>
@@ -218,10 +219,9 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} content={<ScatterTip slaMin={sla_min} />} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Scatter name={`≤${sla_min} min`} data={bucket('fast')} fill="#10b981" fillOpacity={0.85} />
-              <Scatter name="≤1 hour" data={bucket('ok')} fill="#f59e0b" fillOpacity={0.85} />
-              <Scatter name=">1 hour" data={bucket('slow')} fill="#f43f5e" fillOpacity={0.85} />
-              <Scatter name="No contact yet" data={bucket('none')} fill="#64748b" fillOpacity={0.9} shape="cross" />
+              <Scatter name="Connected" data={byDial('connected')} fill="#10b981" fillOpacity={0.85} />
+              <Scatter name="Called, no answer" data={byDial('no_answer')} fill="#eab308" fillOpacity={0.85} />
+              <Scatter name="Not called" data={byDial('none')} fill="#f43f5e" fillOpacity={0.85} />
             </ScatterChart>
           </ResponsiveContainer>
         )}
@@ -291,13 +291,16 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 function ScatterTip({ active, payload, slaMin }: any) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
+  const status = p.dial === 'connected'
+    ? { text: `Connected in ${fmtToCall(Math.min(p.warm_min, CAP_MIN))} (business hrs)`, cls: p.warm_min <= slaMin ? 'text-emerald-400' : 'text-emerald-300' }
+    : p.dial === 'no_answer'
+      ? { text: 'Called — no answer', cls: 'text-amber-400' }
+      : { text: 'Not called', cls: 'text-rose-400' };
   return (
     <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg px-3 py-2 text-xs shadow-lg">
       <div className="font-medium text-slate-200 mb-0.5">{p.name || '—'}</div>
       <div className="text-slate-400">Inquiry: {fmtDateTime(p.inquiry_received)}</div>
-      <div className={p.warm_min == null ? 'text-rose-300' : p.warm_min <= slaMin ? 'text-emerald-400' : p.warm_min <= 60 ? 'text-amber-400' : 'text-rose-400'}>
-        {p.warm_min == null ? 'No warm contact yet' : `Called in ${fmtToCall(Math.min(p.warm_min, CAP_MIN))}`}
-      </div>
+      <div className={status.cls}>{status.text}</div>
       {p.stage && <div className="text-slate-500 mt-0.5">{p.stage}</div>}
     </div>
   );
