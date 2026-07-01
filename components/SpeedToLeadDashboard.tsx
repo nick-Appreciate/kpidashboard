@@ -26,7 +26,7 @@ function formatPhoneForJustCall(phone: string | null): string | null {
   if (!c.startsWith('+')) c = (c.startsWith('1') && c.length === 11) ? '+' + c : '+1' + c;
   return c;
 }
-const CAP_MIN = 180; // scatter Y-axis cap: 3 hours
+const CAP_MIN = 60; // scatter Y-axis cap: 1 hour (business minutes)
 // Fractional hour-of-day (0–24) in the market's timezone (Central).
 function hourOfDayCentral(iso: string): number {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date(iso));
@@ -38,9 +38,8 @@ function fmtHour(h: number): string {
   const hr = ((h % 24) + 24) % 24; const ap = hr < 12 ? 'a' : 'p'; let d = Math.floor(hr) % 12; if (d === 0) d = 12; return `${d}${ap}`;
 }
 function fmtToCall(v: number): string {
-  if (v >= CAP_MIN) return '3h+';
+  if (v >= CAP_MIN) return '>1h';
   if (v <= 0) return '0';
-  if (v >= 60) return v % 60 === 0 ? `${v / 60}h` : `${Math.floor(v / 60)}h${v % 60}`;
   return `${v}m`;
 }
 function fmtDateTime(iso: string | null): string {
@@ -202,7 +201,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       <section className="glass-card p-4">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· last 48 hours</span></h3>
-          <span className="text-[11px] text-slate-500">{scatterPts.length} leads · goal {sla_min} min · Y capped at 3h</span>
+          <span className="text-[11px] text-slate-500">{scatterPts.length} leads · business-hours clock (9–5 M–F) · goal {sla_min}m · capped &gt;1h</span>
         </div>
         {scatterPts.length === 0 ? (
           <div className="py-10 text-center text-xs text-slate-500">No inquiries in the last 48 hours.</div>
@@ -213,7 +212,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
               <XAxis type="number" dataKey="x" domain={[0, 24]} ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]} tickFormatter={fmtHour}
                 stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily}
                 label={{ value: 'Inquiry time of day (CT)', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#64748b' }} />
-              <YAxis type="number" dataKey="y" domain={[0, CAP_MIN]} ticks={[0, 30, 60, 90, 120, 150, 180]} tickFormatter={fmtToCall}
+              <YAxis type="number" dataKey="y" domain={[0, CAP_MIN]} ticks={[0, 15, 30, 45, 60]} tickFormatter={fmtToCall}
                 stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} width={40} />
               <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />

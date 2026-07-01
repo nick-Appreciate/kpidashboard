@@ -40,6 +40,37 @@ function median(nums: number[]): number | null {
 }
 const pct = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
 
+// Business hours: 9:00–17:00 America/Chicago, Mon–Fri. "Business minutes"
+// between two instants, so an inquiry after hours / on a weekend doesn't count
+// against the team until they're back on the clock. The clock pauses outside
+// 9–5 and resumes when they reopen.
+const BIZ_OPEN = 9 * 3600, BIZ_CLOSE = 17 * 3600;
+const BIZ_DAYS = new Set(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+function centralInfo(ms: number): { weekday: string; secs: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(new Date(ms));
+  const g = (t: string) => Number(parts.find((p) => p.type === t)?.value || '0');
+  const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
+  return { weekday, secs: (g('hour') % 24) * 3600 + g('minute') * 60 + g('second') };
+}
+function businessMinutes(startMs: number, endMs: number): number {
+  if (endMs <= startMs) return 0;
+  let total = 0, cur = startMs;
+  for (let i = 0; i < 200 && cur < endMs; i++) {
+    const { weekday, secs } = centralInfo(cur);
+    const dayEnd = cur + (86400 - secs) * 1000; // next Central midnight
+    const segEnd = Math.min(endMs, dayEnd);
+    if (BIZ_DAYS.has(weekday)) {
+      const lo = Math.max(secs, BIZ_OPEN);
+      const hi = Math.min(secs + (segEnd - cur) / 1000, BIZ_CLOSE);
+      if (hi > lo) total += (hi - lo) / 60;
+    }
+    cur = dayEnd;
+  }
+  return Math.round(total);
+}
+
 const norm = (s: string | null | undefined): string => {
   if (!s) return '(no source)';
   const t = s.trim();
@@ -176,9 +207,9 @@ export async function GET(req: NextRequest) {
       // contact, so median-to-dial can never exceed median-to-warm. (Leads that
       // were dialed but never answered — often dialed very late — are surfaced
       // via the connect rate and the worklist instead.)
-      dialLat.push(Math.round((Math.min(...calls.map(c => c.at)) - inqMs) / 60000));
+      dialLat.push(businessMinutes(inqMs, Math.min(...calls.map(c => c.at))));
       const firstWarm = answered.reduce((m, c) => (c.at < m.at ? c : m));
-      const min = Math.round((firstWarm.at - inqMs) / 60000);
+      const min = businessMinutes(inqMs, firstWarm.at);
       warmLat.push(min);
       if (min <= SLA_MIN) { within5++; d.w5++; }
       if (min <= WARN_MIN) { within1h++; d.w60++; }
@@ -282,7 +313,7 @@ export async function GET(req: NextRequest) {
       phone: a.phone,
       inquiry_received: a.earliest,
       dial,
-      warm_min: firstWarm != null ? Math.round((firstWarm - inqMs) / 60000) : null,
+      warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
       awaiting: dial !== 'connected',
     };
