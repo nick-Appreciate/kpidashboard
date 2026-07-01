@@ -130,13 +130,15 @@ export async function GET(req: NextRequest) {
     d.leads++;
 
     const calls = (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs);
-    if (calls.length > 0) {
-      dialed++;
-      dialLat.push(Math.round((Math.min(...calls.map(c => c.at)) - inqMs) / 60000));
-    }
+    if (calls.length > 0) dialed++;   // "dialed" count still spans every lead with an attempt
     const answered = calls.filter(c => c.answered);
     if (answered.length > 0) {
       connected++;
+      // First-dial latency is measured over the SAME connected leads as warm
+      // contact, so median-to-dial can never exceed median-to-warm. (Leads that
+      // were dialed but never answered — often dialed very late — are surfaced
+      // via the connect rate and the worklist instead.)
+      dialLat.push(Math.round((Math.min(...calls.map(c => c.at)) - inqMs) / 60000));
       const firstWarm = answered.reduce((m, c) => (c.at < m.at ? c : m));
       const min = Math.round((firstWarm.at - inqMs) / 60000);
       warmLat.push(min);
