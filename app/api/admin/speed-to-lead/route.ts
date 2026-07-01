@@ -68,19 +68,50 @@ export async function GET(req: NextRequest) {
     return true;
   };
 
-  const [leadRes, callRes] = await Promise.all([
+  const [leadRes, callRes, showRes, appRes] = await Promise.all([
     supabase.from('leasing_reports')
-      .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type')
+      .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id')
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
       .select('contact_number_norm, direction, call_type, call_at, agent_name')
       .gte('call_at', sinceIso)
       .range(0, 49999),
+    supabase.from('showings')
+      .select('guest_card_id, status, showing_time')
+      .gte('showing_time', sinceIso)
+      .range(0, 9999),
+    supabase.from('rental_applications')
+      .select('inquiry_id, status, received')
+      .gte('received', sinceIso)
+      .range(0, 9999),
   ]);
   if (leadRes.error) return NextResponse.json({ error: leadRes.error.message }, { status: 500 });
 
   const rawLeads = (leadRes.data || []).filter(r => r.inquiry_received && inRegion(r.property));
+
+  // Index showings by guest_card_id and applications by inquiry_id.
+  const showsByGcid = new Map<string, { status: string; at: string }[]>();
+  for (const s of (showRes.data || [])) {
+    if (!s.guest_card_id) continue;
+    const k = String(s.guest_card_id);
+    if (!showsByGcid.has(k)) showsByGcid.set(k, []);
+    showsByGcid.get(k)!.push({ status: s.status || '', at: s.showing_time });
+  }
+  const appByInqid = new Map<string, { status: string; received: string }>();
+  for (const a of (appRes.data || [])) {
+    if (!a.inquiry_id) continue;
+    const k = String(a.inquiry_id);
+    const prev = appByInqid.get(k);
+    // keep the most recent application per inquiry
+    if (!prev || a.received > prev.received) appByInqid.set(k, { status: a.status || '', received: a.received });
+  }
+  const showRank = (st: string) => {
+    const s = st.toLowerCase();
+    if (s.startsWith('completed')) return 3;
+    if (s === 'scheduled') return 2;
+    return 1; // canceled / no show / prospect canceled
+  };
 
   // Index outbound calls by matched phone (last-10).
   const outByPhone = new Map<string, { at: number; answered: boolean; agent: string | null }[]>();
@@ -116,10 +147,7 @@ export async function GET(req: NextRequest) {
   const dialLat: number[] = [];
   const warmLat: number[] = [];
   const agentAgg = new Map<string, number[]>();
-  const nowMs = Date.now();
   let dialed = 0, connected = 0, within5 = 0, within1h = 0;
-  // Leads still without an answered call — the worklist (phone included for the dialer).
-  const uncontacted: { name: string | null; source: string; phone: string | null; inquiry_received: string; dialed: boolean; hours_waiting: number }[] = [];
   // Per-day accountability series: of that day's leads, how many hit the SLA.
   const dailyMap = new Map<string, { leads: number; w5: number; w60: number }>();
 
@@ -148,20 +176,9 @@ export async function GET(req: NextRequest) {
         if (!agentAgg.has(firstWarm.agent)) agentAgg.set(firstWarm.agent, []);
         agentAgg.get(firstWarm.agent)!.push(min);
       }
-    } else {
-      uncontacted.push({
-        name: l.name ?? null,
-        source: norm(l.source),
-        phone: l.phone ?? null,
-        inquiry_received: l.inquiry_received,
-        dialed: calls.length > 0,          // dialed but no answer, vs never dialed
-        hours_waiting: Math.round((nowMs - inqMs) / 3_600_000),
-      });
     }
     dailyMap.set(day, d);
   }
-  // Freshest first — the leads most worth calling now.
-  uncontacted.sort((a, b) => b.inquiry_received.localeCompare(a.inquiry_received));
 
   // Daily SLA success-rate series (chronological), for the accountability chart.
   const daily = Array.from(dailyMap.entries())
@@ -187,31 +204,57 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.connects - a.connects),
   };
 
-  // Recent leads with BOTH tracks for the table.
-  const recent = [...rawLeads]
-    .sort((a, b) => b.inquiry_received.localeCompare(a.inquiry_received))
-    .slice(0, 50)
-    .map(l => {
-      const inqMs = new Date(l.inquiry_received).getTime();
-      const calls = phone10(l.phone) ? (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs) : [];
-      const answered = calls.filter(c => c.answered);
-      const firstWarm = answered.length ? Math.min(...answered.map(c => c.at)) : null;
-      const autoMin = l.first_response_at ? Math.round((new Date(l.first_response_at).getTime() - inqMs) / 60000) : null;
-      return {
-        name: l.name ?? null,
-        source: norm(l.source),
-        inquiry_received: l.inquiry_received,
-        auto_min: (trackingMs != null && inqMs >= trackingMs) ? autoMin : null,
-        auto_type: l.first_response_type ?? null,
-        dialed: calls.length > 0,
-        warm_min: firstWarm != null ? Math.round((firstWarm - inqMs) / 60000) : null,
-      };
-    });
+  // Unified per-lead tracking table: dial status, warm-contact time, and the
+  // furthest leasing stage reached (+ its date). Awaiting-a-warm-call leads
+  // float to the top to force follow-ups.
+  const leads = rawLeads.map(l => {
+    const inqMs = new Date(l.inquiry_received).getTime();
+    const p10 = phone10(l.phone);
+    const calls = p10 ? (outByPhone.get(p10) || []).filter(c => c.at >= inqMs) : [];
+    const answered = calls.filter(c => c.answered);
+    const firstWarm = answered.length ? Math.min(...answered.map(c => c.at)) : null;
+    const dial: 'connected' | 'no_answer' | 'none' =
+      answered.length ? 'connected' : calls.length ? 'no_answer' : 'none';
+
+    // Furthest leasing stage: Application > Showing (completed/scheduled/other) > Contacted > Inquiry.
+    const app = l.inquiry_id ? appByInqid.get(String(l.inquiry_id)) : undefined;
+    const shows = l.guest_card_id ? (showsByGcid.get(String(l.guest_card_id)) || []) : [];
+    let stage: string, stage_label: string, stage_date: string | null;
+    if (app) {
+      stage = 'application';
+      stage_label = `Application${app.status ? ` · ${app.status}` : ''}`;
+      stage_date = app.received;
+    } else if (shows.length) {
+      const best = shows.reduce((m, s) =>
+        showRank(s.status) > showRank(m.status) || (showRank(s.status) === showRank(m.status) && s.at > m.at) ? s : m);
+      const r = showRank(best.status);
+      stage = r === 3 ? 'showing_completed' : r === 2 ? 'showing_scheduled' : 'showing_other';
+      stage_label = r === 3 ? 'Showing completed' : r === 2 ? 'Showing scheduled' : `Showing · ${best.status}`;
+      stage_date = best.at;
+    } else if (answered.length) {
+      stage = 'contacted'; stage_label = 'Contacted'; stage_date = firstWarm ? new Date(firstWarm).toISOString() : null;
+    } else {
+      stage = 'inquiry'; stage_label = 'Inquiry'; stage_date = null;
+    }
+
+    return {
+      name: l.name ?? null,
+      source: norm(l.source),
+      phone: l.phone ?? null,
+      inquiry_received: l.inquiry_received,
+      dial,
+      warm_min: firstWarm != null ? Math.round((firstWarm - inqMs) / 60000) : null,
+      stage, stage_label, stage_date,
+      awaiting: dial !== 'connected',
+    };
+  });
+  // Awaiting a warm call first, then freshest inquiry first.
+  leads.sort((a, b) => (Number(b.awaiting) - Number(a.awaiting)) || b.inquiry_received.localeCompare(a.inquiry_received));
 
   return NextResponse.json({
     days, region, since: sinceIso, sla_min: SLA_MIN, warn_min: WARN_MIN,
-    automated, warm, recent, daily,
-    uncontacted: uncontacted.slice(0, 30),
-    uncontacted_total: uncontacted.length,
+    automated, warm, daily, leads,
+    leads_awaiting: leads.filter(l => l.awaiting).length,
+    leads_total: leads.length,
   });
 }
