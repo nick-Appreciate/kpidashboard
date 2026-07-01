@@ -218,7 +218,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       </section>
 
       {/* ── TIME-TO-CONTACT SCATTER (last 48h) ──────────────────────── */}
-      <section className="glass-card p-4">
+      <section className="glass-card p-4 [&_*:focus]:outline-none [&_svg]:outline-none">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· last 48 hours</span></h3>
           <span className="text-[11px] text-slate-500">{scatterPts.length} leads · business-hours clock (9–5 M–F) · goal {sla_min}m · capped &gt;1h</span>
@@ -236,7 +236,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
                 stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} width={40} />
               <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} content={<ScatterTip slaMin={sla_min} />} />
+              <Tooltip cursor={false} content={<ScatterTip slaMin={sla_min} />} />
               <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
               <Scatter name="Connected" data={byDial('connected')} fill="#10b981" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
               <Scatter name="Called, no answer" data={byDial('no_answer')} fill="#eab308" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
