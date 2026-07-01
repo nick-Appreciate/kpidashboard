@@ -204,26 +204,47 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.connects - a.connects),
   };
 
-  // Unified per-lead tracking table: dial status, warm-contact time, and the
-  // furthest leasing stage reached (+ its date). Awaiting-a-warm-call leads
-  // float to the top to force follow-ups.
-  const leads = rawLeads.map(l => {
-    const inqMs = new Date(l.inquiry_received).getTime();
-    const p10 = phone10(l.phone);
+  // Collapse a person's multiple inquiries into ONE tracker row. A lead can
+  // inquire more than once (a new guest card each time) and can have several
+  // showings — so we key by phone (last-10, fallback name), keep the earliest
+  // inquiry as the origin, and aggregate every guest_card_id / inquiry_id so
+  // the furthest stage spans all of their activity.
+  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; gcids: Set<string>; inqids: Set<string> };
+  const byPerson = new Map<string, Acc>();
+  for (const l of rawLeads) {
+    const key = phone10(l.phone) || `name:${(l.name || '').toLowerCase().trim()}`;
+    let a = byPerson.get(key);
+    if (!a) {
+      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, gcids: new Set(), inqids: new Set() };
+      byPerson.set(key, a);
+    }
+    if (l.inquiry_received < a.earliest) { a.earliest = l.inquiry_received; a.source = norm(l.source); }
+    if (!a.name && l.name) a.name = l.name;
+    if (!a.phone && l.phone) a.phone = l.phone;
+    if (l.guest_card_id) a.gcids.add(String(l.guest_card_id));
+    if (l.inquiry_id) a.inqids.add(String(l.inquiry_id));
+  }
+
+  const leads = Array.from(byPerson.values()).map(a => {
+    const inqMs = new Date(a.earliest).getTime();
+    const p10 = phone10(a.phone);
     const calls = p10 ? (outByPhone.get(p10) || []).filter(c => c.at >= inqMs) : [];
     const answered = calls.filter(c => c.answered);
     const firstWarm = answered.length ? Math.min(...answered.map(c => c.at)) : null;
     const dial: 'connected' | 'no_answer' | 'none' =
       answered.length ? 'connected' : calls.length ? 'no_answer' : 'none';
 
-    // Furthest leasing stage: Application > Showing (completed/scheduled/other) > Contacted > Inquiry.
-    const app = l.inquiry_id ? appByInqid.get(String(l.inquiry_id)) : undefined;
-    const shows = l.guest_card_id ? (showsByGcid.get(String(l.guest_card_id)) || []) : [];
+    // Furthest leasing stage across ALL of this person's inquiries + guest cards.
+    let bestApp: { status: string; received: string } | undefined;
+    for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap && (!bestApp || ap.received > bestApp.received)) bestApp = ap; }
+    const shows: { status: string; at: string }[] = [];
+    for (const g of a.gcids) shows.push(...(showsByGcid.get(g) || []));
+
     let stage: string, stage_label: string, stage_date: string | null;
-    if (app) {
+    if (bestApp) {
       stage = 'application';
-      stage_label = `Application${app.status ? ` · ${app.status}` : ''}`;
-      stage_date = app.received;
+      stage_label = `Application${bestApp.status ? ` · ${bestApp.status}` : ''}`;
+      stage_date = bestApp.received;
     } else if (shows.length) {
       const best = shows.reduce((m, s) =>
         showRank(s.status) > showRank(m.status) || (showRank(s.status) === showRank(m.status) && s.at > m.at) ? s : m);
@@ -238,10 +259,10 @@ export async function GET(req: NextRequest) {
     }
 
     return {
-      name: l.name ?? null,
-      source: norm(l.source),
-      phone: l.phone ?? null,
-      inquiry_received: l.inquiry_received,
+      name: a.name,
+      source: a.source,
+      phone: a.phone,
+      inquiry_received: a.earliest,
       dial,
       warm_min: firstWarm != null ? Math.round((firstWarm - inqMs) / 60000) : null,
       stage, stage_label, stage_date,
