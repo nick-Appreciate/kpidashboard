@@ -128,12 +128,13 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
     if (p) makeCall(p, name || 'Lead');
   };
 
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const toggleRow = (i: number) => setExpanded((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  // Only one lead expanded at a time.
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const toggleRow = (i: number) => setExpandedIdx((cur) => (cur === i ? null : i));
   // Clicking a scatter point expands that lead's row and scrolls to it.
   const focusLead = (idx?: number) => {
     if (idx == null) return;
-    setExpanded((prev) => new Set(prev).add(idx));
+    setExpandedIdx(idx);
     setTimeout(() => document.getElementById(`lead-row-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
   };
 
@@ -270,7 +271,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
             </thead>
             <tbody className="divide-y divide-white/5">
               {data.leads.map((l, i) => {
-                const open = expanded.has(i);
+                const open = expandedIdx === i;
                 return (
                   <Fragment key={i}>
                     <tr id={`lead-row-${i}`} onClick={() => toggleRow(i)} className={`cursor-pointer hover:bg-white/[0.03] ${l.awaiting ? 'bg-rose-500/[0.035]' : ''}`}>
