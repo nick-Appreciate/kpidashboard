@@ -3,19 +3,14 @@
  *
  * GET ?days=14&region=all
  *
- * Time-to-first-response for leasing inquiries, derived from
- * leasing_reports.first_response_at (observation-time capture — see
- * migration 20260701_leasing_first_response_observed.sql).
- *
- * Honesty caveats baked into the response:
- *  - `tracking_since`: response capture only began when the 5-min guest_cards
- *    poll went live. Inquiries received BEFORE that can't be scored (a null
- *    first_response there means "not tracked", not "not answered"), so all
- *    rates below are computed only over inquiries received on/after it.
- *  - Latency is bounded by the ~5-min poll cadence, so it slightly OVER-states
- *    (never under-states) true speed — the safe direction for an SLA.
- *  - Only responses that create an AppFolio guest-card activity are seen; a VA
- *    call never logged in AppFolio leaves no trace.
+ * Two tracks of first-contact speed for leasing inquiries:
+ *   automated — auto-text/email, from leasing_reports.first_response_at
+ *               (observation-time capture; only meaningful post-instrumentation).
+ *   warm      — first answered OUTBOUND call, from justcall_calls matched to the
+ *               lead by phone. Minute-precise, with full history, so it's the
+ *               headline. We report time-to-first-DIAL (any outbound attempt)
+ *               separately from time-to-first-CONNECT (answered) so a slow VA
+ *               reads differently from an unreachable lead.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -28,34 +23,22 @@ function inKcRegion(name: string | null | undefined): boolean {
   return KC_NEEDLES.some(n => lower.includes(n));
 }
 
-const SLA_MIN = 5;      // the target: contacted within 5 minutes
-const WARN_MIN = 60;    // secondary threshold: within the hour
+const SLA_MIN = 5;
+const WARN_MIN = 60;
 
-interface LeadRow {
-  name: string | null;
-  source: string;
-  property: string | null;
-  inquiry_received: string;
-  first_response_at: string | null;
-  first_response_type: string | null;
-  latency_min: number | null;
-}
-
-interface SourceStat {
-  source: string;
-  tracked: number;
-  responded: number;
-  response_rate_pct: number | null;
-  median_latency_min: number | null;
-  within_sla_pct: number | null;
-}
+const phone10 = (v: string | null | undefined): string | null => {
+  if (!v) return null;
+  const d = v.replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : null;
+};
 
 function median(nums: number[]): number | null {
   if (nums.length === 0) return null;
   const s = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+  return s.length % 2 ? Math.round(s[mid]) : Math.round((s[mid - 1] + s[mid]) / 2);
 }
+const pct = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
 
 const norm = (s: string | null | undefined): string => {
   if (!s) return '(no source)';
@@ -85,108 +68,115 @@ export async function GET(req: NextRequest) {
     return true;
   };
 
-  const { data, error } = await supabase
-    .from('leasing_reports')
-    .select('name, source, property, inquiry_received, first_response_at, first_response_type')
-    .gte('inquiry_received', sinceIso)
-    .range(0, 9999);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  const raw = (data || []).filter(r => r.inquiry_received && inRegion(r.property));
+  const [leadRes, callRes] = await Promise.all([
+    supabase.from('leasing_reports')
+      .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type')
+      .gte('inquiry_received', sinceIso)
+      .range(0, 9999),
+    supabase.from('justcall_calls')
+      .select('contact_number_norm, direction, call_type, call_at, agent_name')
+      .gte('call_at', sinceIso)
+      .range(0, 49999),
+  ]);
+  if (leadRes.error) return NextResponse.json({ error: leadRes.error.message }, { status: 500 });
 
-  // When did response tracking start? Earliest first_response_at we have.
-  // Rates are only meaningful for inquiries that arrived on/after this.
+  const rawLeads = (leadRes.data || []).filter(r => r.inquiry_received && inRegion(r.property));
+
+  // Index outbound calls by matched phone (last-10).
+  const outByPhone = new Map<string, { at: number; answered: boolean; agent: string | null }[]>();
+  for (const c of (callRes.data || [])) {
+    if (!c.contact_number_norm || (c.direction || '').toLowerCase() !== 'outgoing') continue;
+    if (!outByPhone.has(c.contact_number_norm)) outByPhone.set(c.contact_number_norm, []);
+    outByPhone.get(c.contact_number_norm)!.push({
+      at: new Date(c.call_at).getTime(),
+      answered: (c.call_type || '').toLowerCase() === 'answered',
+      agent: c.agent_name ?? null,
+    });
+  }
+
+  // ---- Automated track (unchanged semantics) -------------------------------
   let trackingSince: string | null = null;
-  for (const r of raw) {
-    if (r.first_response_at && (!trackingSince || r.first_response_at < trackingSince)) {
-      trackingSince = r.first_response_at;
+  for (const r of rawLeads) {
+    if (r.first_response_at && (!trackingSince || r.first_response_at < trackingSince)) trackingSince = r.first_response_at;
+  }
+  const trackingMs = trackingSince ? new Date(trackingSince).getTime() : null;
+  const autoTrackable = trackingMs != null ? rawLeads.filter(l => new Date(l.inquiry_received).getTime() >= trackingMs) : [];
+  const autoResponded = autoTrackable.filter(l => l.first_response_at);
+  const autoLat = autoResponded.map(l => Math.max(0, Math.round((new Date(l.first_response_at!).getTime() - new Date(l.inquiry_received).getTime()) / 60000)));
+  const automated = {
+    tracking_since: trackingSince,
+    tracked: autoTrackable.length,
+    responded: autoResponded.length,
+    within_sla_pct: pct(autoResponded.filter((_, i) => autoLat[i] <= SLA_MIN).length, autoTrackable.length),
+    median_latency_min: median(autoLat),
+  };
+
+  // ---- Warm track (calls) — full history, this is the headline -------------
+  const withPhone = rawLeads.filter(l => phone10(l.phone));
+  const dialLat: number[] = [];
+  const warmLat: number[] = [];
+  const agentAgg = new Map<string, number[]>();
+  let dialed = 0, connected = 0, within5 = 0, within1h = 0;
+
+  for (const l of withPhone) {
+    const inqMs = new Date(l.inquiry_received).getTime();
+    const calls = (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs);
+    if (calls.length === 0) continue;
+    dialed++;
+    const firstDial = Math.min(...calls.map(c => c.at));
+    dialLat.push(Math.round((firstDial - inqMs) / 60000));
+    const answered = calls.filter(c => c.answered);
+    if (answered.length > 0) {
+      connected++;
+      const firstWarm = answered.reduce((m, c) => (c.at < m.at ? c : m));
+      const min = Math.round((firstWarm.at - inqMs) / 60000);
+      warmLat.push(min);
+      if (min <= SLA_MIN) within5++;
+      if (min <= WARN_MIN) within1h++;
+      if (firstWarm.agent) {
+        if (!agentAgg.has(firstWarm.agent)) agentAgg.set(firstWarm.agent, []);
+        agentAgg.get(firstWarm.agent)!.push(min);
+      }
     }
   }
-  const trackingSinceMs = trackingSince ? new Date(trackingSince).getTime() : null;
 
-  const leads: LeadRow[] = raw.map(r => {
-    const inqMs = new Date(r.inquiry_received).getTime();
-    const latency_min = r.first_response_at
-      ? Math.max(0, Math.round((new Date(r.first_response_at).getTime() - inqMs) / 60000))
-      : null;
-    return {
-      name: r.name ?? null,
-      source: norm(r.source),
-      property: r.property ?? null,
-      inquiry_received: r.inquiry_received,
-      first_response_at: r.first_response_at ?? null,
-      first_response_type: r.first_response_type ?? null,
-      latency_min,
-    };
-  });
-
-  // Trackable = arrived after tracking began, so a null response genuinely
-  // means "not yet answered" rather than "predates instrumentation".
-  const trackable = trackingSinceMs != null
-    ? leads.filter(l => new Date(l.inquiry_received).getTime() >= trackingSinceMs)
-    : [];
-
-  const buildStats = (rows: LeadRow[]) => {
-    const responded = rows.filter(l => l.latency_min != null);
-    const lat = responded.map(l => l.latency_min!) as number[];
-    const withinSla = responded.filter(l => (l.latency_min as number) <= SLA_MIN).length;
-    return {
-      tracked: rows.length,
-      responded: responded.length,
-      response_rate_pct: rows.length ? Math.round((100 * responded.length) / rows.length) : null,
-      median_latency_min: median(lat),
-      within_sla_pct: rows.length ? Math.round((100 * withinSla) / rows.length) : null,
-    };
+  const warm = {
+    leads_with_phone: withPhone.length,
+    dialed,
+    connected,
+    connect_rate_pct: pct(connected, withPhone.length),
+    median_dial_min: median(dialLat),
+    median_warm_min: median(warmLat),
+    within_sla_pct: pct(within5, withPhone.length),
+    within_warn_pct: pct(within1h, withPhone.length),
+    agents: Array.from(agentAgg.entries())
+      .map(([name, lats]) => ({ name, connects: lats.length, median_warm_min: median(lats) }))
+      .sort((a, b) => b.connects - a.connects),
   };
 
-  const totalsBase = buildStats(trackable);
-  const withinWarn = trackable.filter(l => l.latency_min != null && l.latency_min <= WARN_MIN).length;
-  const totals = {
-    ...totalsBase,
-    within_warn_pct: trackable.length ? Math.round((100 * withinWarn) / trackable.length) : null,
-    unanswered: totalsBase.tracked - totalsBase.responded,
-  };
-
-  // Per-source breakdown (over trackable rows).
-  const bySource = new Map<string, LeadRow[]>();
-  for (const l of trackable) {
-    if (!bySource.has(l.source)) bySource.set(l.source, []);
-    bySource.get(l.source)!.push(l);
-  }
-  const sources: SourceStat[] = Array.from(bySource.entries())
-    .map(([source, rows]) => {
-      const s = buildStats(rows);
-      return {
-        source,
-        tracked: s.tracked,
-        responded: s.responded,
-        response_rate_pct: s.response_rate_pct,
-        median_latency_min: s.median_latency_min,
-        within_sla_pct: s.within_sla_pct,
-      };
-    })
-    .sort((a, b) => b.tracked - a.tracked);
-
-  // Recent leads (newest first) across the whole window — even pre-tracking
-  // ones, flagged so the UI can grey them out.
-  const recent = [...leads]
+  // Recent leads with BOTH tracks for the table.
+  const recent = [...rawLeads]
     .sort((a, b) => b.inquiry_received.localeCompare(a.inquiry_received))
     .slice(0, 50)
-    .map(l => ({
-      ...l,
-      tracked: trackingSinceMs != null && new Date(l.inquiry_received).getTime() >= trackingSinceMs,
-    }));
+    .map(l => {
+      const inqMs = new Date(l.inquiry_received).getTime();
+      const calls = phone10(l.phone) ? (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs) : [];
+      const answered = calls.filter(c => c.answered);
+      const firstWarm = answered.length ? Math.min(...answered.map(c => c.at)) : null;
+      const autoMin = l.first_response_at ? Math.round((new Date(l.first_response_at).getTime() - inqMs) / 60000) : null;
+      return {
+        name: l.name ?? null,
+        source: norm(l.source),
+        inquiry_received: l.inquiry_received,
+        auto_min: (trackingMs != null && inqMs >= trackingMs) ? autoMin : null,
+        auto_type: l.first_response_type ?? null,
+        dialed: calls.length > 0,
+        warm_min: firstWarm != null ? Math.round((firstWarm - inqMs) / 60000) : null,
+      };
+    });
 
   return NextResponse.json({
-    days,
-    region,
-    since: sinceIso,
-    tracking_since: trackingSince,
-    sla_min: SLA_MIN,
-    warn_min: WARN_MIN,
-    totals,
-    sources,
-    recent,
+    days, region, since: sinceIso, sla_min: SLA_MIN, warn_min: WARN_MIN,
+    automated, warm, recent,
   });
 }
