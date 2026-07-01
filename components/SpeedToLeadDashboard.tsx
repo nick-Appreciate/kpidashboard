@@ -30,6 +30,8 @@ interface ApiResponse {
     within_sla_pct: number | null; within_warn_pct: number | null; agents: Agent[];
   };
   recent: RecentLead[];
+  uncontacted: { name: string | null; source: string; inquiry_received: string; dialed: boolean; hours_waiting: number }[];
+  uncontacted_total: number;
 }
 
 const DAY_OPTIONS = [{ value: 14, label: '14d' }, { value: 30, label: '30d' }, { value: 90, label: '90d' }];
@@ -117,6 +119,48 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
           </div>
         )}
       </section>
+
+      {/* ── WORKLIST: leads still awaiting a warm call ──────────────── */}
+      {data.uncontacted.length > 0 && (
+        <section className="glass-card border border-rose-500/25 bg-rose-500/[0.03]">
+          <div className="flex items-baseline justify-between px-4 pt-3 pb-2">
+            <h3 className="text-sm font-semibold text-rose-200">Awaiting a warm call
+              <span className="ml-2 text-xs font-normal text-slate-400">{data.uncontacted_total} lead{data.uncontacted_total === 1 ? '' : 's'} with no answered call yet</span>
+            </h3>
+            <span className="text-[11px] text-slate-500">freshest first{data.uncontacted_total > data.uncontacted.length ? ` · top ${data.uncontacted.length}` : ''}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]">
+              <thead className="bg-surface-raised/80 text-xs text-slate-400">
+                <tr>
+                  <th className="text-left font-medium px-4 py-1.5">Lead</th>
+                  <th className="text-left font-medium px-4 py-1.5">Source</th>
+                  <th className="text-left font-medium px-4 py-1.5">Inquiry</th>
+                  <th className="text-right font-medium px-4 py-1.5">Waiting</th>
+                  <th className="text-right font-medium px-4 py-1.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {data.uncontacted.map((l, i) => (
+                  <tr key={i} className="hover:bg-white/[0.02]">
+                    <td className="px-4 py-1.5 text-slate-200 truncate max-w-[150px]">{l.name || '—'}</td>
+                    <td className="px-4 py-1.5 text-slate-400">{l.source}</td>
+                    <td className="px-4 py-1.5 text-slate-400 whitespace-nowrap">{fmtDateTime(l.inquiry_received)}</td>
+                    <td className="px-4 py-1.5 text-right tabular-nums text-slate-300 whitespace-nowrap">
+                      {l.hours_waiting < 24 ? `${l.hours_waiting}h` : `${Math.round(l.hours_waiting / 24)}d`}
+                    </td>
+                    <td className="px-4 py-1.5 text-right whitespace-nowrap">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${l.dialed ? 'bg-amber-500/15 text-amber-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                        {l.dialed ? 'dialed, no answer' : 'never dialed'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* ── AUTOMATED (secondary) ───────────────────────────────────── */}
       <section className="space-y-2">

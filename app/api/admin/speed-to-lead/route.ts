@@ -116,15 +116,18 @@ export async function GET(req: NextRequest) {
   const dialLat: number[] = [];
   const warmLat: number[] = [];
   const agentAgg = new Map<string, number[]>();
+  const nowMs = Date.now();
   let dialed = 0, connected = 0, within5 = 0, within1h = 0;
+  // Leads still without an answered call — the worklist.
+  const uncontacted: { name: string | null; source: string; inquiry_received: string; dialed: boolean; hours_waiting: number }[] = [];
 
   for (const l of withPhone) {
     const inqMs = new Date(l.inquiry_received).getTime();
     const calls = (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs);
-    if (calls.length === 0) continue;
-    dialed++;
-    const firstDial = Math.min(...calls.map(c => c.at));
-    dialLat.push(Math.round((firstDial - inqMs) / 60000));
+    if (calls.length > 0) {
+      dialed++;
+      dialLat.push(Math.round((Math.min(...calls.map(c => c.at)) - inqMs) / 60000));
+    }
     const answered = calls.filter(c => c.answered);
     if (answered.length > 0) {
       connected++;
@@ -137,8 +140,18 @@ export async function GET(req: NextRequest) {
         if (!agentAgg.has(firstWarm.agent)) agentAgg.set(firstWarm.agent, []);
         agentAgg.get(firstWarm.agent)!.push(min);
       }
+    } else {
+      uncontacted.push({
+        name: l.name ?? null,
+        source: norm(l.source),
+        inquiry_received: l.inquiry_received,
+        dialed: calls.length > 0,          // dialed but no answer, vs never dialed
+        hours_waiting: Math.round((nowMs - inqMs) / 3_600_000),
+      });
     }
   }
+  // Freshest first — the leads most worth calling now.
+  uncontacted.sort((a, b) => b.inquiry_received.localeCompare(a.inquiry_received));
 
   const warm = {
     leads_with_phone: withPhone.length,
@@ -178,5 +191,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     days, region, since: sinceIso, sla_min: SLA_MIN, warn_min: WARN_MIN,
     automated, warm, recent,
+    uncontacted: uncontacted.slice(0, 30),
+    uncontacted_total: uncontacted.length,
   });
 }
