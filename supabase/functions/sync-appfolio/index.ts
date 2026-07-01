@@ -259,7 +259,10 @@ async function syncRentalApplications(): Promise<SyncResult> {
 
 async function syncGuestCards(): Promise<SyncResult> {
   try {
-    const data = await fetchAppFolioReport('guest_cards');
+    // guest_card_statuses:'all' also returns Inactive (disqualified) and
+    // "Application Completed" cards — the default report omits them. The
+    // disqualification reason + PM notes ride along in the `notes` field.
+    const data = await fetchAppFolioReport('guest_cards', { guest_card_statuses: 'all' });
     
     // Filter and deduplicate
     const validRecords = data.filter((row: any) => row.name && row.property_name && row.received);
@@ -284,6 +287,7 @@ async function syncGuestCards(): Promise<SyncResult> {
       last_activity_at: row.last_activity_date || null,
       last_activity_type: row.last_activity_type || null,
       status: row.status || null,
+      notes: row.notes || null,
       source: row.source || null,
       unit: row.unit || null,
       guest_card_id: row.guest_card_id ? String(row.guest_card_id) : null,
@@ -1466,7 +1470,7 @@ Deno.serve(async (req: Request) => {
   try {
     const url = new URL(req.url);
     const reportParam = url.searchParams.get('report');
-    
+
     const results: SyncResult[] = [];
     const delay = () => new Promise(resolve => setTimeout(resolve, 2200));
     

@@ -75,6 +75,7 @@ interface Lead {
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null;
   awaiting: boolean; flag_reason: string | null; column: string;
+  disq_reason: string | null; disq_detail: string | null;
   lease_unit: string | null; lease_start: string | null; lease_start_confirmed: boolean;
   timeline: TimelineEvent[];
 }
@@ -90,10 +91,10 @@ const COLUMNS: { id: string; label: string; head: string; ring: string }[] = [
 ];
 
 const KIND_TEXT: Record<string, string> = {
-  inquiry: 'text-cyan-300', auto: 'text-sky-300', call: 'text-violet-300', showing: 'text-amber-300', application: 'text-emerald-300',
+  inquiry: 'text-cyan-300', auto: 'text-sky-300', call: 'text-violet-300', showing: 'text-amber-300', application: 'text-emerald-300', disqualified: 'text-rose-300',
 };
 const KIND_DOT: Record<string, string> = {
-  inquiry: 'bg-cyan-400', auto: 'bg-sky-400', call: 'bg-violet-400', showing: 'bg-amber-400', application: 'bg-emerald-400',
+  inquiry: 'bg-cyan-400', auto: 'bg-sky-400', call: 'bg-violet-400', showing: 'bg-amber-400', application: 'bg-emerald-400', disqualified: 'bg-rose-400',
 };
 interface ApiResponse {
   days: number; region: string; sla_min: number; warn_min: number;
@@ -326,6 +327,12 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
         <div className="mt-1.5 pt-1.5 border-t border-white/5 text-[10px] text-emerald-300/90">
           <div className="truncate">{lead.lease_unit || 'Unit —'}</div>
           {lead.lease_start && <div className="text-slate-400">{lead.lease_start_confirmed ? 'Lease starts' : 'Target move-in'} {fmtDateOnly(lead.lease_start)}</div>}
+        </div>
+      )}
+      {lead.column === 'disqualified' && lead.disq_reason && (
+        <div className="mt-1.5 pt-1.5 border-t border-white/5 text-[10px] text-rose-300/90">
+          <div className="truncate font-medium">{lead.disq_reason}</div>
+          {lead.disq_detail && <div className="text-slate-400 line-clamp-2">{lead.disq_detail}</div>}
         </div>
       )}
       {open && <div className="mt-2 pt-2 border-t border-white/5"><LeadTimeline events={lead.timeline} /></div>}

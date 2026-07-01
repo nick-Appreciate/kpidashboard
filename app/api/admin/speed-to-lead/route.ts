@@ -83,6 +83,24 @@ const norm = (s: string | null | undefined): string => {
   return t;
 };
 
+// AppFolio "MM/DD/YYYY" → ISO (date-only precision, noon UTC).
+function mdyToIso(s: string): string | null {
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[1]}-${m[2]}T12:00:00Z` : null;
+}
+
+// Guest-card notes are a ";"-joined activity log, newest first. When a PM
+// disqualifies a lead AppFolio writes a "Marked Inactive … Reason: <X>" entry
+// with an optional freeform detail line. Pull the newest such entry.
+function parseInactive(notes: string | null | undefined): { reason: string | null; detail: string | null; at: string | null } | null {
+  if (!notes) return null;
+  const m = notes.match(/(\d{2}\/\d{2}\/\d{4}),\s*(?:Cleared [^\n;]*? and )?Marked Inactive[\s\S]*?Reason:\s*([^\n;]+)(?:\n([^\n;]+))?/i);
+  if (!m) return null;
+  let detail = (m[3] || '').trim();
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(detail) || /^(Call|Text|Email|Auto|Cleared|Marked)/i.test(detail)) detail = '';
+  return { at: mdyToIso(m[1]), reason: (m[2] || '').trim() || null, detail: detail || null };
+}
+
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if ('error' in auth) return auth.error;
@@ -102,7 +120,7 @@ export async function GET(req: NextRequest) {
 
   const [leadRes, callRes, showRes, appRes, leaseHistRes] = await Promise.all([
     supabase.from('leasing_reports')
-      .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id')
+      .select('name, source, property, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, inquiry_id, status, notes')
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
@@ -285,17 +303,23 @@ export async function GET(req: NextRequest) {
   // showings — so we key by phone (last-10, fallback name), keep the earliest
   // inquiry as the origin, and aggregate every guest_card_id / inquiry_id so
   // the furthest stage spans all of their activity.
-  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string> };
+  type Disq = { reason: string | null; detail: string | null; at: string | null };
+  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null };
   const byPerson = new Map<string, Acc>();
   for (const l of rawLeads) {
     const key = phone10(l.phone) || `name:${(l.name || '').toLowerCase().trim()}`;
     let a = byPerson.get(key);
     if (!a) {
-      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set() };
+      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null };
       byPerson.set(key, a);
     }
     if (l.inquiry_received < a.earliest) { a.earliest = l.inquiry_received; a.source = norm(l.source); }
+    // Current status = the status of this person's most recent guest card, so a
+    // re-inquiry (Active) after an old disqualification wins back "live" status.
+    if (l.inquiry_received >= a.latestReceived) { a.latestReceived = l.inquiry_received; a.latestStatus = l.status ?? a.latestStatus; }
     if (l.first_response_at && (!a.firstRespAt || l.first_response_at < a.firstRespAt)) { a.firstRespAt = l.first_response_at; a.firstRespType = l.first_response_type ?? null; }
+    const d = parseInactive(l.notes as string | null);
+    if (d && (!a.disq || (d.at && (!a.disq.at || d.at > a.disq.at)))) a.disq = d;
     if (!a.name && l.name) a.name = l.name;
     if (!a.phone && l.phone) a.phone = l.phone;
     if (l.guest_card_id) a.gcids.add(String(l.guest_card_id));
@@ -354,26 +378,34 @@ export async function GET(req: NextRequest) {
       timeline.push({ at: s.at, kind: 'showing', label: r === 3 ? 'Showing completed' : r === 2 ? 'Showing scheduled' : `Showing ${s.status}`, detail: null });
     }
     for (const id of a.inqids) { const ap = appByInqid.get(id); if (ap) timeline.push({ at: ap.received, kind: 'application', label: 'Application', detail: ap.status || null }); }
+    // Disqualified in AppFolio (guest card Marked Inactive with a reason).
+    const disqualified = a.latestStatus === 'Inactive';
+    const disq_reason = a.disq?.reason ?? null;
+    const disq_detail = a.disq?.detail ?? null;
+    if (disqualified && (disq_reason || a.disq?.at)) {
+      timeline.push({ at: a.disq?.at || a.earliest, kind: 'disqualified', label: 'Disqualified', detail: [disq_reason, disq_detail].filter(Boolean).join(' — ') || null });
+    }
     timeline.sort((x, y) => x.at.localeCompare(y.at));
 
     // Flag for follow-up if never connected OR the most recent event that has
     // actually happened is a missed call (e.g. the lead called back and we
     // missed it). A future scheduled showing doesn't count as "most recent".
+    // Disqualified leads are dead — never flag them for follow-up.
     const nowIso = new Date().toISOString();
     const lastPast = [...timeline].reverse().find((e) => e.at <= nowIso);
     const lastMissedCall = !!(lastPast && lastPast.kind === 'call' && lastPast.missed);
-    const awaiting = dial !== 'connected' || lastMissedCall;
+    const awaiting = !disqualified && (dial !== 'connected' || lastMissedCall);
     const flag_reason = !awaiting ? null
       : (dial === 'connected' && lastMissedCall) ? 'missed callback'
       : dial === 'none' ? 'never called' : 'no answer';
 
-    // Pipeline column. Application status wins; then pending action; then stage.
-    // (AppFolio has no "disqualified" lead status — a denied application is the
-    // only rejection signal.)
+    // Pipeline column. A signed lease is terminal-success; then disqualified
+    // (AppFolio Marked Inactive, or a denied application); then application
+    // progress; then pending action; then stage.
     const appStatus = bestApp?.status?.toLowerCase() || null;
     const column =
-      appStatus === 'denied' ? 'disqualified'
-      : appStatus === 'converted' ? 'signed_lease'
+      appStatus === 'converted' ? 'signed_lease'
+      : (disqualified || appStatus === 'denied') ? 'disqualified'
       : (appStatus === 'converting' || appStatus === 'approved') ? 'app_approved'
       : bestApp ? 'app_sent'
       : awaiting ? 'needs_contacted'
@@ -390,6 +422,7 @@ export async function GET(req: NextRequest) {
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date,
       awaiting, flag_reason, column,
+      disq_reason, disq_detail,
       lease_unit: bestApp?.unit ? bestApp.unit.split(' - ').slice(0, 2).join(' - ') : null,
       lease_start: leaseStartByName.get(leaseKey(a.name)) ?? bestApp?.lease_start ?? bestApp?.desired ?? null,
       lease_start_confirmed: (leaseStartByName.get(leaseKey(a.name)) ?? bestApp?.lease_start) != null,
