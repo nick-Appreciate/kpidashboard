@@ -351,7 +351,7 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
           )}
         </div>
       </div>
-      <div className="text-[10px] text-slate-500 mt-0.5 truncate">{lead.source} · {fmtDateTime(lead.inquiry_received)}</div>
+      <div className="text-[10px] text-slate-500 mt-0.5 truncate">{lead.source} · {fmtDateTime(lead.sort_at)}</div>
       {(lead.property || lead.unit) && (
         <div className="text-[10px] text-slate-400 mt-0.5 truncate">
           {[lead.property, lead.unit].filter(Boolean).join(' · ')}
