@@ -41,11 +41,11 @@ function median(nums: number[]): number | null {
 const pct = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
 const durStr = (s: number | null) => { if (s == null) return null; const m = Math.floor(s / 60), sec = s % 60; return m ? `${m}m ${sec}s` : `${sec}s`; };
 
-// Business hours: 9:00–17:00 America/Chicago, Mon–Fri. "Business minutes"
-// between two instants, so an inquiry after hours / on a weekend doesn't count
-// against the team until they're back on the clock. The clock pauses outside
-// 9–5 and resumes when they reopen.
-const BIZ_OPEN = 9 * 3600, BIZ_CLOSE = 17 * 3600;
+// Work day: 9:15am–5:00pm America/Chicago, Mon–Fri. "Business minutes" between
+// two instants, so time outside hours / on a weekend doesn't count against the
+// team until they're back on the clock. Defined once here and used for both
+// time-to-warm-contact and each card's time-in-stage timer.
+const BIZ_OPEN = 9 * 3600 + 15 * 60, BIZ_CLOSE = 17 * 3600;
 const BIZ_DAYS = new Set(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
 function centralInfo(ms: number): { weekday: string; secs: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -387,15 +387,34 @@ export async function GET(req: NextRequest) {
     const timeline: { at: string; kind: string; label: string; detail: string | null; missed?: boolean }[] = [];
     timeline.push({ at: a.earliest, kind: 'inquiry', label: 'Inquiry', detail: a.source });
     if (a.firstRespAt) timeline.push({ at: a.firstRespAt, kind: 'auto', label: a.firstRespType || 'Auto-response', detail: 'automated' });
-    for (const c of (p10 ? (callsByPhone.get(p10) || []) : [])) {
-      if (c.atMs < inqMs) continue;
+    // Collapse round-robin ring-group legs: one inbound call to the group is
+    // logged by JustCall as several unanswered legs (distinct call_sids) within
+    // seconds. Merge a run of unanswered inbound calls that are within 2 min of
+    // each other into a single event so the timeline (and the missed-callback
+    // flag) reflect one real attempt, not five.
+    const RING_WINDOW_MS = 120_000;
+    const phoneCalls = (p10 ? (callsByPhone.get(p10) || []) : [])
+      .filter((c) => c.atMs >= inqMs)
+      .sort((x, y) => x.atMs - y.atMs);
+    let ringLastMs = -Infinity, ringCount = 0, ringIdx = -1;
+    for (const c of phoneCalls) {
       const out = (c.direction || '').toLowerCase() === 'outgoing';
+      const answered = (c.call_type || '').toLowerCase() === 'answered';
+      const ringLeg = !out && !answered;
+      if (ringLeg && ringIdx >= 0 && c.atMs - ringLastMs <= RING_WINDOW_MS) {
+        // Same burst: fold into the first leg, bump the count, don't add a row.
+        ringCount++; ringLastMs = c.atMs;
+        timeline[ringIdx].label = `Inbound call ×${ringCount}`;
+        continue;
+      }
       timeline.push({
         at: c.atIso, kind: 'call',
         label: `${out ? 'Outbound' : 'Inbound'} call`,
         detail: `${c.agent || '—'} · ${c.call_type}${c.duration != null ? ` · ${durStr(c.duration)}` : ''}`,
-        missed: (c.call_type || '').toLowerCase() !== 'answered',
+        missed: !answered,
       });
+      if (ringLeg) { ringIdx = timeline.length - 1; ringCount = 1; ringLastMs = c.atMs; }
+      else { ringIdx = -1; ringLastMs = -Infinity; }
     }
     for (const g of a.gcids) for (const s of (showsByGcid.get(g) || [])) {
       const r = showRank(s.status);
@@ -449,6 +468,8 @@ export async function GET(req: NextRequest) {
       : (column === 'showing_completed' || column === 'showing_scheduled') ? stage_date
       : null;
     const column_since = (stageEntry && stageEntry <= nowIso) ? stageEntry : a.earliest;
+    // Time in stage, counted only during work hours (9:15am–5pm Central, M–F).
+    const stage_business_min = businessMinutes(new Date(column_since).getTime(), Date.now());
 
     return {
       name: a.name,
@@ -460,7 +481,7 @@ export async function GET(req: NextRequest) {
       inquiry_received: a.earliest,
       dial,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
-      stage, stage_label, stage_date, column_since,
+      stage, stage_label, stage_date, column_since, stage_business_min,
       awaiting, flag_reason, column,
       // Latest known date for this lead (most recent timeline event), used to
       // order each pipeline column newest-first.

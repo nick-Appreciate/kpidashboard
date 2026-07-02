@@ -63,18 +63,6 @@ function latColor(min: number | null, sla: number, warn: number): string {
   if (min <= warn) return 'text-amber-400';
   return 'text-rose-400';
 }
-// Compact elapsed time since an ISO date, e.g. "3d", "5h", "12m".
-function fmtAge(iso: string | null): string {
-  if (!iso) return '—';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return '0m';
-  const mins = Math.floor(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
-
 // AppFolio prospect (guest card) link — the web URL keys on the guest-card
 // UUID, e.g. https://appreciateinc.appfolio.com/crm/leasing/prospects/<uuid>
 const APPFOLIO_BASE = 'https://appreciateinc.appfolio.com';
@@ -90,7 +78,7 @@ interface Lead {
   property: string | null; unit: string | null; guest_card_uuid: string | null;
   dial: 'connected' | 'no_answer' | 'none';
   warm_min: number | null;
-  stage: string; stage_label: string; stage_date: string | null; column_since: string;
+  stage: string; stage_label: string; stage_date: string | null; column_since: string; stage_business_min: number;
   awaiting: boolean; flag_reason: string | null; column: string; sort_at: string;
   disq_reason: string | null; disq_detail: string | null;
   lease_unit: string | null; lease_start: string | null; lease_start_confirmed: boolean;
@@ -257,7 +245,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       <section className="glass-card p-4 [&_*:focus]:outline-none [&_svg]:outline-none">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· last 48 hours</span></h3>
-          <span className="text-[11px] text-slate-500">{scatterPts.length} leads · business-hours clock (9–5 M–F) · goal {sla_min}m · capped &gt;1h</span>
+          <span className="text-[11px] text-slate-500">{scatterPts.length} leads · business-hours clock (9:15–5 M–F) · goal {sla_min}m · capped &gt;1h</span>
         </div>
         {scatterPts.length === 0 ? (
           <div className="py-10 text-center text-xs text-slate-500">No inquiries in the last 48 hours.</div>
@@ -359,7 +347,7 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
       )}
       <div className="flex flex-wrap items-center gap-1 mt-1.5">
         {showDialBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[lead.dial].cls}`}>{DIAL_BADGE[lead.dial].label}</span>}
-        <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" title="Time in this stage">◷ {fmtAge(lead.column_since)}</span>
+        <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" title="Time in this stage (work hours only, 9:15a–5p CST)">◷ {fmtLatency(lead.stage_business_min)}</span>
         {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
         {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}
       </div>
