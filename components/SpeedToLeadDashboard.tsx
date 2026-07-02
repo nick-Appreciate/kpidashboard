@@ -339,8 +339,8 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
           {lead.guest_card_uuid && (
             <a href={guestCardUrl(lead.guest_card_uuid)!} target="_blank" rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()} title="Open guest card in AppFolio"
-              className="opacity-80 hover:opacity-100 transition-opacity">
-              <img src="/appfolio-logo.png" alt="AppFolio" className="w-4 h-4" />
+              className="text-[10px] text-accent-light hover:text-accent hover:underline">
+              Card
             </a>
           )}
           {lead.phone && (
@@ -354,7 +354,7 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
       <div className="text-[10px] text-slate-500 mt-0.5 truncate">{lead.source} · {fmtDateTime(lead.inquiry_received)}</div>
       {(lead.property || lead.unit) && (
         <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-          <span className="text-slate-500">🏠</span> {[lead.property, lead.unit].filter(Boolean).join(' · ')}
+          {[lead.property, lead.unit].filter(Boolean).join(' · ')}
         </div>
       )}
       <div className="flex flex-wrap items-center gap-1 mt-1.5">
