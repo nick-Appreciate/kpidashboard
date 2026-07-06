@@ -487,14 +487,14 @@ function LeadTimeline({ events }: { events: TimelineEvent[] }) {
               )}
             </div>
             {isPlaying && (
-              <div className="mt-1 ml-28 pl-2" onClick={stop}>
+              <div className="mt-2 -ml-4" onClick={stop}>
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <audio
                   autoPlay
                   controls
                   preload="none"
                   src={`/api/justcall/recording?call_sid=${encodeURIComponent(e.call_sid!)}`}
-                  className="w-full max-w-sm h-8"
+                  className="w-full h-8"
                   onClick={stop}
                   onError={() => setPlayingSid(null)}
                 />
