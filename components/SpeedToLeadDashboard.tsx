@@ -10,7 +10,7 @@
  *     follow-ups are forced. Each row has a JustCall click-to-dial button.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { fetcher } from '../lib/swr';
@@ -452,6 +452,76 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
   );
 }
 
+// Custom recording player: native <audio controls> collapses the seek rail
+// for short (<10s) recordings, so we render a big explicit range-input
+// scrubber that always has room to drag.
+function RecordingPlayer({ src, onError }: { src: string; onError: () => void }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [dur, setDur] = useState(0);
+  const [cur, setCur] = useState(0);
+  const [seeking, setSeeking] = useState(false);
+  const stop = (ev: React.SyntheticEvent) => ev.stopPropagation();
+  const fmt = (s: number) => {
+    if (!isFinite(s) || s < 0) return '0:00';
+    const m = Math.floor(s / 60);
+    const r = Math.floor(s % 60);
+    return `${m}:${r.toString().padStart(2, '0')}`;
+  };
+  const toggle = (ev: React.MouseEvent) => {
+    ev.stopPropagation();
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) a.play().catch(() => {}); else a.pause();
+  };
+  return (
+    <div className="mt-2 -ml-4 flex items-center gap-2 px-1 py-1.5 rounded bg-white/5" onClick={stop}>
+      <button
+        onClick={toggle}
+        className="w-7 h-7 flex-shrink-0 rounded-full bg-accent/25 text-accent-light hover:bg-accent/40 flex items-center justify-center text-[11px]"
+        title={playing ? 'Pause' : 'Play'}
+      >
+        {playing ? '❚❚' : '▶'}
+      </button>
+      <span className="text-[10px] tabular-nums text-slate-400 w-9 flex-shrink-0 text-right">{fmt(cur)}</span>
+      <input
+        type="range"
+        min={0}
+        max={dur || 0}
+        step={0.01}
+        value={cur}
+        onMouseDown={() => setSeeking(true)}
+        onTouchStart={() => setSeeking(true)}
+        onMouseUp={() => setSeeking(false)}
+        onTouchEnd={() => setSeeking(false)}
+        onChange={(ev) => {
+          ev.stopPropagation();
+          const v = parseFloat(ev.target.value);
+          setCur(v);
+          if (audioRef.current) audioRef.current.currentTime = v;
+        }}
+        onClick={stop}
+        className="flex-1 h-1.5 accent-accent cursor-pointer"
+      />
+      <span className="text-[10px] tabular-nums text-slate-500 w-9 flex-shrink-0">{fmt(dur)}</span>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio
+        ref={audioRef}
+        src={src}
+        autoPlay
+        preload="metadata"
+        onLoadedMetadata={(ev) => setDur(ev.currentTarget.duration || 0)}
+        onDurationChange={(ev) => setDur(ev.currentTarget.duration || 0)}
+        onTimeUpdate={(ev) => { if (!seeking) setCur(ev.currentTarget.currentTime); }}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onError={onError}
+      />
+    </div>
+  );
+}
+
 function LeadTimeline({ events }: { events: TimelineEvent[] }) {
   const [playingSid, setPlayingSid] = useState<string | null>(null);
   if (!events?.length) return <div className="text-xs text-slate-500">No events recorded.</div>;
@@ -491,21 +561,10 @@ function LeadTimeline({ events }: { events: TimelineEvent[] }) {
               )}
             </div>
             {isPlaying && (
-              <div className="mt-2 -ml-4" onClick={stop}>
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <audio
-                  autoPlay
-                  controls
-                  preload="none"
-                  src={`/api/justcall/recording?call_sid=${encodeURIComponent(e.call_sid!)}`}
-                  // Default h-8 squished the native scrubber — Chrome collapses
-                  // the seek bar when the control area is < ~40px tall. h-12 gives
-                  // it a proper rail so short calls can still be scrubbed.
-                  className="w-full h-12"
-                  onClick={stop}
-                  onError={() => setPlayingSid(null)}
-                />
-              </div>
+              <RecordingPlayer
+                src={`/api/justcall/recording?call_sid=${encodeURIComponent(e.call_sid!)}`}
+                onError={() => setPlayingSid(null)}
+              />
             )}
           </li>
         );
