@@ -136,39 +136,52 @@ export async function GET(req: NextRequest) {
     return true;
   };
 
+  // Supabase's PostgREST enforces a server-side max-rows cap (1000
+  // by default). `.range(0, N)` requests rows [0..N] but the server
+  // will silently truncate the response at the max-rows cap. That
+  // used to hide any call beyond the first 1000 in a 30-day window
+  // (~1,346 rows) — including recent-day calls — from Speed to Lead,
+  // which made the timeline show "never dialed" for anyone whose
+  // call was in the missing tail. Fix: page through in 1000-row
+  // chunks until exhausted.
+  async function fetchAllRows<T = any>(
+    build: () => any,
+    pageSize = 1000,
+  ): Promise<{ data: T[]; error: any }> {
+    let out: T[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await build().range(from, from + pageSize - 1);
+      if (error) return { data: out, error };
+      const batch = (data || []) as T[];
+      out.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return { data: out, error: null };
+  }
+
   const [leadRes, callRes, showRes, appRes, leaseHistRes] = await Promise.all([
-    supabase.from('leasing_reports')
+    fetchAllRows(() => supabase.from('leasing_reports')
       .select('name, source, property, unit, phone, inquiry_received, first_response_at, first_response_type, guest_card_id, guest_card_uuid, inquiry_id, status, notes')
-      .gte('inquiry_received', sinceIso)
-      .range(0, 9999),
-    supabase.from('justcall_calls')
-      .select('call_sid, contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds, recording', { count: 'exact' })
-      .gte('call_at', sinceIso)
-      .range(0, 49999),
-    supabase.from('showings')
+      .gte('inquiry_received', sinceIso)),
+    fetchAllRows(() => supabase.from('justcall_calls')
+      .select('call_sid, contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds, recording')
+      .gte('call_at', sinceIso)),
+    fetchAllRows(() => supabase.from('showings')
       .select('guest_card_id, status, showing_time')
-      .gte('showing_time', sinceIso)
-      .range(0, 9999),
-    supabase.from('rental_applications')
+      .gte('showing_time', sinceIso)),
+    fetchAllRows(() => supabase.from('rental_applications')
       .select('phone_number, status, received, unit, lease_start_date, desired_move_in')
-      .gte('received', sinceIso)
-      .range(0, 9999),
-    supabase.from('af_lease_history')
-      .select('tenant_name, lease_start')
-      .range(0, 9999),
+      .gte('received', sinceIso)),
+    fetchAllRows(() => supabase.from('af_lease_history')
+      .select('tenant_name, lease_start')),
   ]);
   if (leadRes.error) return NextResponse.json({ error: leadRes.error.message }, { status: 500 });
 
-  // ── DEBUG: dump JustCall fetch stats + Sabien-specific slices ────
-  // Remove after confirming the fix. Look for [ST2L-DBG] in Vercel logs.
+  // ── DEBUG (post-paging): confirm Sabien's call now surfaces.
+  // Remove after prod verifies rows > 1000 + calls_for_sabien >= 1.
   const _cr: any = callRes;
-  const _rows = (_cr.data || []).length;
-  const _count = _cr.count ?? null;
   const _sabienCalls = (_cr.data || []).filter((c: any) => c.contact_number_norm === '5739700493');
-  console.log(`[ST2L-DBG] callRes rows=${_rows} pg_count=${_count} sinceIso=${sinceIso}`);
-  console.log(`[ST2L-DBG] callRes calls_for_sabien=${_sabienCalls.length}`, JSON.stringify(_sabienCalls));
-  const _sabienLead = (leadRes.data || []).find((l: any) => (l.name || '').toLowerCase().includes('sabien'));
-  console.log(`[ST2L-DBG] leadRes sabien_row=`, JSON.stringify(_sabienLead));
+  console.log(`[ST2L-DBG] callRes rows=${(_cr.data || []).length} calls_for_sabien=${_sabienCalls.length}`);
 
   const rawLeads = (leadRes.data || []).filter(r => r.inquiry_received && inRegion(r.property));
 
