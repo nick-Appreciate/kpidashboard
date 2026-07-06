@@ -195,8 +195,21 @@ export async function GET(req: NextRequest) {
     return 1; // canceled / no show / prospect canceled
   };
 
-  // Index outbound calls by matched phone (last-10).
-  const outByPhone = new Map<string, { at: number; answered: boolean; agent: string | null }[]>();
+  // Live-pickup threshold. JustCall marks a call `answered` if the far
+  // end picked up at all — including an answering machine or IVR. Real
+  // conversations run > 30s; voicemail greetings + hang-ups are almost
+  // always shorter. Use duration as a proxy to separate a genuine "hello"
+  // from a machine catch.
+  const LIVE_PICKUP_MIN_SECONDS = 30;
+
+  // Index outbound calls by matched phone (last-10) with the full data
+  // we need to classify each attempt: real live pickup vs voicemail
+  // machine vs left-voicemail vs no answer.
+  const outByPhone = new Map<string, { at: number; call_type: string; duration: number | null; agent: string | null }[]>();
+  // Inbound-answered calls, so a lead who called US back also counts
+  // as "connected" (they picked up when we called, or we picked up
+  // when they called — either way, a real conversation happened).
+  const inAnsweredByPhone = new Map<string, { at: number; duration: number | null }[]>();
   // ALL calls by phone (any direction) — for the per-lead timeline.
   const callsByPhone = new Map<string, { call_sid: string | null; atIso: string; atMs: number; direction: string; call_type: string; duration: number | null; agent: string | null; recording: string | null }[]>();
   // Full per-agent activity across ALL calls, so every VA appears — not just
@@ -208,7 +221,19 @@ export async function GET(req: NextRequest) {
 
     if (c.contact_number_norm && dir === 'outgoing') {
       if (!outByPhone.has(c.contact_number_norm)) outByPhone.set(c.contact_number_norm, []);
-      outByPhone.get(c.contact_number_norm)!.push({ at: new Date(c.call_at).getTime(), answered, agent: c.agent_name ?? null });
+      outByPhone.get(c.contact_number_norm)!.push({
+        at: new Date(c.call_at).getTime(),
+        call_type: (c.call_type || '').toLowerCase(),
+        duration: c.duration_seconds ?? null,
+        agent: c.agent_name ?? null,
+      });
+    }
+    if (c.contact_number_norm && dir === 'incoming' && answered) {
+      if (!inAnsweredByPhone.has(c.contact_number_norm)) inAnsweredByPhone.set(c.contact_number_norm, []);
+      inAnsweredByPhone.get(c.contact_number_norm)!.push({
+        at: new Date(c.call_at).getTime(),
+        duration: c.duration_seconds ?? null,
+      });
     }
     if (c.contact_number_norm) {
       if (!callsByPhone.has(c.contact_number_norm)) callsByPhone.set(c.contact_number_norm, []);
@@ -260,17 +285,22 @@ export async function GET(req: NextRequest) {
     const d = dailyMap.get(day) || { leads: 0, w5: 0, w60: 0 };
     d.leads++;
 
-    const calls = (outByPhone.get(phone10(l.phone)!) || []).filter(c => c.at >= inqMs);
-    if (calls.length > 0) dialed++;   // "dialed" count still spans every lead with an attempt
-    const answered = calls.filter(c => c.answered);
-    if (answered.length > 0) {
+    const p = phone10(l.phone)!;
+    const outCalls = (outByPhone.get(p) || []).filter(c => c.at >= inqMs);
+    const inCalls  = (inAnsweredByPhone.get(p) || []).filter(c => c.at >= inqMs);
+    if (outCalls.length > 0) dialed++;   // any outbound attempt counts as "dialed"
+
+    // Real conversation = outbound answered ≥ 30s OR any inbound answered.
+    // Voicemail-machine catches (short answers) no longer inflate connect rate.
+    const outLive = outCalls.filter(c => c.call_type === 'answered' && (c.duration ?? 0) >= LIVE_PICKUP_MIN_SECONDS);
+    const liveOwners: { at: number; agent: string | null }[] = [
+      ...outLive.map(c => ({ at: c.at, agent: c.agent })),
+      ...inCalls.map(c => ({ at: c.at, agent: null })),
+    ];
+    if (liveOwners.length > 0) {
       connected++;
-      // First-dial latency is measured over the SAME connected leads as warm
-      // contact, so median-to-dial can never exceed median-to-warm. (Leads that
-      // were dialed but never answered — often dialed very late — are surfaced
-      // via the connect rate and the worklist instead.)
-      dialLat.push(businessMinutes(inqMs, Math.min(...calls.map(c => c.at))));
-      const firstWarm = answered.reduce((m, c) => (c.at < m.at ? c : m));
+      dialLat.push(businessMinutes(inqMs, Math.min(...outCalls.map(c => c.at))));
+      const firstWarm = liveOwners.reduce((m, c) => (c.at < m.at ? c : m));
       const min = businessMinutes(inqMs, firstWarm.at);
       warmLat.push(min);
       if (min <= SLA_MIN) { within5++; d.w5++; }
@@ -353,11 +383,29 @@ export async function GET(req: NextRequest) {
   const leads = Array.from(byPerson.values()).map(a => {
     const inqMs = new Date(a.earliest).getTime();
     const p10 = phone10(a.phone);
-    const calls = p10 ? (outByPhone.get(p10) || []).filter(c => c.at >= inqMs) : [];
-    const answered = calls.filter(c => c.answered);
-    const firstWarm = answered.length ? Math.min(...answered.map(c => c.at)) : null;
-    const dial: 'connected' | 'no_answer' | 'none' =
-      answered.length ? 'connected' : calls.length ? 'no_answer' : 'none';
+    const outCalls = p10 ? (outByPhone.get(p10) || []).filter(c => c.at >= inqMs) : [];
+    const inCalls  = p10 ? (inAnsweredByPhone.get(p10) || []).filter(c => c.at >= inqMs) : [];
+
+    // Classify each outbound: live human vs voicemail machine vs left-VM vs miss.
+    const outLive = outCalls.filter(c => c.call_type === 'answered' && (c.duration ?? 0) >= LIVE_PICKUP_MIN_SECONDS);
+    const outLeftVm = outCalls.filter(c => c.call_type === 'voicemail');
+    // Any real conversation (outbound long-answer OR inbound answered).
+    const liveEvents: number[] = [
+      ...outLive.map(c => c.at),
+      ...inCalls.map(c => c.at),
+    ].sort((x, y) => x - y);
+    const firstWarm = liveEvents.length ? liveEvents[0] : null;
+
+    // Attempts = total outbound tries that did NOT reach a live human. So
+    // if we called 5 times and one of them was 45 seconds ("connected"),
+    // we count the other 4 as attempts.
+    const attempts = outCalls.length - outLive.length;
+
+    const dial: 'connected' | 'left_vm' | 'attempt' | 'none' =
+      liveEvents.length ? 'connected'
+      : outLeftVm.length ? 'left_vm'
+      : outCalls.length ? 'attempt'
+      : 'none';
 
     // Furthest leasing stage. Application is matched by the person's phone.
     const bestApp = (p10 ? appByPhone.get(p10) : undefined) || undefined;
@@ -379,7 +427,7 @@ export async function GET(req: NextRequest) {
       stage = r === 3 ? 'showing_completed' : r === 2 ? 'showing_scheduled' : 'showing_other';
       stage_label = r === 3 ? 'Showing completed' : r === 2 ? 'Showing scheduled' : `Showing · ${best.status}`;
       stage_date = best.at;
-    } else if (answered.length) {
+    } else if (liveEvents.length) {
       stage = 'contacted'; stage_label = 'Contacted'; stage_date = firstWarm ? new Date(firstWarm).toISOString() : null;
     } else {
       stage = 'inquiry'; stage_label = 'Inquiry'; stage_date = null;
@@ -484,6 +532,7 @@ export async function GET(req: NextRequest) {
       guest_card_uuid: a.latestGcUuid,
       inquiry_received: a.earliest,
       dial,
+      attempts,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date, column_since, stage_business_min,
       awaiting, flag_reason, column,

@@ -84,7 +84,8 @@ interface TimelineEvent {
 interface Lead {
   name: string | null; source: string; phone: string | null; inquiry_received: string;
   property: string | null; unit: string | null; guest_card_uuid: string | null;
-  dial: 'connected' | 'no_answer' | 'none';
+  dial: 'connected' | 'left_vm' | 'attempt' | 'none';
+  attempts: number;
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null; column_since: string; stage_business_min: number;
   awaiting: boolean; flag_reason: string | null; column: string; sort_at: string;
@@ -130,11 +131,18 @@ const REGION_OPTIONS = [
   { value: 'region_columbia', label: 'Columbia' },
 ];
 
-const DIAL_BADGE: Record<Lead['dial'], { cls: string; label: string }> = {
-  connected: { cls: 'bg-emerald-500/15 text-emerald-300', label: 'connected' },
-  no_answer: { cls: 'bg-amber-500/15 text-amber-300', label: 'dialed, no answer' },
-  none:      { cls: 'bg-rose-500/15 text-rose-300', label: 'never dialed' },
+const DIAL_STYLE: Record<Lead['dial'], string> = {
+  connected: 'bg-emerald-500/15 text-emerald-300',
+  left_vm:   'bg-sky-500/15 text-sky-300',
+  attempt:   'bg-amber-500/15 text-amber-300',
+  none:      'bg-rose-500/15 text-rose-300',
 };
+function dialLabel(l: Lead): string {
+  if (l.dial === 'connected') return 'connected';
+  if (l.dial === 'left_vm')   return 'left VM';
+  if (l.dial === 'attempt')   return `attempt ×${l.attempts || 1}`;
+  return 'never dialed';
+}
 function stageBadge(stage: string): string {
   switch (stage) {
     case 'application':       return 'bg-violet-500/15 text-violet-300';
@@ -207,7 +215,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         // Connected leads sit at their business-minutes-to-contact; not-connected
         // leads pin at the cap (no contact time to plot).
         y: Math.min(contacted ? (l.warm_min as number) : CAP_MIN, CAP_MIN),
-        dial: l.dial, idx, // idx = row index in data.leads (for click-to-expand)
+        dial: l.dial, attempts: l.attempts, idx, // idx = row index in data.leads (for click-to-expand)
         name: l.name, stage: l.stage_label, warm_min: l.warm_min, inquiry_received: l.inquiry_received,
       };
     });
@@ -305,9 +313,10 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
               <Tooltip cursor={false} content={<ScatterTip slaMin={sla_min} />} />
               <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Scatter name="Connected" data={byDial('connected')} fill="#10b981" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
-              <Scatter name="Called, no answer" data={byDial('no_answer')} fill="#eab308" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
-              <Scatter name="Not called" data={byDial('none')} fill="#f43f5e" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
+              <Scatter name="Connected"  data={byDial('connected')} fill="#10b981" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
+              <Scatter name="Left VM"    data={byDial('left_vm')}   fill="#38bdf8" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
+              <Scatter name="Attempted"  data={byDial('attempt')}   fill="#eab308" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
+              <Scatter name="Not called" data={byDial('none')}      fill="#f43f5e" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
             </ScatterChart>
           </ResponsiveContainer>
         )}
@@ -389,7 +398,7 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
         </div>
       )}
       <div className="flex flex-wrap items-center gap-1 mt-1.5">
-        {showDialBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_BADGE[lead.dial].cls}`}>{DIAL_BADGE[lead.dial].label}</span>}
+        {showDialBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_STYLE[lead.dial]}`}>{dialLabel(lead)}</span>}
         <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" title="Time in this stage (work hours only, 9:15a–5p CST)">◷ {fmtLatency(lead.stage_business_min)}</span>
         {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
         {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}
@@ -414,8 +423,12 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
 function LeadTimeline({ events }: { events: TimelineEvent[] }) {
   const [playingSid, setPlayingSid] = useState<string | null>(null);
   if (!events?.length) return <div className="text-xs text-slate-500">No events recorded.</div>;
+  // Stop bubbling on every interactive control inside the timeline —
+  // otherwise clicking Play (or the audio scrubber) bubbles up to the
+  // card's onClick and collapses the row before playback starts.
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
-    <ol className="relative ml-1 border-l border-white/10 space-y-2 pl-4 py-0.5">
+    <ol className="relative ml-1 border-l border-white/10 space-y-2 pl-4 py-0.5" onClick={stop}>
       {events.map((e, i) => {
         const canPlay = e.kind === 'call' && e.has_recording && e.call_sid;
         const isPlaying = canPlay && playingSid === e.call_sid;
@@ -428,16 +441,25 @@ function LeadTimeline({ events }: { events: TimelineEvent[] }) {
               {e.detail && <span className="text-slate-400">· {e.detail}</span>}
               {canPlay && !isPlaying && (
                 <button
-                  onClick={() => setPlayingSid(e.call_sid!)}
+                  onClick={(ev) => { ev.stopPropagation(); setPlayingSid(e.call_sid!); }}
                   className="text-[10px] px-1.5 py-0.5 rounded bg-accent/15 text-accent-light hover:bg-accent/25 inline-flex items-center gap-1"
                   title="Play recording"
                 >
                   ▶ Play
                 </button>
               )}
+              {isPlaying && (
+                <button
+                  onClick={(ev) => { ev.stopPropagation(); setPlayingSid(null); }}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 hover:bg-white/10"
+                  title="Stop"
+                >
+                  ✕ Close
+                </button>
+              )}
             </div>
             {isPlaying && (
-              <div className="mt-1 ml-28 pl-2">
+              <div className="mt-1 ml-28 pl-2" onClick={stop}>
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <audio
                   autoPlay
@@ -445,6 +467,7 @@ function LeadTimeline({ events }: { events: TimelineEvent[] }) {
                   preload="none"
                   src={`/api/justcall/recording?call_sid=${encodeURIComponent(e.call_sid!)}`}
                   className="w-full max-w-sm h-8"
+                  onClick={stop}
                   onError={() => setPlayingSid(null)}
                 />
               </div>
@@ -461,9 +484,11 @@ function ScatterTip({ active, payload, slaMin }: any) {
   const p = payload[0].payload;
   const status = p.dial === 'connected'
     ? { text: `Connected in ${fmtToCall(Math.min(p.warm_min, CAP_MIN))} (business hrs)`, cls: p.warm_min <= slaMin ? 'text-emerald-400' : 'text-emerald-300' }
-    : p.dial === 'no_answer'
-      ? { text: 'Called — no answer', cls: 'text-amber-400' }
-      : { text: 'Not called', cls: 'text-rose-400' };
+    : p.dial === 'left_vm'
+      ? { text: 'Left voicemail', cls: 'text-sky-400' }
+      : p.dial === 'attempt'
+        ? { text: `Attempted × ${p.attempts || 1}`, cls: 'text-amber-400' }
+        : { text: 'Not called', cls: 'text-rose-400' };
   return (
     <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg px-3 py-2 text-xs shadow-lg">
       <div className="font-medium text-slate-200 mb-0.5">{p.name || '—'}</div>
