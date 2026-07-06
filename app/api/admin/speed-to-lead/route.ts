@@ -142,7 +142,7 @@ export async function GET(req: NextRequest) {
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
-      .select('call_sid, contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds, recording')
+      .select('call_sid, contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds, recording', { count: 'exact' })
       .gte('call_at', sinceIso)
       .range(0, 49999),
     supabase.from('showings')
@@ -158,6 +158,17 @@ export async function GET(req: NextRequest) {
       .range(0, 9999),
   ]);
   if (leadRes.error) return NextResponse.json({ error: leadRes.error.message }, { status: 500 });
+
+  // ── DEBUG: dump JustCall fetch stats + Sabien-specific slices ────
+  // Remove after confirming the fix. Look for [ST2L-DBG] in Vercel logs.
+  const _cr: any = callRes;
+  const _rows = (_cr.data || []).length;
+  const _count = _cr.count ?? null;
+  const _sabienCalls = (_cr.data || []).filter((c: any) => c.contact_number_norm === '5739700493');
+  console.log(`[ST2L-DBG] callRes rows=${_rows} pg_count=${_count} sinceIso=${sinceIso}`);
+  console.log(`[ST2L-DBG] callRes calls_for_sabien=${_sabienCalls.length}`, JSON.stringify(_sabienCalls));
+  const _sabienLead = (leadRes.data || []).find((l: any) => (l.name || '').toLowerCase().includes('sabien'));
+  console.log(`[ST2L-DBG] leadRes sabien_row=`, JSON.stringify(_sabienLead));
 
   const rawLeads = (leadRes.data || []).filter(r => r.inquiry_received && inRegion(r.property));
 
