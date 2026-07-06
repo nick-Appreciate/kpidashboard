@@ -243,42 +243,6 @@ export default function RehabsDashboard() {
     return 'Vacant';
   };
 
-  const getChecklistItems = (rehab) => {
-    const items = [
-      { key: 'vendor_key', label: 'Rehab Key', completed: rehab.vendor_key_completed, excluded: rehab.vendor_key_excluded },
-      { key: 'utilities', label: 'Utilities', completed: rehab.utilities_completed, excluded: rehab.utilities_excluded },
-      { key: 'junk_removal', label: 'Junk', completed: rehab.junk_removal_completed, excluded: rehab.junk_removal_excluded },
-      { key: 'pest_control', label: 'Pest', completed: rehab.pest_control_completed, excluded: rehab.pest_control_excluded },
-      { key: 'surface_restoration', label: 'Surface', completed: rehab.surface_restoration_completed, excluded: rehab.surface_restoration_excluded },
-      { key: 'cleaned', label: 'Clean', completed: rehab.cleaned_completed, excluded: rehab.cleaned_excluded },
-      { key: 'leasing_signoff', label: 'Final Walkthrough', completed: rehab.leasing_signoff_completed, excluded: rehab.leasing_signoff_excluded },
-      { key: 'tenant_key', label: 'Tenant Key', completed: rehab.tenant_key_completed, excluded: rehab.tenant_key_excluded },
-      { key: 'mail_key', label: 'Mail Key', completed: rehab.mail_key_completed, excluded: rehab.mail_key_excluded },
-    ];
-
-    return items;
-  };
-
-  const getChecklistProgress = (rehab) => {
-    const items = getChecklistItems(rehab);
-    if (items.length === 0) return { completed: 0, total: 0, percent: 0 };
-    const activeItems = items.filter(i => !i.excluded);
-    const completed = activeItems.filter(i => i.completed).length;
-    const total = activeItems.length;
-    return { completed, total, percent: total > 0 ? Math.round((completed / total) * 100) : 0 };
-  };
-
-  const cycleChecklistState = async (rehabId, itemKey, currentCompleted, currentExcluded) => {
-    if (!currentCompleted && !currentExcluded) {
-      await updateRehabField(rehabId, `${itemKey}_completed`, true);
-    } else if (currentCompleted && !currentExcluded) {
-      await updateRehabField(rehabId, `${itemKey}_completed`, false);
-      await updateRehabField(rehabId, `${itemKey}_excluded`, true);
-    } else {
-      await updateRehabField(rehabId, `${itemKey}_excluded`, false);
-    }
-  };
-
   if (loading && rehabs.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -352,11 +316,6 @@ export default function RehabsDashboard() {
           } else {
             comparison = 0;
           }
-          break;
-        case 'checklist':
-          const progressA = getChecklistProgress(a).percent;
-          const progressB = getChecklistProgress(b).percent;
-          comparison = progressA - progressB;
           break;
         default:
           comparison = (a.property || '').localeCompare(b.property || '');
@@ -511,19 +470,13 @@ export default function RehabsDashboard() {
                   >
                     Status {getSortIcon('status')}
                   </th>
-                  <th
-                    className="px-1 py-2 text-center font-semibold border-r border-white/5 w-48 cursor-pointer hover:bg-white/10"
-                    onClick={() => toggleSort('checklist')}
-                  >
-                    Checklist {getSortIcon('checklist')}
-                  </th>
-                  <th className="px-1 py-2 text-center font-semibold w-14">Action</th>
+                  <th className="px-1 py-2 text-center font-semibold w-28">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {allUnits.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                       No units requiring rehab
                     </td>
                   </tr>
@@ -583,30 +536,11 @@ export default function RehabsDashboard() {
                           <option value="Complete" className="bg-surface-overlay text-slate-200">Complete</option>
                         </select>
                       </td>
-                      <td className="px-2 py-1 border-r border-white/5">
-                        <div className="flex items-center gap-1.5">
-                          {getChecklistItems(unit).map(item => (
-                            <button
-                              key={item.key}
-                              onClick={() => cycleChecklistState(unit.id, item.key, item.completed, item.excluded)}
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                item.excluded
-                                  ? 'bg-white/10 text-slate-600'
-                                  : item.completed
-                                    ? 'bg-green-500 text-white'
-                                    : 'border border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                              }`}
-                              title={`${item.label}: ${item.excluded ? 'Ignored' : item.completed ? 'Complete' : 'Needs Done'} - Click to cycle`}
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                          <span className="text-xs text-slate-500 ml-1 font-medium">
-                            {getChecklistProgress(unit).completed}/{getChecklistProgress(unit).total}
-                          </span>
+                      <td className="px-2 py-1.5 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => toggleReadyForMoveIn(unit.id)}
-                            className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
                               unit.ready_for_movein
                                 ? 'bg-green-600 text-white border-green-600'
                                 : 'bg-green-500/10 text-green-400 border-green-500/50 hover:bg-green-500/20'
@@ -615,15 +549,13 @@ export default function RehabsDashboard() {
                           >
                             ✓ Ready
                           </button>
+                          <button
+                            onClick={() => setEditingRehab(unit)}
+                            className="px-2 py-1 bg-accent/15 text-accent rounded text-xs hover:bg-accent/25"
+                          >
+                            Edit
+                          </button>
                         </div>
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        <button
-                          onClick={() => setEditingRehab(unit)}
-                          className="px-2 py-1 bg-accent/15 text-accent rounded text-xs hover:bg-accent/25"
-                        >
-                          Edit
-                        </button>
                       </td>
                     </tr>
                   ))

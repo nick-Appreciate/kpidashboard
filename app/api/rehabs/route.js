@@ -147,73 +147,92 @@ export async function GET(request) {
       rehabs = rehabs.filter(r => !archivedIds.has(r.id));
     }
 
-    // Update source_type if vacancy status changed (e.g., eviction → notice)
+    // Keep each rehab in sync with the latest AppFolio snapshot: source_type
+    // (vacancy / notice / eviction), move_out_date, vacancy_start_date, and
+    // rehab_status all need to react to changes AppFolio publishes after
+    // the rehab record was first created.
     for (const rehab of rehabs.filter(r => r.status !== 'completed' && r.status !== 'archived')) {
       const currentVacancy = currentVacancyMap.get(`${rehab.property}|${rehab.unit}`);
-      if (currentVacancy && currentVacancy.source_type !== rehab.source_type) {
-        const updateFields = {
-          source_type: currentVacancy.source_type,
-          updated_at: new Date().toISOString()
-        };
+      if (!currentVacancy) continue;
 
-        // When transitioning from eviction to vacancy, reset vacancy_start_date
-        // so the day counter starts from when the unit actually became vacant
-        if (rehab.source_type === 'eviction' && currentVacancy.source_type === 'vacancy') {
-          // Find the first Vacant snapshot after the last Evict snapshot
-          const { data: lastEvictSnapshot } = await supabase
+      const updateFields = {};
+      const sourceChanged = currentVacancy.source_type !== rehab.source_type;
+      if (sourceChanged) updateFields.source_type = currentVacancy.source_type;
+
+      // move_out_date drifts when the tenant updates their notice date in
+      // AppFolio (or when a unit flips from notice to a different lease_to).
+      // Always mirror the current AppFolio lease_to for units that have one,
+      // and clear it once the unit is truly vacant.
+      const currentMoveOut = currentVacancy.move_out_date || null;
+      if (currentMoveOut !== (rehab.move_out_date || null)) {
+        updateFields.move_out_date = currentMoveOut;
+      }
+
+      // Reset vacancy_start_date when a unit crosses INTO real vacancy
+      // (from either eviction or notice). Otherwise the day counter keeps
+      // ticking from when notice was first given, not from actual move-out.
+      const enteringVacancy =
+        (rehab.source_type === 'eviction' || rehab.source_type === 'notice') &&
+        currentVacancy.source_type === 'vacancy';
+      if (enteringVacancy) {
+        const priorStatuses = rehab.source_type === 'eviction'
+          ? ['Evict']
+          : ['Notice-Unrented', 'Notice-Rented'];
+        const { data: lastPriorSnapshot } = await supabase
+          .from('rent_roll_snapshots')
+          .select('snapshot_date')
+          .eq('property', rehab.property)
+          .eq('unit', rehab.unit)
+          .in('status', priorStatuses)
+          .order('snapshot_date', { ascending: false })
+          .limit(1);
+
+        let newVacancyStart = null;
+        if (lastPriorSnapshot?.length > 0) {
+          const { data: firstVacantSnapshot } = await supabase
             .from('rent_roll_snapshots')
             .select('snapshot_date')
             .eq('property', rehab.property)
             .eq('unit', rehab.unit)
-            .eq('status', 'Evict')
-            .order('snapshot_date', { ascending: false })
+            .in('status', ['Vacant-Unrented', 'Vacant-Rented'])
+            .gt('snapshot_date', lastPriorSnapshot[0].snapshot_date)
+            .order('snapshot_date', { ascending: true })
             .limit(1);
-
-          if (lastEvictSnapshot?.length > 0) {
-            const { data: firstVacantSnapshot } = await supabase
-              .from('rent_roll_snapshots')
-              .select('snapshot_date')
-              .eq('property', rehab.property)
-              .eq('unit', rehab.unit)
-              .in('status', ['Vacant-Unrented', 'Vacant-Rented'])
-              .gt('snapshot_date', lastEvictSnapshot[0].snapshot_date)
-              .order('snapshot_date', { ascending: true })
-              .limit(1);
-
-            if (firstVacantSnapshot?.length > 0) {
-              updateFields.vacancy_start_date = firstVacantSnapshot[0].snapshot_date;
-            } else {
-              // No Vacant snapshot found yet, use today's date
-              updateFields.vacancy_start_date = latestSnapshotDate;
-            }
-          } else {
-            // No evict snapshot found, use today's date
-            updateFields.vacancy_start_date = latestSnapshotDate;
-          }
-
-          if (updateFields.vacancy_start_date) {
-            rehab.vacancy_start_date = updateFields.vacancy_start_date;
-            // Also update the vacancy entry so key matching stays consistent
-            currentVacancy.vacancy_start_date = updateFields.vacancy_start_date;
-            console.log(`Reset vacancy_start_date for ${rehab.property} ${rehab.unit} → ${updateFields.vacancy_start_date} (eviction → vacancy)`);
-          }
+          newVacancyStart = firstVacantSnapshot?.[0]?.snapshot_date || latestSnapshotDate;
+        } else {
+          newVacancyStart = latestSnapshotDate;
         }
 
-        // When a unit transitions to 'notice' or 'eviction', default rehab_status
-        // to the matching pre-vacancy status (if still at a non-started, non-locked status)
+        if (newVacancyStart) {
+          updateFields.vacancy_start_date = newVacancyStart;
+          rehab.vacancy_start_date = newVacancyStart;
+          currentVacancy.vacancy_start_date = newVacancyStart;
+          console.log(`Reset vacancy_start_date for ${rehab.property} ${rehab.unit} → ${newVacancyStart} (${rehab.source_type} → vacancy)`);
+        }
+      }
+
+      // rehab_status:
+      //   - notice/eviction: default the pre-vacancy label if we're still at a
+      //     non-locked status
+      //   - vacancy: unlock a stale Notice/Eviction label back to Not Started
+      //     so the crew actually sees the unit is ready to work
+      if (sourceChanged) {
         const PRE_VACANCY_DEFAULTS = { notice: 'Notice', eviction: 'Eviction' };
         const newDefault = PRE_VACANCY_DEFAULTS[currentVacancy.source_type];
         if (newDefault && ['Not Started', 'Back Burner', 'Notice', 'Eviction'].includes(rehab.rehab_status)) {
           updateFields.rehab_status = newDefault;
+        } else if (currentVacancy.source_type === 'vacancy' && ['Notice', 'Eviction'].includes(rehab.rehab_status)) {
+          updateFields.rehab_status = 'Not Started';
         }
+      }
 
-        await supabase
-          .from('rehabs')
-          .update(updateFields)
-          .eq('id', rehab.id);
-        rehab.source_type = currentVacancy.source_type;
-        if (updateFields.rehab_status) rehab.rehab_status = updateFields.rehab_status;
-        console.log(`Updated source_type for ${rehab.property} ${rehab.unit} → ${currentVacancy.source_type}`);
+      if (Object.keys(updateFields).length > 0) {
+        updateFields.updated_at = new Date().toISOString();
+        await supabase.from('rehabs').update(updateFields).eq('id', rehab.id);
+        if (updateFields.source_type)    rehab.source_type    = updateFields.source_type;
+        if ('move_out_date' in updateFields) rehab.move_out_date = updateFields.move_out_date;
+        if (updateFields.rehab_status)   rehab.rehab_status   = updateFields.rehab_status;
+        console.log(`Synced ${rehab.property} ${rehab.unit}:`, updateFields);
       }
 
       // Sync "Rented" status: auto-set when AppFolio shows Vacant-Rented, unlock when it doesn't
@@ -285,12 +304,6 @@ export async function GET(request) {
           source_type: vacancy.source_type,
           vacancy_start_date: vacancy.vacancy_start_date,
           move_out_date: vacancy.move_out_date,
-          // Recurring items (rehab key, utilities, clean, final walkthrough, tenant key)
-          // default to "needs done" (not excluded)
-          // Non-recurring items default to "ignored" (excluded)
-          junk_removal_excluded: true,
-          pest_control_excluded: true,
-          surface_restoration_excluded: true,
         })
         .select()
         .single();
@@ -405,10 +418,6 @@ export async function POST(request) {
         vacancy_start_date,
         rehab_status: rehab_status || 'Supervisor onboard',
         status: 'in_progress',
-        // Non-recurring items default to "ignored" (excluded)
-        junk_removal_excluded: true,
-        pest_control_excluded: true,
-        surface_restoration_excluded: true,
       })
       .select()
       .single();
@@ -418,15 +427,6 @@ export async function POST(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Log initial status to history
-    // Count non-excluded items as the total
-    const excludedFields = [
-      'vendor_key_excluded', 'utilities_excluded', 'pest_control_excluded',
-      'surface_restoration_excluded', 'junk_removal_excluded', 'cleaned_excluded',
-      'tenant_key_excluded', 'leasing_signoff_excluded', 'mail_key_excluded'
-    ];
-    const initialTotal = excludedFields.filter(f => !data[f]).length;
-
     await supabase.from('rehab_status_history').insert({
       rehab_id: data.id,
       property: data.property,
@@ -434,7 +434,7 @@ export async function POST(request) {
       previous_status: null,
       new_status: data.rehab_status || 'Supervisor onboard',
       checklist_completed: 0,
-      checklist_total: initialTotal
+      checklist_total: 0
     });
 
     return NextResponse.json(data);
@@ -445,7 +445,7 @@ export async function POST(request) {
   }
 }
 
-// PATCH - Update a rehab record (checklist items, status, etc.)
+// PATCH - Update a rehab record (status, contractor, dates, ready-for-move-in)
 export async function PATCH(request) {
   const auth = await requireAuth(request);
   if ('error' in auth) return auth.error;
@@ -471,24 +471,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: 'Cannot change status from Rented — this is automatically set by AppFolio' }, { status: 400 });
     }
 
-    // Add timestamp for completed checklist items
     const timestampedUpdates = { ...updates, updated_at: new Date().toISOString() };
-    
-    // If a checklist item is being completed, add its timestamp
-    const checklistItems = [
-      'vendor_key', 'utilities',
-      'pest_control', 'surface_restoration', 'junk_removal', 'cleaned', 'tenant_key', 'leasing_signoff', 'mail_key'
-    ];
-    
-    for (const item of checklistItems) {
-      const completedKey = `${item}_completed`;
-      const excludedKey = `${item}_excluded`;
-      if (updates[completedKey] === true) {
-        timestampedUpdates[`${item}_completed_at`] = new Date().toISOString();
-      } else if (updates[completedKey] === false) {
-        timestampedUpdates[`${item}_completed_at`] = null;
-      }
-    }
 
     // If status is being set to completed, add completed_at timestamp
     if (updates.status === 'completed') {
@@ -512,26 +495,15 @@ export async function PATCH(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Log status change to history if rehab_status changed
     if (updates.rehab_status && currentRehab && updates.rehab_status !== currentRehab.rehab_status) {
-      const checklistFields = [
-        'vendor_key', 'utilities', 'pest_control',
-        'surface_restoration', 'junk_removal', 'cleaned',
-        'tenant_key', 'leasing_signoff', 'mail_key'
-      ];
-      // Count non-excluded items as total, completed among those as completed
-      const activeFields = checklistFields.filter(f => !data[`${f}_excluded`]);
-      const completedCount = activeFields.filter(f => data[`${f}_completed`]).length;
-      const totalCount = activeFields.length;
-
       await supabase.from('rehab_status_history').insert({
         rehab_id: id,
         property: data.property,
         unit: data.unit,
         previous_status: currentRehab.rehab_status,
         new_status: updates.rehab_status,
-        checklist_completed: completedCount,
-        checklist_total: totalCount
+        checklist_completed: 0,
+        checklist_total: 0
       });
     }
 
