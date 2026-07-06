@@ -15,24 +15,7 @@ export default function RehabsDashboard() {
   const [selectedProperty, setSelectedProperty] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [properties, setProperties] = useState([]);
-  const [editingRehab, setEditingRehab] = useState(null);
   const [totalUnits, setTotalUnits] = useState(0);
-
-  // Toggle Ready for Move-In status (persisted to database)
-  const toggleReadyForMoveIn = async (unitId) => {
-    const unit = rehabs.find(r => r.id === unitId);
-    if (!unit) return;
-
-    const newValue = !unit.ready_for_movein;
-
-    // Optimistic update
-    setRehabs(prev => prev.map(r =>
-      r.id === unitId ? { ...r, ready_for_movein: newValue } : r
-    ));
-
-    // Persist to database
-    await updateRehabField(unitId, 'ready_for_movein', newValue);
-  };
 
   // Column sorting
   const [sortColumn, setSortColumn] = useState('property');
@@ -64,18 +47,14 @@ export default function RehabsDashboard() {
   // Escape key handler to close modals
   useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === 'Escape') {
-        if (showOnboarding) {
-          setShowOnboarding(false);
-          setOnboardingUnit(null);
-        } else if (editingRehab) {
-          setEditingRehab(null);
-        }
+      if (e.key === 'Escape' && showOnboarding) {
+        setShowOnboarding(false);
+        setOnboardingUnit(null);
       }
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [showOnboarding, editingRehab]);
+  }, [showOnboarding]);
 
   useEffect(() => {
     fetchRehabs();
@@ -198,19 +177,6 @@ export default function RehabsDashboard() {
     }
   };
 
-  const getDaysVacant = (rehab) => {
-    const startDate = rehab.vacancy_start_date ? new Date(rehab.vacancy_start_date) : new Date(rehab.created_at);
-    const today = new Date();
-    return Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-  };
-
-  const getDaysUntilMoveOut = (rehab) => {
-    if (!rehab.move_out_date) return null;
-    const moveOut = new Date(rehab.move_out_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return Math.ceil((moveOut - today) / (1000 * 60 * 60 * 24));
-  };
 
   const getStatusStyle = (status) => {
     switch (status) {
@@ -300,22 +266,8 @@ export default function RehabsDashboard() {
           comparison = (a.contractor || 'zzz').localeCompare(b.contractor || 'zzz');
           break;
         case 'status':
-          // Sort by status, but within Complete status, sort ready_for_movein first
-          const statusA = statusOrder.indexOf(a.rehab_status || 'Not Started');
-          const statusB = statusOrder.indexOf(b.rehab_status || 'Not Started');
-          if (statusA !== statusB) {
-            comparison = statusA - statusB;
-          } else if (a.rehab_status === 'Complete' && b.rehab_status === 'Complete') {
-            // Within Complete, ready_for_movein ALWAYS comes first (not affected by sort direction)
-            // Return early to bypass the sort direction flip
-            const readyComparison = (b.ready_for_movein ? 1 : 0) - (a.ready_for_movein ? 1 : 0);
-            if (readyComparison !== 0) {
-              return readyComparison; // Always put ready first, regardless of sort direction
-            }
-            comparison = 0;
-          } else {
-            comparison = 0;
-          }
+          comparison = statusOrder.indexOf(a.rehab_status || 'Not Started')
+                     - statusOrder.indexOf(b.rehab_status || 'Not Started');
           break;
         default:
           comparison = (a.property || '').localeCompare(b.property || '');
@@ -470,13 +422,12 @@ export default function RehabsDashboard() {
                   >
                     Status {getSortIcon('status')}
                   </th>
-                  <th className="px-1 py-2 text-center font-semibold w-28">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {allUnits.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                       No units requiring rehab
                     </td>
                   </tr>
@@ -484,7 +435,7 @@ export default function RehabsDashboard() {
                   allUnits.map((unit, idx) => (
                     <tr
                       key={unit.id || `new-${idx}`}
-                      className={`border-b border-white/5 hover:bg-white/5 transition-colors ${unit.ready_for_movein ? 'bg-green-500/10' : idx % 2 === 1 ? 'bg-white/[0.02]' : ''}`}
+                      className={`border-b border-white/5 hover:bg-white/5 transition-colors ${idx % 2 === 1 ? 'bg-white/[0.02]' : ''}`}
                     >
                       <td className="px-1 py-1.5 border-r border-white/5 font-medium text-slate-200 text-xs truncate max-w-[64px]" title={unit.unit}>
                         {unit.unit}
@@ -536,27 +487,6 @@ export default function RehabsDashboard() {
                           <option value="Complete" className="bg-surface-overlay text-slate-200">Complete</option>
                         </select>
                       </td>
-                      <td className="px-2 py-1.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => toggleReadyForMoveIn(unit.id)}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
-                              unit.ready_for_movein
-                                ? 'bg-green-600 text-white border-green-600'
-                                : 'bg-green-500/10 text-green-400 border-green-500/50 hover:bg-green-500/20'
-                            }`}
-                            title={unit.ready_for_movein ? 'Click to unmark' : 'Mark as Ready for Move-In'}
-                          >
-                            ✓ Ready
-                          </button>
-                          <button
-                            onClick={() => setEditingRehab(unit)}
-                            className="px-2 py-1 bg-accent/15 text-accent rounded text-xs hover:bg-accent/25"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </td>
                     </tr>
                   ))
                 )}
@@ -570,93 +500,6 @@ export default function RehabsDashboard() {
 
         </div>{/* end scrollable content area */}
       </div>
-
-      {/* Edit Modal */}
-      {editingRehab && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="glass-card max-w-lg w-full p-6">
-            <h3 className="text-xl font-semibold text-slate-100 mb-2">Edit Rehab</h3>
-            <p className="text-slate-400 mb-4">
-              <span className="font-medium">{editingRehab.unit}</span> at {editingRehab.property}
-            </p>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Contractor</label>
-                  <DarkSelect
-                    value={editingRehab.contractor || ''}
-                    onChange={(val) => {
-                      updateRehabField(editingRehab.id, 'contractor', val);
-                      setEditingRehab(prev => ({ ...prev, contractor: val }));
-                    }}
-                    placeholder="Select contractor"
-                    searchable={false}
-                    options={[
-                      { value: '', label: 'Select contractor' },
-                      { value: 'Jose', label: 'Jose' },
-                      { value: 'Stephen', label: 'Stephen' },
-                    ]}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Status</label>
-                  <DarkSelect
-                    value={editingRehab.rehab_status || 'Not Started'}
-                    onChange={(val) => {
-                      updateRehabField(editingRehab.id, 'rehab_status', val);
-                      setEditingRehab(prev => ({ ...prev, rehab_status: val }));
-                    }}
-                    disabled={editingRehab.rehab_status === 'Rented'}
-                    searchable={false}
-                    options={[
-                      { value: 'Notice', label: 'Notice' },
-                      { value: 'Eviction', label: 'Eviction' },
-                      { value: 'Not Started', label: 'Not Started' },
-                      { value: 'Supervisor Onboard', label: 'Supervisor Onboard' },
-                      { value: 'Back Burner', label: 'Back Burner' },
-                      { value: 'Waiting', label: 'Waiting' },
-                      { value: 'In Progress', label: 'In Progress' },
-                      { value: 'Rented', label: 'Rented' },
-                      { value: 'Complete', label: 'Complete' },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Goal Completion Date</label>
-                <input
-                  type="date"
-                  value={editingRehab.goal_completion_date || ''}
-                  onChange={(e) => {
-                    updateRehabField(editingRehab.id, 'goal_completion_date', e.target.value);
-                    setEditingRehab(prev => ({ ...prev, goal_completion_date: e.target.value }));
-                  }}
-                  className="dark-input w-full"
-                />
-              </div>
-
-              <div className="text-sm text-slate-400 space-y-1">
-                <div><span className="font-medium">Days Vacant:</span> {getDaysVacant(editingRehab)}</div>
-                <div><span className="font-medium">Source:</span> {editingRehab.source_type || 'Unknown'}</div>
-                {editingRehab.move_out_date && (
-                  <div><span className="font-medium">Move Out:</span> {new Date(editingRehab.move_out_date).toLocaleDateString()}</div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-6">
-              <button
-                onClick={() => setEditingRehab(null)}
-                className="flex-1 px-4 py-2 border border-[var(--glass-border)] text-slate-400 rounded-lg hover:bg-white/5"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Onboarding Modal */}
       {showOnboarding && onboardingUnit && (
