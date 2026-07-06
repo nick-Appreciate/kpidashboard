@@ -523,6 +523,27 @@ export async function GET(req: NextRequest) {
     // Time in stage, counted only during work hours (9:15am–5pm Central, M–F).
     const stage_business_min = businessMinutes(new Date(column_since).getTime(), Date.now());
 
+    // Time since our team last did something — either an outbound call
+    // OR a stage advance. Whichever is more recent. Used as the single
+    // "how stale is this lead?" indicator on the card, replacing the
+    // separate time-in-stage and warm-latency badges that were confusing.
+    // If we've never touched them, this is null.
+    const lastOutboundAt = outCalls.length ? Math.max(...outCalls.map(c => c.at)) : null;
+    // A stage change counts as a team touch only when it's a "we did
+    // something" transition (scheduling, dispositioning) — not just
+    // "an inquiry came in and they're pre-first-touch."
+    const stageIsTeamAction = column !== 'first_touch' && column !== 'follow_up';
+    const stageTouchAt = stageIsTeamAction && stageEntry ? new Date(stageEntry).getTime() : null;
+    const touchCandidates: number[] = [];
+    if (lastOutboundAt != null) touchCandidates.push(lastOutboundAt);
+    if (stageTouchAt != null)   touchCandidates.push(stageTouchAt);
+    const lastTouchMs = touchCandidates.length ? Math.max(...touchCandidates) : null;
+    const min_since_touch = lastTouchMs != null ? businessMinutes(lastTouchMs, Date.now()) : null;
+    const last_touch_kind: 'call' | 'stage' | null =
+      lastTouchMs == null ? null
+      : (lastOutboundAt != null && lastOutboundAt === lastTouchMs) ? 'call'
+      : 'stage';
+
     return {
       name: a.name,
       source: a.source,
@@ -535,6 +556,7 @@ export async function GET(req: NextRequest) {
       attempts,
       warm_min: firstWarm != null ? businessMinutes(inqMs, firstWarm) : null,
       stage, stage_label, stage_date, column_since, stage_business_min,
+      min_since_touch, last_touch_kind,
       awaiting, flag_reason, column,
       // Latest known date for this lead (most recent timeline event), used to
       // order each pipeline column newest-first.

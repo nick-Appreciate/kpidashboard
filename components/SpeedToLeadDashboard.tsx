@@ -88,6 +88,8 @@ interface Lead {
   attempts: number;
   warm_min: number | null;
   stage: string; stage_label: string; stage_date: string | null; column_since: string; stage_business_min: number;
+  min_since_touch: number | null;
+  last_touch_kind: 'call' | 'stage' | null;
   awaiting: boolean; flag_reason: string | null; column: string; sort_at: string;
   disq_reason: string | null; disq_detail: string | null;
   lease_unit: string | null; lease_start: string | null; lease_start_confirmed: boolean;
@@ -142,6 +144,33 @@ function dialLabel(l: Lead): string {
   if (l.dial === 'left_vm')   return 'left VM';
   if (l.dial === 'attempt')   return `attempt ×${l.attempts || 1}`;
   return 'never dialed';
+}
+
+// Single "how long since our team last did something" badge. Team
+// touches = outbound call OR stage advance (whichever more recent).
+// Replaces the prior pair of time-in-stage + warm-latency badges.
+function TouchBadge({ min, kind }: { min: number | null; kind: 'call' | 'stage' | null }) {
+  if (min == null) {
+    return (
+      <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-500" title="No team touch yet">
+        no team touch
+      </span>
+    );
+  }
+  // Freshness thresholds (business minutes): ≤ 60m green, ≤ 360m (6h)
+  // amber, > 360m rose. A team who's on top of things stays green.
+  const cls = min <= 60 ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+            : min <= 360 ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+            : 'bg-rose-500/10 text-rose-300 border-rose-500/20';
+  const kindLabel = kind === 'call' ? 'called' : 'moved';
+  return (
+    <span
+      className={`text-[9px] px-1.5 py-0.5 rounded border ${cls} tabular-nums`}
+      title={`Last team touch: ${kind === 'call' ? 'outbound call' : 'stage change'} ${fmtLatency(min)} ago (work hours only)`}
+    >
+      {kindLabel} {fmtLatency(min)} ago
+    </span>
+  );
 }
 function stageBadge(stage: string): string {
   switch (stage) {
@@ -399,8 +428,7 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
       )}
       <div className="flex flex-wrap items-center gap-1 mt-1.5">
         {showDialBadge && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${DIAL_STYLE[lead.dial]}`}>{dialLabel(lead)}</span>}
-        <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-slate-400 tabular-nums" title="Time in this stage (work hours only, 9:15a–5p CST)">◷ {fmtLatency(lead.stage_business_min)}</span>
-        {lead.warm_min != null && <span className={`text-[9px] tabular-nums ${latColor(lead.warm_min, slaMin, warnMin)}`}>{fmtLatency(lead.warm_min)}</span>}
+        <TouchBadge min={lead.min_since_touch} kind={lead.last_touch_kind} />
         {lead.flag_reason === 'missed callback' && <span className="text-[9px] px-1 py-0.5 rounded bg-rose-500/15 text-rose-300">missed callback</span>}
       </div>
       {lead.column === 'signed_lease' && (lead.lease_unit || lead.lease_start) && (
