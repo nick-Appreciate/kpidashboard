@@ -363,11 +363,18 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
           {COLUMNS.map((col) => {
             const items = data.leads.map((l, idx) => ({ l, idx }))
               .filter(({ l }) => l.column === col.id)
-              // Follow-up column: oldest first so the most-overdue lead surfaces
-              // at the top. All other columns keep newest-first.
-              .sort((a, b) => col.id === 'follow_up'
-                ? a.l.sort_at.localeCompare(b.l.sort_at)
-                : b.l.sort_at.localeCompare(a.l.sort_at));
+              // Follow Up: rank by time since last team touch (biggest first =
+              // most overdue). sort_at is the last timeline event, which for
+              // stalled leads is usually the initial inquiry — sorting by that
+              // hides real staleness. All other columns keep newest-first.
+              .sort((a, b) => {
+                if (col.id === 'follow_up') {
+                  const av = a.l.min_since_touch ?? Number.POSITIVE_INFINITY;
+                  const bv = b.l.min_since_touch ?? Number.POSITIVE_INFINITY;
+                  return bv - av;
+                }
+                return b.l.sort_at.localeCompare(a.l.sort_at);
+              });
             return (
               <div key={col.id} className="flex-shrink-0 w-[240px]">
                 <div className={`flex items-center justify-between px-2 py-1.5 border-b ${col.ring}`}>
