@@ -10,7 +10,7 @@
  *     follow-ups are forced. Each row has a JustCall click-to-dial button.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { fetcher } from '../lib/swr';
@@ -149,9 +149,28 @@ function stageBadge(stage: string): string {
 export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: boolean }) {
   const [days, setDays] = useState(30);
   const [region, setRegion] = useState('all');
-  const { data, error, isLoading } = useSWR<ApiResponse>(
-    `/api/admin/speed-to-lead?days=${days}&region=${region}`, fetcher, { revalidateOnMount: true },
+  // Live-ops dashboard — poll every 30s + revalidate on focus so a call
+  // placed 5 seconds ago shows up without the user needing to reload.
+  const { data, error, isLoading, mutate, isValidating } = useSWR<ApiResponse>(
+    `/api/admin/speed-to-lead?days=${days}&region=${region}`,
+    fetcher,
+    {
+      revalidateOnMount: true,
+      refreshInterval: 30_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 5_000,
+    },
   );
+  const [lastFetched, setLastFetched] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!isValidating && data) setLastFetched(Date.now());
+  }, [isValidating, data]);
+  const [secAgo, setSecAgo] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSecAgo(Math.floor((Date.now() - lastFetched) / 1000)), 1_000);
+    return () => clearInterval(t);
+  }, [lastFetched]);
 
   const { makeCall } = useJustCall();
   const dial = (phone: string | null, name: string | null) => {
@@ -200,6 +219,22 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       <div className="flex flex-wrap items-center gap-2">
         <Segmented options={DAY_OPTIONS} value={days} onChange={setDays} />
         <Segmented options={REGION_OPTIONS} value={region} onChange={setRegion} />
+        <div className="ml-auto flex items-center gap-2 text-[11px] text-slate-500">
+          <span className="tabular-nums">
+            {isValidating
+              ? 'refreshing…'
+              : secAgo < 5
+                ? 'just now'
+                : `updated ${secAgo}s ago`}
+          </span>
+          <button
+            onClick={() => mutate()}
+            disabled={isValidating}
+            className="px-2 py-0.5 rounded border border-white/10 hover:bg-white/5 disabled:opacity-50"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* ── WARM CONTACT (headline) ─────────────────────────────────── */}
