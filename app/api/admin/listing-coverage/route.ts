@@ -29,6 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../../../../lib/auth';
+import { fetchAllRows } from '../../../../lib/supabase-paging';
 
 // Live data; opt out of Next.js 14's default GET-handler cache.
 export const dynamic = 'force-dynamic';
@@ -172,12 +173,15 @@ export async function GET(req: NextRequest) {
   const eighteenAgo = new Date();
   eighteenAgo.setMonth(eighteenAgo.getMonth() - 18);
   const since = eighteenAgo.toISOString().slice(0, 10);
-  const { data: hist, error: hErr } = await supabase
-    .from('rent_roll_snapshots')
-    .select('property, unit, snapshot_date, status')
-    .gte('snapshot_date', since)
-    .eq('status', 'Current')
-    .range(0, 99999);
+  // 18mo × ~250 units = tens of thousands of rows. Page in 1000s to
+  // beat Supabase's server-side max-rows cap.
+  const { data: hist, error: hErr } = await fetchAllRows(() =>
+    supabase
+      .from('rent_roll_snapshots')
+      .select('property, unit, snapshot_date, status')
+      .gte('snapshot_date', since)
+      .eq('status', 'Current'),
+  );
   if (hErr) return NextResponse.json({ error: hErr.message }, { status: 500 });
   const lastCurrentByUnit = new Map<string, string>();
   for (const r of hist || []) {

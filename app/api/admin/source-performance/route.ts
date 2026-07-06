@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
+import { fetchAllRows } from '../../../../lib/supabase-paging';
 
 // Live data; opt out of Next.js 14's default GET-handler cache.
 export const dynamic = 'force-dynamic';
@@ -56,19 +57,18 @@ export async function GET(req: NextRequest) {
 
   const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
 
+  // Windows up to 365d cross the Supabase 1000-row cap on all three
+  // tables — page in 1000-row chunks so no rows silently drop.
   const [inqRes, shRes, apRes] = await Promise.all([
-    supabase.from('leasing_reports')
+    fetchAllRows(() => supabase.from('leasing_reports')
       .select('source, property, inquiry_received')
-      .gte('inquiry_received', sinceIso)
-      .range(0, 9999),
-    supabase.from('showings')
+      .gte('inquiry_received', sinceIso)),
+    fetchAllRows(() => supabase.from('showings')
       .select('source, property, status, showing_time')
-      .gte('showing_time', sinceIso)
-      .range(0, 9999),
-    supabase.from('rental_applications')
+      .gte('showing_time', sinceIso)),
+    fetchAllRows(() => supabase.from('rental_applications')
       .select('lead_source, unit, status, received')
-      .gte('received', sinceIso)
-      .range(0, 9999),
+      .gte('received', sinceIso)),
   ]);
   const inquiries = inqRes.data || [];
   const showings = shRes.data || [];
