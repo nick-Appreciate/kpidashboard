@@ -21,6 +21,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../../../../lib/auth';
 
+// Live data; opt out of Next.js 14's default GET-handler cache.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // Service-role client used for af_listings + af_listing_photos reads.
 // The public RLS policy on both tables filters to
 //   (inactive_since IS NULL) AND (available_on IS NOT NULL)

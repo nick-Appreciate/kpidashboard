@@ -16,6 +16,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
 
+// This route reads live data every request (leasing_reports, showings,
+// justcall_calls). Without the opt-out Next.js 14 caches the GET
+// response indefinitely at the Vercel edge — new calls landing in
+// justcall_calls stop showing up on the dashboard until the cache
+// evicts. Force dynamic on every hit.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const KC_NEEDLES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
 function inKcRegion(name: string | null | undefined): boolean {
   if (!name) return false;

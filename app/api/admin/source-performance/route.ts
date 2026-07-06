@@ -16,6 +16,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
 
+// Live data; opt out of Next.js 14's default GET-handler cache.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const KC_NEEDLES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
 
 function inKcRegion(name: string | null | undefined): boolean {
