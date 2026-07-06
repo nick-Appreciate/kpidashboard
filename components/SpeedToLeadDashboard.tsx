@@ -475,7 +475,7 @@ function RecordingPlayer({ src, onError }: { src: string; onError: () => void })
     if (a.paused) a.play().catch(() => {}); else a.pause();
   };
   return (
-    <div className="mt-2 -ml-4 flex items-center gap-2 px-1 py-1.5 rounded bg-white/5" onClick={stop}>
+    <div className="mt-2 flex items-center gap-2 px-1.5 py-1.5 rounded bg-white/5" onClick={stop}>
       <button
         onClick={toggle}
         className="w-7 h-7 flex-shrink-0 rounded-full bg-accent/25 text-accent-light hover:bg-accent/40 flex items-center justify-center text-[11px]"
@@ -501,7 +501,10 @@ function RecordingPlayer({ src, onError }: { src: string; onError: () => void })
           if (audioRef.current) audioRef.current.currentTime = v;
         }}
         onClick={stop}
-        className="flex-1 h-1.5 accent-accent cursor-pointer"
+        // min-w-0 lets it shrink below the browser-default range width
+        // (~129px) so it stays inside the card instead of pushing the
+        // total-time span off the right edge.
+        className="flex-1 min-w-0 h-1.5 accent-accent cursor-pointer"
       />
       <span className="text-[10px] tabular-nums text-slate-500 w-9 flex-shrink-0">{fmt(dur)}</span>
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
