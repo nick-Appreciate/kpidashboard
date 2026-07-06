@@ -134,7 +134,7 @@ export async function GET(req: NextRequest) {
       .gte('inquiry_received', sinceIso)
       .range(0, 9999),
     supabase.from('justcall_calls')
-      .select('contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds')
+      .select('call_sid, contact_number_norm, direction, call_type, call_at, agent_name, duration_seconds, recording')
       .gte('call_at', sinceIso)
       .range(0, 49999),
     supabase.from('showings')
@@ -198,7 +198,7 @@ export async function GET(req: NextRequest) {
   // Index outbound calls by matched phone (last-10).
   const outByPhone = new Map<string, { at: number; answered: boolean; agent: string | null }[]>();
   // ALL calls by phone (any direction) — for the per-lead timeline.
-  const callsByPhone = new Map<string, { atIso: string; atMs: number; direction: string; call_type: string; duration: number | null; agent: string | null }[]>();
+  const callsByPhone = new Map<string, { call_sid: string | null; atIso: string; atMs: number; direction: string; call_type: string; duration: number | null; agent: string | null; recording: string | null }[]>();
   // Full per-agent activity across ALL calls, so every VA appears — not just
   // whoever happened to get the first warm contact on a lead.
   const agentScore = new Map<string, { outbound: number; connected: number; inbound_answered: number; contacts: Set<string> }>();
@@ -213,8 +213,10 @@ export async function GET(req: NextRequest) {
     if (c.contact_number_norm) {
       if (!callsByPhone.has(c.contact_number_norm)) callsByPhone.set(c.contact_number_norm, []);
       callsByPhone.get(c.contact_number_norm)!.push({
+        call_sid: c.call_sid ?? null,
         atIso: c.call_at, atMs: new Date(c.call_at).getTime(),
         direction: c.direction || '', call_type: c.call_type || '', duration: c.duration_seconds ?? null, agent: c.agent_name ?? null,
+        recording: c.recording ?? null,
       });
     }
 
@@ -384,7 +386,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Chronological timeline of everything we know about this lead.
-    const timeline: { at: string; kind: string; label: string; detail: string | null; missed?: boolean }[] = [];
+    const timeline: { at: string; kind: string; label: string; detail: string | null; missed?: boolean; call_sid?: string | null; has_recording?: boolean }[] = [];
     timeline.push({ at: a.earliest, kind: 'inquiry', label: 'Inquiry', detail: a.source });
     if (a.firstRespAt) timeline.push({ at: a.firstRespAt, kind: 'auto', label: a.firstRespType || 'Auto-response', detail: 'automated' });
     // Collapse round-robin ring-group legs: one inbound call to the group is
@@ -412,6 +414,8 @@ export async function GET(req: NextRequest) {
         label: `${out ? 'Outbound' : 'Inbound'} call`,
         detail: `${c.agent || '—'} · ${c.call_type}${c.duration != null ? ` · ${durStr(c.duration)}` : ''}`,
         missed: !answered,
+        call_sid: c.call_sid,
+        has_recording: !!c.recording,
       });
       if (ringLeg) { ringIdx = timeline.length - 1; ringCount = 1; ringLastMs = c.atMs; }
       else { ringIdx = -1; ringLastMs = -Infinity; }

@@ -53,6 +53,18 @@ async function fetchCallsPage(fromDatetime: string, page: number): Promise<any[]
   return json.data || json.calls || (Array.isArray(json) ? json : []);
 }
 
+// Diagnostic: list every phone number + every user on the JustCall
+// account so we can prove the poll (which is un-filtered by number)
+// covers everything. Invoke: ?probe=inventory
+/** Diagnostic — list every JustCall number + user on the account. */
+async function fetchInventory(): Promise<any> {
+  const headers = { 'Authorization': `${jcKey}:${jcSecret}`, 'Accept': 'application/json' };
+  // NOTE JustCall v2.1 pagination is 0-indexed. page=1 returns empty data.
+  const numbers = await fetch('https://api.justcall.io/v2.1/phone-numbers?per_page=100&page=0', { headers }).then(r => r.json());
+  const users = await fetch('https://api.justcall.io/v2.1/users?per_page=100&page=0', { headers }).then(r => r.json());
+  return { numbers, users };
+}
+
 Deno.serve(async (req: Request) => {
   try {
     if (!jcKey || !jcSecret) {
@@ -63,6 +75,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const url = new URL(req.url);
+
+    if (url.searchParams.get('probe') === 'inventory') {
+      const inv = await fetchInventory();
+      return new Response(JSON.stringify(inv, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+
     const days = Math.max(1, Math.min(90, parseInt(url.searchParams.get('days') || '7', 10)));
     const fromDatetime = new Date(Date.now() - days * 86_400_000)
       .toISOString().slice(0, 19).replace('T', ' '); // "yyyy-mm-dd hh:mm:ss"
@@ -80,6 +98,10 @@ Deno.serve(async (req: Request) => {
       call_sid: row.call_sid ?? null,
       contact_number: row.contact_number ?? null,
       contact_number_norm: normPhone(row.contact_number),
+      contact_name: row.contact_name ?? null,
+      justcall_number: row.justcall_number ?? null,
+      justcall_number_norm: normPhone(row.justcall_number),
+      justcall_line_name: row.justcall_line_name ?? null,
       direction: row.call_info?.direction ?? row.direction ?? null,
       call_type: row.call_info?.type ?? row.type ?? null,
       call_at: callAt(row),
