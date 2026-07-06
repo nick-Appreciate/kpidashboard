@@ -494,7 +494,10 @@ function LeadTimeline({ events }: { events: TimelineEvent[] }) {
                   controls
                   preload="none"
                   src={`/api/justcall/recording?call_sid=${encodeURIComponent(e.call_sid!)}`}
-                  className="w-full h-8"
+                  // Default h-8 squished the native scrubber — Chrome collapses
+                  // the seek bar when the control area is < ~40px tall. h-12 gives
+                  // it a proper rail so short calls can still be scrubbed.
+                  className="w-full h-12"
                   onClick={stop}
                   onError={() => setPlayingSid(null)}
                 />
