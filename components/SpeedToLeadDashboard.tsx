@@ -72,7 +72,15 @@ interface Agent {
   name: string; outbound: number; connected: number; inbound_answered: number;
   contacts: number; warm_leads: number; median_warm_min: number | null;
 }
-interface TimelineEvent { at: string; kind: string; label: string; detail: string | null }
+interface TimelineEvent {
+  at: string;
+  kind: string;
+  label: string;
+  detail: string | null;
+  missed?: boolean;
+  call_sid?: string | null;
+  has_recording?: boolean;
+}
 interface Lead {
   name: string | null; source: string; phone: string | null; inquiry_received: string;
   property: string | null; unit: string | null; guest_card_uuid: string | null;
@@ -369,19 +377,46 @@ function LeadCard({ lead, idx, open, onToggle, onCall, slaMin, warnMin }: {
 }
 
 function LeadTimeline({ events }: { events: TimelineEvent[] }) {
+  const [playingSid, setPlayingSid] = useState<string | null>(null);
   if (!events?.length) return <div className="text-xs text-slate-500">No events recorded.</div>;
   return (
     <ol className="relative ml-1 border-l border-white/10 space-y-2 pl-4 py-0.5">
-      {events.map((e, i) => (
-        <li key={i} className="relative">
-          <span className={`absolute -left-[21px] top-1 w-2 h-2 rounded-full ${KIND_DOT[e.kind] || 'bg-slate-400'}`} />
-          <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
-            <span className="text-slate-500 tabular-nums w-28 flex-shrink-0">{fmtDateTime(e.at)}</span>
-            <span className={`font-medium ${KIND_TEXT[e.kind] || 'text-slate-300'}`}>{e.label}</span>
-            {e.detail && <span className="text-slate-400">· {e.detail}</span>}
-          </div>
-        </li>
-      ))}
+      {events.map((e, i) => {
+        const canPlay = e.kind === 'call' && e.has_recording && e.call_sid;
+        const isPlaying = canPlay && playingSid === e.call_sid;
+        return (
+          <li key={i} className="relative">
+            <span className={`absolute -left-[21px] top-1 w-2 h-2 rounded-full ${KIND_DOT[e.kind] || 'bg-slate-400'}`} />
+            <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+              <span className="text-slate-500 tabular-nums w-28 flex-shrink-0">{fmtDateTime(e.at)}</span>
+              <span className={`font-medium ${KIND_TEXT[e.kind] || 'text-slate-300'}`}>{e.label}</span>
+              {e.detail && <span className="text-slate-400">· {e.detail}</span>}
+              {canPlay && !isPlaying && (
+                <button
+                  onClick={() => setPlayingSid(e.call_sid!)}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-accent/15 text-accent-light hover:bg-accent/25 inline-flex items-center gap-1"
+                  title="Play recording"
+                >
+                  ▶ Play
+                </button>
+              )}
+            </div>
+            {isPlaying && (
+              <div className="mt-1 ml-28 pl-2">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <audio
+                  autoPlay
+                  controls
+                  preload="none"
+                  src={`/api/justcall/recording?call_sid=${encodeURIComponent(e.call_sid!)}`}
+                  className="w-full max-w-sm h-8"
+                  onError={() => setPlayingSid(null)}
+                />
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }
