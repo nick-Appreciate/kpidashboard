@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { fetcher } from '../lib/swr';
 import { RECHARTS_THEME } from '../lib/chartTheme';
 import JustCallDialerBase, { useJustCall } from './JustCallDialer';
@@ -25,22 +25,6 @@ function formatPhoneForJustCall(phone: string | null): string | null {
   let c = phone.replace(/[^\d+]/g, '');
   if (!c.startsWith('+')) c = (c.startsWith('1') && c.length === 11) ? '+' + c : '+1' + c;
   return c;
-}
-const CAP_MIN = 60; // scatter Y-axis cap: 1 hour (business minutes)
-// Fractional hour-of-day (0–24) in the market's timezone (Central).
-function hourOfDayCentral(iso: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date(iso));
-  const h = Number(parts.find((p) => p.type === 'hour')?.value || 0) % 24;
-  const m = Number(parts.find((p) => p.type === 'minute')?.value || 0);
-  return h + m / 60;
-}
-function fmtHour(h: number): string {
-  const hr = ((h % 24) + 24) % 24; const ap = hr < 12 ? 'a' : 'p'; let d = Math.floor(hr) % 12; if (d === 0) d = 12; return `${d}${ap}`;
-}
-function fmtToCall(v: number): string {
-  if (v >= CAP_MIN) return '>1h';
-  if (v <= 0) return '0';
-  return `${v}m`;
 }
 function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
@@ -108,10 +92,10 @@ const COLUMNS: { id: string; label: string; head: string; ring: string }[] = [
 ];
 
 const KIND_TEXT: Record<string, string> = {
-  inquiry: 'text-cyan-300', auto: 'text-sky-300', call: 'text-violet-300', showing: 'text-amber-300', application: 'text-emerald-300', disqualified: 'text-rose-300',
+  inquiry: 'text-cyan-300', auto: 'text-sky-300', call: 'text-violet-300', note: 'text-slate-300', showing: 'text-amber-300', application: 'text-emerald-300', disqualified: 'text-rose-300',
 };
 const KIND_DOT: Record<string, string> = {
-  inquiry: 'bg-cyan-400', auto: 'bg-sky-400', call: 'bg-violet-400', showing: 'bg-amber-400', application: 'bg-emerald-400', disqualified: 'bg-rose-400',
+  inquiry: 'bg-cyan-400', auto: 'bg-sky-400', call: 'bg-violet-400', note: 'bg-slate-400', showing: 'bg-amber-400', application: 'bg-emerald-400', disqualified: 'bg-rose-400',
 };
 interface ApiResponse {
   days: number; region: string; sla_min: number; warn_min: number;
@@ -120,7 +104,13 @@ interface ApiResponse {
     median_dial_min: number | null; median_warm_min: number | null;
     within_sla_pct: number | null; within_warn_pct: number | null; agents: Agent[];
   };
-  daily: { date: string; leads: number; within_sla_pct: number | null; within_warn_pct: number | null }[];
+  daily: {
+    date: string; leads: number;
+    within_sla_pct: number | null; within_warn_pct: number | null;
+    median_attempt_min: number | null;
+    median_connect_min: number | null;
+    median_warm_min: number | null;
+  }[];
   leads: Lead[];
   leads_awaiting: number;
   leads_total: number;
@@ -232,23 +222,21 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
   const { warm, sla_min, warn_min } = data;
 
-  // 48-hour scatter: each lead by inquiry time-of-day (x) vs time-to-warm (y, capped 3h).
-  const cutoff = Date.now() - 48 * 3600 * 1000;
-  const scatterPts = data.leads
-    .map((l, idx) => ({ l, idx }))
-    .filter(({ l }) => new Date(l.inquiry_received).getTime() >= cutoff)
-    .map(({ l, idx }) => {
-      const contacted = l.warm_min != null;
-      return {
-        x: hourOfDayCentral(l.inquiry_received),
-        // Connected leads sit at their business-minutes-to-contact; not-connected
-        // leads pin at the cap (no contact time to plot).
-        y: Math.min(contacted ? (l.warm_min as number) : CAP_MIN, CAP_MIN),
-        dial: l.dial, attempts: l.attempts, idx, // idx = row index in data.leads (for click-to-expand)
-        name: l.name, stage: l.stage_label, warm_min: l.warm_min, inquiry_received: l.inquiry_received,
-      };
-    });
-  const byDial = (d: string) => scatterPts.filter((p) => p.dial === d);
+  // Time-series data for the "Time to first contact" line chart. The API
+  // returns one row per calendar day; medians are null when that day had no
+  // qualifying lead, and Recharts skips those points automatically.
+  // Y-axis is capped at LINE_CAP_MIN so a bad-outlier day doesn't flatten
+  // the good days into a straight line at the bottom.
+  const LINE_CAP_MIN = 240;
+  const cap = (v: number | null): number | null =>
+    v == null ? null : Math.min(v, LINE_CAP_MIN);
+  const contactSeries = data.daily.map(d => ({
+    date: d.date,
+    label: new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    attempt: cap(d.median_attempt_min),
+    connect: cap(d.median_connect_min),
+    warm:    cap(d.median_warm_min),
+  }));
 
   return (
     <div className={`${wrap} space-y-6`}>
@@ -321,32 +309,31 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         )}
       </section>
 
-      {/* ── TIME-TO-CONTACT SCATTER (last 48h) ──────────────────────── */}
-      <section className="glass-card p-4 [&_*:focus]:outline-none [&_svg]:outline-none">
+      {/* ── TIME-TO-CONTACT TREND (per-day medians) ────────────────── */}
+      <section className="glass-card p-4">
         <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· last 48 hours</span></h3>
-          <span className="text-[11px] text-slate-500">{scatterPts.length} leads · business-hours clock (9:15–5 M–F) · goal {sla_min}m · capped &gt;1h</span>
+          <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· daily medians</span></h3>
+          <span className="text-[11px] text-slate-500">business-hours clock (9:15–5 M–F) · goal {sla_min}m · capped {LINE_CAP_MIN}m</span>
         </div>
-        {scatterPts.length === 0 ? (
-          <div className="py-10 text-center text-xs text-slate-500">No inquiries in the last 48 hours.</div>
+        {contactSeries.length === 0 ? (
+          <div className="py-10 text-center text-xs text-slate-500">No inquiries in this window.</div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 18 }}>
+            <LineChart data={contactSeries} margin={{ top: 8, right: 16, left: 0, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
-              <XAxis type="number" dataKey="x" domain={[0, 24]} ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]} tickFormatter={fmtHour}
-                stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily}
-                label={{ value: 'Inquiry time of day (CT)', position: 'insideBottom', offset: -10, fontSize: 11, fill: '#64748b' }} />
-              <YAxis type="number" dataKey="y" domain={[0, CAP_MIN]} ticks={[0, 15, 30, 45, 60]} tickFormatter={fmtToCall}
-                stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize} fontFamily={RECHARTS_THEME.axis.fontFamily} width={40} />
+              <XAxis dataKey="label" stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
+                fontFamily={RECHARTS_THEME.axis.fontFamily} />
+              <YAxis type="number" domain={[0, LINE_CAP_MIN]} tickFormatter={(v) => `${v}m`}
+                stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
+                fontFamily={RECHARTS_THEME.axis.fontFamily} width={44} />
               <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
-              <Tooltip cursor={false} content={<ScatterTip slaMin={sla_min} />} />
+              <Tooltip content={<LineTip />} />
               <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Scatter name="Connected"  data={byDial('connected')} fill="#10b981" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
-              <Scatter name="Left VM"    data={byDial('left_vm')}   fill="#38bdf8" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
-              <Scatter name="Attempted"  data={byDial('attempt')}   fill="#eab308" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
-              <Scatter name="Not called" data={byDial('none')}      fill="#f43f5e" fillOpacity={0.85} cursor="pointer" onClick={(d: any) => focusLead(d?.payload?.idx ?? d?.idx)} />
-            </ScatterChart>
+              <Line type="monotone" dataKey="attempt" name="First attempt"  stroke="#eab308" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+              <Line type="monotone" dataKey="connect" name="First connect"  stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+              <Line type="monotone" dataKey="warm"    name="Warm contact"   stroke="#10b981" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+            </LineChart>
           </ResponsiveContainer>
         )}
       </section>
@@ -583,22 +570,18 @@ function LeadTimeline({ events }: { events: TimelineEvent[] }) {
   );
 }
 
-function ScatterTip({ active, payload, slaMin }: any) {
+function LineTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
-  const p = payload[0].payload;
-  const status = p.dial === 'connected'
-    ? { text: `Connected in ${fmtToCall(Math.min(p.warm_min, CAP_MIN))} (business hrs)`, cls: p.warm_min <= slaMin ? 'text-emerald-400' : 'text-emerald-300' }
-    : p.dial === 'left_vm'
-      ? { text: 'Left voicemail', cls: 'text-sky-400' }
-      : p.dial === 'attempt'
-        ? { text: `Attempted × ${p.attempts || 1}`, cls: 'text-amber-400' }
-        : { text: 'Not called', cls: 'text-rose-400' };
+  const row: Record<string, any> = {};
+  for (const p of payload) row[p.dataKey] = p.value;
+  const line = (name: string, v: number | null | undefined, cls: string) =>
+    v == null ? null : <div key={name} className={cls}>{name}: {fmtLatency(v)}</div>;
   return (
-    <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg px-3 py-2 text-xs shadow-lg">
-      <div className="font-medium text-slate-200 mb-0.5">{p.name || '—'}</div>
-      <div className="text-slate-400">Inquiry: {fmtDateTime(p.inquiry_received)}</div>
-      <div className={status.cls}>{status.text}</div>
-      {p.stage && <div className="text-slate-500 mt-0.5">{p.stage}</div>}
+    <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg px-3 py-2 text-xs shadow-lg space-y-0.5">
+      <div className="font-medium text-slate-200 mb-1">{label}</div>
+      {line('First attempt', row.attempt, 'text-amber-400')}
+      {line('First connect', row.connect, 'text-sky-400')}
+      {line('Warm contact',  row.warm,    'text-emerald-400')}
     </div>
   );
 }

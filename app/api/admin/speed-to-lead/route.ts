@@ -106,6 +106,72 @@ function parseInactive(notes: string | null | undefined): { reason: string | nul
   return { at: mdyToIso(m[1]), reason: (m[2] || '').trim() || null, detail: detail || null };
 }
 
+// Split the guest-card notes blob into discrete activity events. AppFolio joins
+// entries with ";" — each entry starts "MM/DD/YYYY, <type-or-freeform-text>".
+// Common shapes:
+//   "MM/DD/YYYY, Marked Inactive\n<Property>\nReason: <r>\n<detail>"
+//   "MM/DD/YYYY, Call\nMM/DD/YYYY HH:MM AM/PM\n<Property>\n\n<agent free-text>"
+//   "MM/DD/YYYY, <arbitrary agent free-text>"
+// Marked Inactive and Call entries capture PM-authored context that JustCall
+// and the disqualified event don't carry (voucher status, reason detail,
+// call-back promises), so we surface them all.
+type NoteEvent = { at: string; label: string; detail: string | null };
+function parseAppfolioNotes(notes: string | null | undefined): NoteEvent[] {
+  if (!notes) return [];
+  const events: NoteEvent[] = [];
+  const raw = notes.split(/;\s*(?=\d{1,2}\/\d{1,2}\/\d{4},)/g);
+  for (const entry of raw) {
+    const t = entry.trim().replace(/;+\s*$/, '');
+    if (!t) continue;
+    const head = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),\s*([\s\S]*)$/);
+    if (!head) continue;
+    const [, mm, dd, yyyy, rest] = head;
+    const dateStr = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+    // Central-time noon as a safe default so ordering is stable within a day.
+    let atIso = `${dateStr}T17:00:00Z`;
+
+    const call = rest.match(/^Call\s*\n\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    let label = 'Note';
+    let detailBody = rest;
+
+    if (call) {
+      const [, cmm, cdd, cyyyy, chr, cmn, cap] = call;
+      let hr = parseInt(chr, 10) % 12;
+      if (cap.toUpperCase() === 'PM') hr += 12;
+      atIso = `${cyyyy}-${cmm.padStart(2, '0')}-${cdd.padStart(2, '0')}T${String(hr).padStart(2, '0')}:${cmn}:00-05:00`;
+      label = 'Call note';
+      // Drop the Call header + timestamp + property + blank line — leave only
+      // the agent's freeform text.
+      const lines = rest.split('\n').slice(1).map(s => s.trim());
+      // First remaining line is the datetime; skip. Next is the property; skip.
+      // Then usually a blank line before the note body.
+      const body = lines.slice(2).filter(l => l).join(' · ');
+      detailBody = body || rest;
+    } else if (/^Marked Inactive/i.test(rest)) {
+      const lines = rest.split('\n').map(s => s.trim());
+      let reason = '';
+      let detailLines: string[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const rm = lines[i].match(/^Reason:\s*(.*)$/i);
+        if (rm) {
+          reason = rm[1].trim();
+          detailLines = lines.slice(i + 1).filter(Boolean);
+          break;
+        }
+      }
+      label = reason ? `Marked Inactive · ${reason}` : 'Marked Inactive';
+      detailBody = detailLines.join(' ');
+    } else {
+      const collapsed = rest.split('\n').map(s => s.trim()).filter(Boolean).join(' · ');
+      detailBody = collapsed;
+    }
+
+    const detail = detailBody.trim().replace(/\s+/g, ' ').slice(0, 240) || null;
+    events.push({ at: atIso, label: label.slice(0, 80), detail });
+  }
+  return events;
+}
+
 // Furthest-along wins when a person has multiple applications.
 function appRank(status: string): number {
   const s = (status || '').toLowerCase();
@@ -276,19 +342,34 @@ export async function GET(req: NextRequest) {
   const warmLat: number[] = [];
   const agentAgg = new Map<string, number[]>();
   let dialed = 0, connected = 0, within5 = 0, within1h = 0;
-  // Per-day accountability series: of that day's leads, how many hit the SLA.
-  const dailyMap = new Map<string, { leads: number; w5: number; w60: number }>();
+  // Per-day accountability + timing series. attemptLats/connectLats/warmLats
+  // are arrays of per-lead business-minute latencies whose medians drive the
+  // "time to first…" line chart.
+  const dailyMap = new Map<string, { leads: number; w5: number; w60: number; attemptLats: number[]; connectLats: number[]; warmLats: number[] }>();
 
   for (const l of withPhone) {
     const inqMs = new Date(l.inquiry_received).getTime();
     const day = l.inquiry_received.slice(0, 10);
-    const d = dailyMap.get(day) || { leads: 0, w5: 0, w60: 0 };
+    const d = dailyMap.get(day) || { leads: 0, w5: 0, w60: 0, attemptLats: [], connectLats: [], warmLats: [] };
     d.leads++;
 
     const p = phone10(l.phone)!;
     const outCalls = (outByPhone.get(p) || []).filter(c => c.at >= inqMs);
     const inCalls  = (inAnsweredByPhone.get(p) || []).filter(c => c.at >= inqMs);
     if (outCalls.length > 0) dialed++;   // any outbound attempt counts as "dialed"
+
+    // First contact attempt: any outbound dial we made OR any inbound they got
+    // through on (the lead reaching back is still first contact).
+    const firstOutMs = outCalls.length ? Math.min(...outCalls.map(c => c.at)) : Infinity;
+    const firstInAnsweredMs = inCalls.length ? Math.min(...inCalls.map(c => c.at)) : Infinity;
+    const firstAttemptMs = Math.min(firstOutMs, firstInAnsweredMs);
+    if (firstAttemptMs !== Infinity) d.attemptLats.push(businessMinutes(inqMs, firstAttemptMs));
+
+    // First "connected call": far-end picked up on either direction.
+    const outAnswered = outCalls.filter(c => c.call_type === 'answered');
+    const firstOutAnsweredMs = outAnswered.length ? Math.min(...outAnswered.map(c => c.at)) : Infinity;
+    const firstConnectMs = Math.min(firstOutAnsweredMs, firstInAnsweredMs);
+    if (firstConnectMs !== Infinity) d.connectLats.push(businessMinutes(inqMs, firstConnectMs));
 
     // Real conversation = outbound answered ≥ 30s OR any inbound answered.
     // Voicemail-machine catches (short answers) no longer inflate connect rate.
@@ -303,6 +384,7 @@ export async function GET(req: NextRequest) {
       const firstWarm = liveOwners.reduce((m, c) => (c.at < m.at ? c : m));
       const min = businessMinutes(inqMs, firstWarm.at);
       warmLat.push(min);
+      d.warmLats.push(min);
       if (min <= SLA_MIN) { within5++; d.w5++; }
       if (min <= WARN_MIN) { within1h++; d.w60++; }
       if (firstWarm.agent) {
@@ -313,7 +395,7 @@ export async function GET(req: NextRequest) {
     dailyMap.set(day, d);
   }
 
-  // Daily SLA success-rate series (chronological), for the accountability chart.
+  // Daily SLA success-rate + median-latency series (chronological).
   const daily = Array.from(dailyMap.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, v]) => ({
@@ -321,6 +403,9 @@ export async function GET(req: NextRequest) {
       leads: v.leads,
       within_sla_pct: pct(v.w5, v.leads),
       within_warn_pct: pct(v.w60, v.leads),
+      median_attempt_min: median(v.attemptLats),
+      median_connect_min: median(v.connectLats),
+      median_warm_min:    median(v.warmLats),
     }));
 
   const warm = {
@@ -351,13 +436,13 @@ export async function GET(req: NextRequest) {
   // inquiry as the origin, and aggregate every guest_card_id / inquiry_id so
   // the furthest stage spans all of their activity.
   type Disq = { reason: string | null; detail: string | null; at: string | null };
-  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null; property: string | null; unit: string | null; latestGcid: string | null; latestGcUuid: string | null };
+  type Acc = { name: string | null; source: string; phone: string | null; earliest: string; firstRespAt: string | null; firstRespType: string | null; gcids: Set<string>; inqids: Set<string>; latestReceived: string; latestStatus: string | null; disq: Disq | null; property: string | null; unit: string | null; latestGcid: string | null; latestGcUuid: string | null; notes: Set<string> };
   const byPerson = new Map<string, Acc>();
   for (const l of rawLeads) {
     const key = phone10(l.phone) || `name:${(l.name || '').toLowerCase().trim()}`;
     let a = byPerson.get(key);
     if (!a) {
-      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null, property: l.property ?? null, unit: l.unit ?? null, latestGcid: l.guest_card_id ? String(l.guest_card_id) : null, latestGcUuid: l.guest_card_uuid ?? null };
+      a = { name: l.name ?? null, source: norm(l.source), phone: l.phone ?? null, earliest: l.inquiry_received, firstRespAt: null, firstRespType: null, gcids: new Set(), inqids: new Set(), latestReceived: l.inquiry_received, latestStatus: l.status ?? null, disq: null, property: l.property ?? null, unit: l.unit ?? null, latestGcid: l.guest_card_id ? String(l.guest_card_id) : null, latestGcUuid: l.guest_card_uuid ?? null, notes: new Set() };
       byPerson.set(key, a);
     }
     if (l.inquiry_received < a.earliest) { a.earliest = l.inquiry_received; a.source = norm(l.source); }
@@ -374,6 +459,7 @@ export async function GET(req: NextRequest) {
     if (l.first_response_at && (!a.firstRespAt || l.first_response_at < a.firstRespAt)) { a.firstRespAt = l.first_response_at; a.firstRespType = l.first_response_type ?? null; }
     const d = parseInactive(l.notes as string | null);
     if (d && (!a.disq || (d.at && (!a.disq.at || d.at > a.disq.at)))) a.disq = d;
+    if (l.notes) a.notes.add(l.notes as string);
     if (!a.name && l.name) a.name = l.name;
     if (!a.phone && l.phone) a.phone = l.phone;
     if (l.guest_card_id) a.gcids.add(String(l.guest_card_id));
@@ -437,6 +523,20 @@ export async function GET(req: NextRequest) {
     const timeline: { at: string; kind: string; label: string; detail: string | null; missed?: boolean; call_sid?: string | null; has_recording?: boolean }[] = [];
     timeline.push({ at: a.earliest, kind: 'inquiry', label: 'Inquiry', detail: a.source });
     if (a.firstRespAt) timeline.push({ at: a.firstRespAt, kind: 'auto', label: a.firstRespType || 'Auto-response', detail: 'automated' });
+
+    // AppFolio guest-card notes / activity log entries. A single lead may have
+    // several inquiry rows carrying the SAME notes blob (notes live on the
+    // guest card, not the inquiry), so we dedupe both the raw blobs and the
+    // parsed events by (at + label + first 40 chars of detail).
+    const noteSeen = new Set<string>();
+    for (const blob of a.notes) {
+      for (const ev of parseAppfolioNotes(blob)) {
+        const key = `${ev.at}|${ev.label}|${(ev.detail || '').slice(0, 40)}`;
+        if (noteSeen.has(key)) continue;
+        noteSeen.add(key);
+        timeline.push({ at: ev.at, kind: 'note', label: ev.label, detail: ev.detail });
+      }
+    }
     // Collapse round-robin ring-group legs: one inbound call to the group is
     // logged by JustCall as several unanswered legs (distinct call_sids) within
     // seconds. Merge a run of unanswered inbound calls that are within 2 min of
