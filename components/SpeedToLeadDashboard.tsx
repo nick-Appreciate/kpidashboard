@@ -3,7 +3,7 @@
 /**
  * SpeedToLeadDashboard — /leasing/speed-to-lead
  *
- *   Warm Contact (headline) — first answered outbound JustCall call, minute-precise.
+ *   Contact (headline) — first answered call, minute-precise.
  *   Daily success rate — % of each day's leads reached within the 5-min goal.
  *   Lead tracker — one row per lead: dial status, warm-contact time, and the
  *     furthest leasing stage (+ date). Awaiting-a-warm-call leads sit on top so
@@ -222,20 +222,14 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
   const { warm, sla_min, warn_min } = data;
 
-  // Time-series data for the "Time to first contact" line chart. The API
-  // returns one row per calendar day; medians are null when that day had no
-  // qualifying lead, and Recharts skips those points automatically.
-  // Y-axis is capped at LINE_CAP_MIN so a bad-outlier day doesn't flatten
-  // the good days into a straight line at the bottom.
-  const LINE_CAP_MIN = 240;
-  const cap = (v: number | null): number | null =>
-    v == null ? null : Math.min(v, LINE_CAP_MIN);
+  // Time-series data for the "Time to first contact" line chart. One row per
+  // calendar day; medians are null when a day had no qualifying lead and
+  // Recharts skips those points automatically. Y-axis auto-scales.
   const contactSeries = data.daily.map(d => ({
     date: d.date,
     label: new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    attempt: cap(d.median_attempt_min),
-    connect: cap(d.median_connect_min),
-    warm:    cap(d.median_warm_min),
+    attempt: d.median_attempt_min,
+    connect: d.median_connect_min,
   }));
 
   return (
@@ -265,13 +259,13 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       {/* ── WARM CONTACT (headline) ─────────────────────────────────── */}
       <section className="glass-card border border-accent/25 p-4 space-y-4">
         <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-semibold text-slate-100">Warm Contact <span className="text-slate-500 font-normal">· first answered call</span></h3>
+          <h3 className="text-sm font-semibold text-slate-100">Contact <span className="text-slate-500 font-normal">· first answered call</span></h3>
           <span className="text-[11px] text-slate-500">JustCall · minute-precise · full history</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <Stat label={`Called within ${sla_min} min`} value={warm.within_sla_pct != null ? `${warm.within_sla_pct}%` : '—'} sub="answered outbound"
             tone={warm.within_sla_pct != null && warm.within_sla_pct >= 50 ? 'good' : warm.within_sla_pct != null && warm.within_sla_pct >= 20 ? 'warn' : 'bad'} big />
-          <Stat label="Median to warm contact" value={fmtLatency(warm.median_warm_min)} sub="inquiry → answered call" tone="neutral" big />
+          <Stat label="Median to first connect" value={fmtLatency(warm.median_warm_min)} sub="inquiry → answered call" tone="neutral" big />
           <Stat label="Median to first dial" value={fmtLatency(warm.median_dial_min)} sub="of connected leads" tone="neutral" big />
           <Stat label="Connect rate" value={warm.connect_rate_pct != null ? `${warm.connect_rate_pct}%` : '—'} sub={`${warm.connected}/${warm.leads_with_phone} leads`}
             tone={warm.connect_rate_pct != null && warm.connect_rate_pct >= 70 ? 'good' : 'warn'} big />
@@ -289,7 +283,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
                   <th className="text-right font-medium px-3 py-1.5">Connected</th>
                   <th className="text-right font-medium px-3 py-1.5">Inbound</th>
                   <th className="text-right font-medium px-3 py-1.5">Contacts</th>
-                  <th className="text-right font-medium px-3 py-1.5">Median to warm</th>
+                  <th className="text-right font-medium px-3 py-1.5">Median to connect</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -313,7 +307,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       <section className="glass-card p-4">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· daily medians</span></h3>
-          <span className="text-[11px] text-slate-500">business-hours clock (9:15–5 M–F) · goal {sla_min}m · capped {LINE_CAP_MIN}m</span>
+          <span className="text-[11px] text-slate-500">business-hours clock (9:15–5 M–F) · goal {sla_min}m</span>
         </div>
         {contactSeries.length === 0 ? (
           <div className="py-10 text-center text-xs text-slate-500">No inquiries in this window.</div>
@@ -323,16 +317,15 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
               <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
               <XAxis dataKey="label" stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
                 fontFamily={RECHARTS_THEME.axis.fontFamily} />
-              <YAxis type="number" domain={[0, LINE_CAP_MIN]} tickFormatter={(v) => `${v}m`}
+              <YAxis type="number" tickFormatter={(v) => `${v}m`}
                 stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
-                fontFamily={RECHARTS_THEME.axis.fontFamily} width={44} />
+                fontFamily={RECHARTS_THEME.axis.fontFamily} width={54} />
               <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
                 label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
               <Tooltip content={<LineTip />} />
               <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Line type="monotone" dataKey="attempt" name="First attempt"  stroke="#eab308" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
-              <Line type="monotone" dataKey="connect" name="First connect"  stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
-              <Line type="monotone" dataKey="warm"    name="Warm contact"   stroke="#10b981" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+              <Line type="monotone" dataKey="attempt" name="First attempt" stroke="#eab308" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+              <Line type="monotone" dataKey="connect" name="First connect" stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -581,7 +574,6 @@ function LineTip({ active, payload, label }: any) {
       <div className="font-medium text-slate-200 mb-1">{label}</div>
       {line('First attempt', row.attempt, 'text-amber-400')}
       {line('First connect', row.connect, 'text-sky-400')}
-      {line('Warm contact',  row.warm,    'text-emerald-400')}
     </div>
   );
 }
