@@ -224,12 +224,16 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
   // Time-series data for the "Time to first contact" line chart. One row per
   // calendar day; medians are null when a day had no qualifying lead and
-  // Recharts skips those points automatically. Y-axis auto-scales.
+  // Recharts skips those points automatically. Capped at 1 business day
+  // (1440m) so an outlier day doesn't compress the rest of the range.
+  const LINE_CAP_MIN = 1440;
+  const cap = (v: number | null): number | null =>
+    v == null ? null : Math.min(v, LINE_CAP_MIN);
   const contactSeries = data.daily.map(d => ({
     date: d.date,
     label: new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    attempt: d.median_attempt_min,
-    connect: d.median_connect_min,
+    attempt: cap(d.median_attempt_min),
+    connect: cap(d.median_connect_min),
   }));
 
   return (
@@ -307,7 +311,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
       <section className="glass-card p-4">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· daily medians</span></h3>
-          <span className="text-[11px] text-slate-500">business-hours clock (9:15–5 M–F) · goal {sla_min}m</span>
+          <span className="text-[11px] text-slate-500">business-hours clock (9:15–5 M–F) · goal {sla_min}m · capped 1d</span>
         </div>
         {contactSeries.length === 0 ? (
           <div className="py-10 text-center text-xs text-slate-500">No inquiries in this window.</div>
@@ -317,7 +321,8 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
               <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
               <XAxis dataKey="label" stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
                 fontFamily={RECHARTS_THEME.axis.fontFamily} />
-              <YAxis type="number" tickFormatter={(v) => `${v}m`}
+              <YAxis type="number" domain={[0, LINE_CAP_MIN]}
+                tickFormatter={(v) => v >= 60 ? `${(v / 60).toFixed(v % 60 === 0 ? 0 : 1)}h` : `${v}m`}
                 stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
                 fontFamily={RECHARTS_THEME.axis.fontFamily} width={54} />
               <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
