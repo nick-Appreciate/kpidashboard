@@ -207,6 +207,7 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
 
   // Only one lead expanded at a time.
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [chartTab, setChartTab] = useState<'contact' | 'sla'>('contact');
   const toggleRow = (i: number) => setExpandedIdx((cur) => (cur === i ? null : i));
   // Clicking a scatter point expands that lead's row and scrolls to it.
   const focusLead = (idx?: number) => {
@@ -234,6 +235,15 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
     label: new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     attempt: cap(d.median_attempt_min),
     connect: cap(d.median_connect_min),
+  }));
+  // "Called within 5 min" rate over time — % of that day's leads whose first
+  // answered call landed inside the SLA. within_sla_pct comes back from the
+  // API as either a percent or null (day had no qualifying leads).
+  const slaSeries = data.daily.map(d => ({
+    date: d.date,
+    label: new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    within_sla: d.within_sla_pct,
+    leads: d.leads,
   }));
 
   return (
@@ -307,32 +317,71 @@ export default function SpeedToLeadDashboard({ embedded = false }: { embedded?: 
         )}
       </section>
 
-      {/* ── TIME-TO-CONTACT TREND (per-day medians) ────────────────── */}
+      {/* ── PERFORMANCE CHART (tabbed) ─────────────────────────────── */}
       <section className="glass-card p-4">
-        <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-sm font-semibold text-slate-100">Time to contact <span className="text-slate-500 font-normal">· daily medians</span></h3>
-          <span className="text-[11px] text-slate-500">business-hours clock (9:15–5 M–F) · goal {sla_min}m · capped 1d</span>
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <div className="inline-flex rounded-lg border border-[var(--glass-border)] bg-surface-overlay p-0.5">
+            <button
+              onClick={() => setChartTab('contact')}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${chartTab === 'contact' ? 'bg-accent/20 text-accent-light' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Time to contact
+            </button>
+            <button
+              onClick={() => setChartTab('sla')}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${chartTab === 'sla' ? 'bg-accent/20 text-accent-light' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              Called within {sla_min}m
+            </button>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {chartTab === 'contact'
+              ? `business-hours clock (9:15–5 M–F) · goal ${sla_min}m · capped 1d`
+              : `% of that day's leads answered within ${sla_min}m business-hours`}
+          </span>
         </div>
-        {contactSeries.length === 0 ? (
-          <div className="py-10 text-center text-xs text-slate-500">No inquiries in this window.</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={contactSeries} margin={{ top: 8, right: 16, left: 0, bottom: 18 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
-              <XAxis dataKey="label" stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
-                fontFamily={RECHARTS_THEME.axis.fontFamily} />
-              <YAxis type="number" domain={[0, LINE_CAP_MIN]}
-                tickFormatter={(v) => v >= 60 ? `${(v / 60).toFixed(v % 60 === 0 ? 0 : 1)}h` : `${v}m`}
-                stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
-                fontFamily={RECHARTS_THEME.axis.fontFamily} width={54} />
-              <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
-                label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
-              <Tooltip content={<LineTip />} />
-              <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-              <Line type="monotone" dataKey="attempt" name="First attempt" stroke="#eab308" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
-              <Line type="monotone" dataKey="connect" name="First connect" stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
+        {chartTab === 'contact' && (
+          contactSeries.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-500">No inquiries in this window.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={contactSeries} margin={{ top: 8, right: 16, left: 0, bottom: 18 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
+                <XAxis dataKey="label" stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
+                  fontFamily={RECHARTS_THEME.axis.fontFamily} />
+                <YAxis type="number" domain={[0, LINE_CAP_MIN]}
+                  tickFormatter={(v) => v >= 60 ? `${(v / 60).toFixed(v % 60 === 0 ? 0 : 1)}h` : `${v}m`}
+                  stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
+                  fontFamily={RECHARTS_THEME.axis.fontFamily} width={54} />
+                <ReferenceLine y={sla_min} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
+                  label={{ value: `${sla_min}m goal`, position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
+                <Tooltip content={<LineTip />} />
+                <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                <Line type="monotone" dataKey="attempt" name="First attempt" stroke="#eab308" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+                <Line type="monotone" dataKey="connect" name="First connect" stroke="#38bdf8" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+          )
+        )}
+        {chartTab === 'sla' && (
+          slaSeries.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-500">No inquiries in this window.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={slaSeries} margin={{ top: 8, right: 16, left: 0, bottom: 18 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={RECHARTS_THEME.grid.stroke} />
+                <XAxis dataKey="label" stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
+                  fontFamily={RECHARTS_THEME.axis.fontFamily} />
+                <YAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`}
+                  stroke={RECHARTS_THEME.axis.stroke} fontSize={RECHARTS_THEME.axis.fontSize}
+                  fontFamily={RECHARTS_THEME.axis.fontFamily} width={44} />
+                <ReferenceLine y={50} stroke="#10b981" strokeDasharray="4 3" strokeOpacity={0.6}
+                  label={{ value: '50% target', position: 'insideTopLeft', fontSize: 10, fill: '#10b981' }} />
+                <Tooltip content={<SlaTip slaMin={sla_min} />} />
+                <Line type="monotone" dataKey="within_sla" name={`Called within ${sla_min}m`} stroke="#10b981" strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+          )
         )}
       </section>
 
@@ -579,6 +628,20 @@ function LineTip({ active, payload, label }: any) {
       <div className="font-medium text-slate-200 mb-1">{label}</div>
       {line('First attempt', row.attempt, 'text-amber-400')}
       {line('First connect', row.connect, 'text-sky-400')}
+    </div>
+  );
+}
+
+function SlaTip({ active, payload, label, slaMin }: any) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  const v: number | null = p.within_sla;
+  const tone = v == null ? 'text-slate-500' : v >= 50 ? 'text-emerald-400' : v >= 20 ? 'text-amber-400' : 'text-rose-400';
+  return (
+    <div className="bg-[var(--surface-overlay)] border border-white/10 rounded-lg px-3 py-2 text-xs shadow-lg space-y-0.5">
+      <div className="font-medium text-slate-200 mb-1">{label}</div>
+      <div className={tone}>Called within {slaMin}m: {v == null ? '—' : `${v}%`}</div>
+      <div className="text-slate-500">{p.leads} lead{p.leads === 1 ? '' : 's'} that day</div>
     </div>
   );
 }
