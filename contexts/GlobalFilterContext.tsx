@@ -14,8 +14,12 @@
  * selected) the array is empty AND `isActive` is false, which dashboards
  * treat as "show everything".
  *
- * State is persisted to localStorage so navigating between pages keeps
- * the filter active.
+ * State is persisted to sessionStorage so navigating between pages keeps
+ * the filter active, but a fresh tab / browser restart / different user
+ * on the same machine starts with a clean, unfiltered dashboard. We used
+ * to use localStorage but that made filters bleed across sessions and
+ * users — a filter set by one user would silently narrow the dashboard
+ * for anyone who opened it afterwards.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
@@ -69,7 +73,10 @@ interface GlobalFilterValue {
 
 const Ctx = createContext<GlobalFilterValue | null>(null);
 
-const LS_KEY = 'globalFilter.v1';
+const SS_KEY = 'globalFilter.v1';
+// Old localStorage key — purged on first read to avoid the persist-across-
+// sessions/users bug the old storage caused.
+const LEGACY_LS_KEY = 'globalFilter.v1';
 
 interface StoredState {
   groups: string[];
@@ -78,10 +85,15 @@ interface StoredState {
 }
 
 function loadStored(): StoredState {
-  if (typeof window === 'undefined') return { groups: [], owners: [], properties: [] };
+  const empty = { groups: [], owners: [], properties: [] };
+  if (typeof window === 'undefined') return empty;
   try {
-    const raw = window.localStorage.getItem(LS_KEY);
-    if (!raw) return { groups: [], owners: [], properties: [] };
+    // One-time migration: nuke the old localStorage entry so any existing
+    // user's stale filter (from before the sessionStorage switch) doesn't
+    // leak into their fresh session.
+    try { window.localStorage.removeItem(LEGACY_LS_KEY); } catch {}
+    const raw = window.sessionStorage.getItem(SS_KEY);
+    if (!raw) return empty;
     const parsed = JSON.parse(raw);
     return {
       groups: Array.isArray(parsed.groups) ? parsed.groups.map(String) : [],
@@ -89,13 +101,13 @@ function loadStored(): StoredState {
       properties: Array.isArray(parsed.properties) ? parsed.properties.map(String) : [],
     };
   } catch {
-    return { groups: [], owners: [], properties: [] };
+    return empty;
   }
 }
 
 function persistStored(s: StoredState) {
   if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
+  try { window.sessionStorage.setItem(SS_KEY, JSON.stringify(s)); } catch {}
 }
 
 export function GlobalFilterProvider({ children }: { children: React.ReactNode }) {
