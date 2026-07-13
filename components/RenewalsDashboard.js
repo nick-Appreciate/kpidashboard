@@ -294,11 +294,22 @@ export default function RenewalsDashboard() {
     return counts;
   }, [tableleases]);
 
-  // For the mini chart, provide leaseData-like shape
-  const leaseData = useMemo(() => ({
-    badLeases: allLeases.filter(l => ['expired', 'monthToMonth', 'expiring'].includes(l.issueType)),
-    upcoming: allLeases.filter(l => l.issueType === 'upcoming'),
-  }), [allLeases]);
+  // For the mini chart, provide leaseData-like shape. Apply the same
+  // GlobalFilter that the detail table applies so the chart's monthly
+  // counts always match what the detail table can actually surface —
+  // otherwise a global property filter makes the chart show "N" while
+  // the table shows fewer, which reads as a bug.
+  const leaseData = useMemo(() => {
+    const filterByProps = (arr) => {
+      if (!globalFilter.isActive) return arr;
+      const set = new Set(globalFilter.effectiveProperties);
+      return arr.filter(l => set.has(l.property || l.property_name));
+    };
+    return {
+      badLeases: filterByProps(allLeases.filter(l => ['expired', 'monthToMonth', 'expiring'].includes(l.issueType))),
+      upcoming: filterByProps(allLeases.filter(l => l.issueType === 'upcoming')),
+    };
+  }, [allLeases, globalFilter.isActive, globalFilter.effectiveProperties]);
 
   // Compute upcoming expirations bucketed by month for next 6 months, plus an Expired bucket
   const monthlyExpirations = useMemo(() => {

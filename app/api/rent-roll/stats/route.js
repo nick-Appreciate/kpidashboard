@@ -827,7 +827,8 @@ export async function GET(request) {
         hasRenewalData: !!renewalInfo,
         tenantPhone: tenantEventInfo?.tenant_phone || null,
         tenantEmail: tenantEventInfo?.tenant_email || null,
-        leaseEndDate: u.lease_to || null
+        leaseEnd: u.lease_to || null,
+        leaseEndDate: u.lease_to || null   // kept for backwards compat with any older consumers
       };
       
       // Skip evictions and move-out notices — handled elsewhere, not renewal candidates
