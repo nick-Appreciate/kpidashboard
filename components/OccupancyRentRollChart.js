@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
 import { CHART_PALETTE, DARK_CHART_DEFAULTS } from '../lib/chartTheme';
+import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 // Pretty-print "2026-04-15" as "Apr 15 '26"
 const fmtDateAxis = (iso) => {
@@ -52,15 +53,23 @@ export default function OccupancyRentRollChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Respect the app-wide GlobalFilter — when it's active, pass the resolved
+  // property list to the API so the chart matches every other filter-aware
+  // widget on the page.
+  const { isActive: filterActive, effectiveProperties } = useGlobalFilter();
+
   const fetchUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (mode === 'by_gl' && selectedGls.length > 0) {
       params.set('gls', selectedGls.join(','));
     }
+    if (filterActive && effectiveProperties.length > 0) {
+      params.set('properties', effectiveProperties.join(','));
+    }
     // Else: omit gls → API returns the All-rent-and-charges aggregate
     const q = params.toString();
     return `/api/occupancy/rent-roll-over-time${q ? `?${q}` : ''}`;
-  }, [mode, selectedGls]);
+  }, [mode, selectedGls, filterActive, effectiveProperties]);
 
   const reload = useCallback(async () => {
     setLoading(true);

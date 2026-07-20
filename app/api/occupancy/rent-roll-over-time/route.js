@@ -13,10 +13,13 @@
  * collected".
  *
  * Query params:
- *   gls   comma-separated list of GL codes (see GL_COLUMN_MAP below) OR
- *         omitted / "all" → single "All rent & charges" series
- *   from  YYYY-MM-DD lower bound on snapshot_date (optional)
- *   to    YYYY-MM-DD upper bound (optional)
+ *   gls        comma-separated list of GL codes (see GL_COLUMN_MAP below)
+ *              OR omitted / "all" → single "All rent & charges" series
+ *   from       YYYY-MM-DD lower bound on snapshot_date (optional)
+ *   to         YYYY-MM-DD upper bound (optional)
+ *   properties comma-separated list of property_name values. When provided,
+ *              queries the by-property view and re-sums only rows matching
+ *              those names. Empty / omitted → portfolio total (all props).
  *
  * Response:
  *   {
@@ -58,20 +61,67 @@ export async function GET(request) {
     const glsParam = (searchParams.get('gls') || '').trim();
     const from = searchParams.get('from');
     const to   = searchParams.get('to');
+    const propertiesParam = (searchParams.get('properties') || '').trim();
+    const propertyList = propertiesParam
+      ? propertiesParam.split(',').map(s => s.trim()).filter(Boolean)
+      : null;
 
-    // One row per snapshot_date — the view does the cross-unit sum for us.
-    let query = supabase
-      .from('v_rent_roll_daily_sum')
-      .select('*')
-      .order('snapshot_date', { ascending: true })
-      .range(0, 9999);
-    if (from) query = query.gte('snapshot_date', from);
-    if (to)   query = query.lte('snapshot_date', to);
+    // When a property filter is active, query the per-property variant of
+    // the view and re-aggregate ourselves over the selected property list.
+    // Otherwise the portfolio-total view is a straight per-day sum.
+    const NUMERIC_COLS = [
+      'total_rent','tenant_rental_income','utility_reimbursement',
+      'cha_income','iha_income','kckha_income','hakc_income','hud_income',
+      'pet_rent','storage_fee','parking_fee','insurance_services',
+      'other_charges','past_due',
+    ];
 
-    const { data: rows, error } = await query;
-    if (error) {
-      console.error('v_rent_roll_daily_sum query error', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    let rows;
+    if (propertyList && propertyList.length > 0) {
+      let q = supabase
+        .from('v_rent_roll_daily_sum_by_property')
+        .select('*')
+        .in('property_name', propertyList)
+        .order('snapshot_date', { ascending: true })
+        .range(0, 99999);
+      if (from) q = q.gte('snapshot_date', from);
+      if (to)   q = q.lte('snapshot_date', to);
+      const { data, error } = await q;
+      if (error) {
+        console.error('v_rent_roll_daily_sum_by_property query error', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      // Collapse per-property rows into one row per snapshot_date
+      const bucket = new Map();
+      for (const r of data || []) {
+        const dt = r.snapshot_date;
+        let agg = bucket.get(dt);
+        if (!agg) {
+          agg = { snapshot_date: dt, unit_count: 0 };
+          for (const c of NUMERIC_COLS) agg[c] = null;
+          bucket.set(dt, agg);
+        }
+        agg.unit_count += Number(r.unit_count || 0);
+        for (const c of NUMERIC_COLS) {
+          const v = r[c];
+          if (v != null) agg[c] = (agg[c] == null ? 0 : agg[c]) + Number(v);
+        }
+      }
+      rows = Array.from(bucket.values()).sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    } else {
+      let query = supabase
+        .from('v_rent_roll_daily_sum')
+        .select('*')
+        .order('snapshot_date', { ascending: true })
+        .range(0, 9999);
+      if (from) query = query.gte('snapshot_date', from);
+      if (to)   query = query.lte('snapshot_date', to);
+      const { data, error } = await query;
+      if (error) {
+        console.error('v_rent_roll_daily_sum query error', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      rows = data || [];
     }
 
     const points = (rows || []).map(r => r.snapshot_date);
