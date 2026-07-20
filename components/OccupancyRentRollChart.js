@@ -16,7 +16,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
 import { CHART_PALETTE, DARK_CHART_DEFAULTS } from '../lib/chartTheme';
-import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 // Pretty-print "2026-04-15" as "Apr 15 '26"
 const fmtDateAxis = (iso) => {
@@ -53,33 +52,26 @@ export default function OccupancyRentRollChart({ selectedProperty = 'portfolio' 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Two filter sources feed this chart's fetch:
-  //   1) app-wide GlobalFilter (context) — property/group/owner selection
-  //   2) page-local OccupancyDashboard dropdown — 'portfolio' / 'all' /
-  //      'region_kansas_city' / 'region_columbia' / 'farquhar' / <property>
-  // Whichever is more restrictive wins. We forward both to the API as
-  // `properties` (resolved list) OR the legacy `region`/`property` params.
-  const { isActive: filterActive, effectiveProperties } = useGlobalFilter();
-
+  // Filter source: the OccupancyDashboard page-local dropdown —
+  //   'portfolio' / 'all' / 'region_kansas_city' / 'region_columbia' /
+  //   'farquhar' / <property_name>
+  // Forward it to the API as region= or property= (same convention as
+  // every other /api/occupancy endpoint).
   const fetchUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (mode === 'by_gl' && selectedGls.length > 0) {
       params.set('gls', selectedGls.join(','));
     }
-    // Page-local dropdown takes priority so the header selection is honored
-    // even if GlobalFilter is also active.
     if (selectedProperty && selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
       if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
         params.set('region', selectedProperty);
       } else {
         params.set('property', selectedProperty);
       }
-    } else if (filterActive && effectiveProperties.length > 0) {
-      params.set('properties', effectiveProperties.join(','));
     }
     const q = params.toString();
     return `/api/occupancy/rent-roll-over-time${q ? `?${q}` : ''}`;
-  }, [mode, selectedGls, filterActive, effectiveProperties, selectedProperty]);
+  }, [mode, selectedGls, selectedProperty]);
 
   const reload = useCallback(async () => {
     setLoading(true);

@@ -6,7 +6,6 @@ import Chart from 'chart.js/auto';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 import { fetcher } from '../lib/swr';
-import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 // Color palette for multi-property charts
 const propertyColors = [
@@ -76,7 +75,6 @@ const IssueBadge = ({ type }) => {
 };
 
 export default function RenewalsDashboard() {
-  const globalFilter = useGlobalFilter();
   const [selectedProperty, setSelectedProperty] = useState('portfolio');
   const [dateRange, setDateRange] = useState('all_time');
   const [startDate, setStartDate] = useState('');
@@ -178,17 +176,12 @@ export default function RenewalsDashboard() {
   // month-click should reveal the 90-180 day leases that the chart was
   // hinting at. The "healthy lease rate" calc lives on the server and
   // is unaffected by this display choice.
-  //
-  // Also apply the app-wide GlobalFilter when active.
   const tableleases = useMemo(() => {
     const monthSelected = activeMonth && !activeMonth.expired;
-    const base = monthSelected
+    return monthSelected
       ? allLeases
       : allLeases.filter(l => !(l.issueType === 'upcoming' && l.daysUntilExpiration > 90));
-    if (!globalFilter.isActive) return base;
-    const set = new Set(globalFilter.effectiveProperties);
-    return base.filter(l => set.has(l.property || l.property_name));
-  }, [allLeases, activeMonth, globalFilter.isActive, globalFilter.effectiveProperties]);
+  }, [allLeases, activeMonth]);
 
   // Collect every renewal status that could ever appear, including those
   // only present among 60-180 day leases (which the default capped view
@@ -294,22 +287,11 @@ export default function RenewalsDashboard() {
     return counts;
   }, [tableleases]);
 
-  // For the mini chart, provide leaseData-like shape. Apply the same
-  // GlobalFilter that the detail table applies so the chart's monthly
-  // counts always match what the detail table can actually surface —
-  // otherwise a global property filter makes the chart show "N" while
-  // the table shows fewer, which reads as a bug.
-  const leaseData = useMemo(() => {
-    const filterByProps = (arr) => {
-      if (!globalFilter.isActive) return arr;
-      const set = new Set(globalFilter.effectiveProperties);
-      return arr.filter(l => set.has(l.property || l.property_name));
-    };
-    return {
-      badLeases: filterByProps(allLeases.filter(l => ['expired', 'monthToMonth', 'expiring'].includes(l.issueType))),
-      upcoming: filterByProps(allLeases.filter(l => l.issueType === 'upcoming')),
-    };
-  }, [allLeases, globalFilter.isActive, globalFilter.effectiveProperties]);
+  // For the mini chart, provide leaseData-like shape.
+  const leaseData = useMemo(() => ({
+    badLeases: allLeases.filter(l => ['expired', 'monthToMonth', 'expiring'].includes(l.issueType)),
+    upcoming: allLeases.filter(l => l.issueType === 'upcoming'),
+  }), [allLeases]);
 
   // Compute upcoming expirations bucketed by month for next 6 months, plus an Expired bucket
   const monthlyExpirations = useMemo(() => {

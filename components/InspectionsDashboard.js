@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { LogoLoader } from './Logo';
 import DarkSelect from './DarkSelect';
-import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 const INSPECTION_TYPES = [
   'S8 - RFT',
@@ -53,7 +52,23 @@ const getTodayCentral = () => {
 };
 
 export default function InspectionsDashboard() {
-  const { allProperties: allKnownProperties } = useGlobalFilter();
+  // Fetch the canonical property list so the dropdown includes properties
+  // that have no inspections yet (e.g. so you can schedule the first one).
+  const [allKnownProperties, setAllKnownProperties] = useState([]);
+  useEffect(() => {
+    fetch('/api/admin/property-periods')
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (!j) return;
+        const props = new Set();
+        for (const p of j.periods || []) {
+          if (p.is_active && p.property_name) props.add(p.property_name);
+        }
+        setAllKnownProperties(Array.from(props).sort());
+      })
+      .catch(() => {});
+  }, []);
+
   const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

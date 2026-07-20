@@ -8,7 +8,6 @@ import {
 import DarkSelect from './DarkSelect';
 import { CHART_PALETTE, RECHARTS_THEME } from '../lib/chartTheme';
 import OwnerNetIncomeChart from './OwnerNetIncomeChart';
-import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 // Lightweight shape for the per-property overhead lookup. Sourced from
 // /api/admin/property-periods which now backs both the Owners admin page
@@ -215,27 +214,13 @@ export default function FinancialsDashboard() {
     ];
   }, [propertyOwners]);
 
-  // Wire to the app-wide GlobalFilter so the dashboard scopes itself
-  // whenever the user picks groups/owners/properties from the top-right
-  // filter bar. The page's own owner dropdown still works; if both are
-  // active we take the intersection (most-restrictive wins).
-  const globalFilter = useGlobalFilter();
-
-  // Get properties for selected owner — merged with the global filter
+  // Get properties for selected owner
   const ownerPropertyFilter = useMemo<string[] | null>(() => {
-    let arr: string[] | null = null;
-    if (selectedOwner !== 'all') {
-      arr = propertyOwners
-        .filter(po => po.owners === selectedOwner)
-        .map(po => po.property_name);
-    }
-    if (globalFilter.isActive) {
-      arr = arr
-        ? arr.filter(p => globalFilter.effectiveProperties.includes(p))
-        : globalFilter.effectiveProperties.slice();
-    }
-    return arr;
-  }, [selectedOwner, propertyOwners, globalFilter.isActive, globalFilter.effectiveProperties]);
+    if (selectedOwner === 'all') return null;
+    return propertyOwners
+      .filter(po => po.owners === selectedOwner)
+      .map(po => po.property_name);
+  }, [selectedOwner, propertyOwners]);
 
   // Property options filtered by owner
   const propertyOptions = useMemo(() => {

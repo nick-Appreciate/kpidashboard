@@ -24,7 +24,6 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { RECHARTS_THEME } from '../lib/chartTheme';
-import { useGlobalFilter } from '../contexts/GlobalFilterContext';
 
 interface MonthTotal {
   month: string;
@@ -79,7 +78,6 @@ export default function OwnerNetIncomeChart() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'portfolio' | 'byProperty'>('portfolio');
   const [months, setMonths] = useState(12);
-  const globalFilter = useGlobalFilter();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -97,56 +95,7 @@ export default function OwnerNetIncomeChart() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Apply the app-wide GlobalFilter (groups / properties) on the client
-  // side. Filter at PERIOD granularity — match rows whose period is in a
-  // selected group, OR whose property is in the explicit property
-  // selection. Then re-sum monthly totals from the survivors.
-  //
-  // Period-level matching is what makes mid-month ownership transitions
-  // work correctly: a row for KCK's Hilltop period (tagged "Farquhar")
-  // is included under the Farquhar filter even after KCK divested, while
-  // the Summit Ridge replacement period (not tagged Farquhar) is dropped.
-  const data = useMemo<ApiResponse | null>(() => {
-    if (!rawData) return null;
-    if (!globalFilter.isActive) return rawData;
-
-    const selectedGroups = new Set(globalFilter.selectedGroupIds);
-    const selectedProps  = new Set(globalFilter.selectedProperties);
-
-    const filteredRows = (rawData.rows as PerPropertyRow[]).filter(r => {
-      // Group match — checks the period's tags, not the property's
-      // current-period tags. This is the key piece that proates correctly
-      // across ownership transitions.
-      if (selectedGroups.size > 0 && r.group_ids.some(g => selectedGroups.has(g))) return true;
-      // Explicit property selection
-      if (selectedProps.has(r.property)) return true;
-      return false;
-    });
-
-    const totalsByMonth = new Map<string, MonthTotal>();
-    for (const m of rawData.months) {
-      totalsByMonth.set(m, {
-        month: m, distributions: 0, contributions: 0,
-        insurance: 0, taxes: 0, debt_service: 0, net_to_owner: 0,
-      });
-    }
-    for (const r of filteredRows) {
-      const t = totalsByMonth.get(r.month);
-      if (!t) continue;
-      t.distributions += r.distributions;
-      t.contributions += r.contributions;
-      t.insurance     += r.insurance;
-      t.taxes         += r.taxes;
-      t.debt_service  += r.debt_service;
-      t.net_to_owner  += r.net_to_owner;
-    }
-    return {
-      ...rawData,
-      rows: filteredRows,
-      totals: Array.from(totalsByMonth.values()),
-      properties: Array.from(new Set(filteredRows.map(r => r.property))).sort(),
-    };
-  }, [rawData, globalFilter.isActive, globalFilter.selectedGroupIds, globalFilter.selectedProperties]);
+  const data = rawData;
 
   const totalsForChart = useMemo(() => {
     if (!data?.totals) return [];
