@@ -20,6 +20,10 @@
  *   properties comma-separated list of property_name values. When provided,
  *              queries the by-property view and re-sums only rows matching
  *              those names. Empty / omitted → portfolio total (all props).
+ *   region     'region_kansas_city' | 'region_columbia' | 'farquhar' — same
+ *              convention as other /api/occupancy endpoints (page-local
+ *              dropdown). Server resolves to a property list.
+ *   property   single property_name — same convention as other endpoints.
  *
  * Response:
  *   {
@@ -62,9 +66,49 @@ export async function GET(request) {
     const from = searchParams.get('from');
     const to   = searchParams.get('to');
     const propertiesParam = (searchParams.get('properties') || '').trim();
-    const propertyList = propertiesParam
+    const regionParam   = (searchParams.get('region') || '').trim();
+    const propertyParam = (searchParams.get('property') || '').trim();
+
+    // Same substring convention as /api/rent-roll/stats and the other
+    // Occupancy endpoints. Kept in sync manually — if you edit this list,
+    // update REGION_PROPERTIES in rent-roll/stats/route.js too.
+    const KC_NEEDLES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+    const HILLTOP_GONE_DATE = new Date('2026-04-22T00:00:00');
+
+    // Resolve a `region` or `property` into a concrete property_name list
+    // by querying the distinct property_name values in the by-property view.
+    let propertyList = propertiesParam
       ? propertiesParam.split(',').map(s => s.trim()).filter(Boolean)
       : null;
+
+    if (!propertyList && (regionParam || propertyParam)) {
+      if (propertyParam) {
+        propertyList = [propertyParam];
+      } else {
+        // Region → resolve against the distinct property names in the view.
+        const { data: distinctRows, error: distinctErr } = await supabase
+          .from('v_rent_roll_daily_sum_by_property')
+          .select('property_name')
+          .not('property_name', 'is', null)
+          .range(0, 9999);
+        if (distinctErr) {
+          console.error('distinct property_name query error', distinctErr);
+          return NextResponse.json({ error: distinctErr.message }, { status: 500 });
+        }
+        const allProps = Array.from(new Set((distinctRows || []).map(r => r.property_name).filter(Boolean)));
+        const isKc = (p) => KC_NEEDLES.some(kc => (p || '').toLowerCase().includes(kc));
+        if (regionParam === 'region_kansas_city') {
+          propertyList = allProps.filter(isKc);
+        } else if (regionParam === 'region_columbia') {
+          propertyList = allProps.filter(p => !isKc(p));
+        } else if (regionParam === 'farquhar') {
+          const hilltopGone = new Date() >= HILLTOP_GONE_DATE;
+          propertyList = allProps.filter(p =>
+            p !== 'Glen Oaks' && !(hilltopGone && p === 'Hilltop Townhomes')
+          );
+        }
+      }
+    }
 
     // When a property filter is active, query the per-property variant of
     // the view and re-aggregate ourselves over the selected property list.

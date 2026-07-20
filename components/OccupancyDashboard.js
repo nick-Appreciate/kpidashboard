@@ -909,9 +909,10 @@ export default function OccupancyDashboard() {
 
             {/* Rent Roll Over Time — monthly income from AppFolio cash flow,
                 filterable by GL account. Self-contained, owns its own
-                fetching + chart. */}
+                fetching + chart. Receives the page-local property/region
+                selection so it stays in sync with the header dropdown. */}
             <div className="mb-6">
-              <OccupancyRentRollChart />
+              <OccupancyRentRollChart selectedProperty={selectedProperty} />
             </div>
 
             {/* Occupancy Projections — Unified Chart */}

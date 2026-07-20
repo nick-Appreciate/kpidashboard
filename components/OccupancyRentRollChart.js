@@ -39,7 +39,7 @@ const fmtCurrencyShort = (n) => {
 const fmtCurrencyFull = (n) =>
   `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-export default function OccupancyRentRollChart() {
+export default function OccupancyRentRollChart({ selectedProperty = 'portfolio' } = {}) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -53,9 +53,12 @@ export default function OccupancyRentRollChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Respect the app-wide GlobalFilter — when it's active, pass the resolved
-  // property list to the API so the chart matches every other filter-aware
-  // widget on the page.
+  // Two filter sources feed this chart's fetch:
+  //   1) app-wide GlobalFilter (context) — property/group/owner selection
+  //   2) page-local OccupancyDashboard dropdown — 'portfolio' / 'all' /
+  //      'region_kansas_city' / 'region_columbia' / 'farquhar' / <property>
+  // Whichever is more restrictive wins. We forward both to the API as
+  // `properties` (resolved list) OR the legacy `region`/`property` params.
   const { isActive: filterActive, effectiveProperties } = useGlobalFilter();
 
   const fetchUrl = useMemo(() => {
@@ -63,13 +66,20 @@ export default function OccupancyRentRollChart() {
     if (mode === 'by_gl' && selectedGls.length > 0) {
       params.set('gls', selectedGls.join(','));
     }
-    if (filterActive && effectiveProperties.length > 0) {
+    // Page-local dropdown takes priority so the header selection is honored
+    // even if GlobalFilter is also active.
+    if (selectedProperty && selectedProperty !== 'portfolio' && selectedProperty !== 'all') {
+      if (selectedProperty.startsWith('region_') || selectedProperty === 'farquhar') {
+        params.set('region', selectedProperty);
+      } else {
+        params.set('property', selectedProperty);
+      }
+    } else if (filterActive && effectiveProperties.length > 0) {
       params.set('properties', effectiveProperties.join(','));
     }
-    // Else: omit gls → API returns the All-rent-and-charges aggregate
     const q = params.toString();
     return `/api/occupancy/rent-roll-over-time${q ? `?${q}` : ''}`;
-  }, [mode, selectedGls, filterActive, effectiveProperties]);
+  }, [mode, selectedGls, filterActive, effectiveProperties, selectedProperty]);
 
   const reload = useCallback(async () => {
     setLoading(true);
