@@ -36,6 +36,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
+import { fetchAllRows } from '../../../../lib/supabase-paging';
 
 // Mapping from AppFolio GL number → rent_roll_snapshots column name
 const GL_COLUMN_MAP = {
@@ -122,15 +123,20 @@ export async function GET(request) {
 
     let rows;
     if (propertyList && propertyList.length > 0) {
-      let q = supabase
-        .from('v_rent_roll_daily_sum_by_property')
-        .select('*')
-        .in('property_name', propertyList)
-        .order('snapshot_date', { ascending: true })
-        .range(0, 99999);
-      if (from) q = q.gte('snapshot_date', from);
-      if (to)   q = q.lte('snapshot_date', to);
-      const { data, error } = await q;
+      // Page through — Supabase enforces a 1000-row server-side cap
+      // regardless of .range(). For ~10 properties × ~260 days = ~2600
+      // rows, a single request would silently truncate to the earliest
+      // ~100 dates, cutting the chart off before the current month.
+      const { data, error } = await fetchAllRows(() => {
+        let q = supabase
+          .from('v_rent_roll_daily_sum_by_property')
+          .select('*')
+          .in('property_name', propertyList)
+          .order('snapshot_date', { ascending: true });
+        if (from) q = q.gte('snapshot_date', from);
+        if (to)   q = q.lte('snapshot_date', to);
+        return q;
+      });
       if (error) {
         console.error('v_rent_roll_daily_sum_by_property query error', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -153,14 +159,17 @@ export async function GET(request) {
       }
       rows = Array.from(bucket.values()).sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     } else {
-      let query = supabase
-        .from('v_rent_roll_daily_sum')
-        .select('*')
-        .order('snapshot_date', { ascending: true })
-        .range(0, 9999);
-      if (from) query = query.gte('snapshot_date', from);
-      if (to)   query = query.lte('snapshot_date', to);
-      const { data, error } = await query;
+      // Portfolio total: one row per snapshot_date already, no filter →
+      // paging still worth using in case history grows past 1000 days.
+      const { data, error } = await fetchAllRows(() => {
+        let q = supabase
+          .from('v_rent_roll_daily_sum')
+          .select('*')
+          .order('snapshot_date', { ascending: true });
+        if (from) q = q.gte('snapshot_date', from);
+        if (to)   q = q.lte('snapshot_date', to);
+        return q;
+      });
       if (error) {
         console.error('v_rent_roll_daily_sum query error', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
