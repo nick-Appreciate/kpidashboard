@@ -98,6 +98,108 @@ Deno.serve(async (_req: Request) => {
 
     console.log(`Logged balances for ${records.length} accounts on ${snapshotDate}`);
 
+    // 6. Upsert accounts (so mercury_transactions FK resolves)
+    const activeAccounts = allAccounts.filter((a: any) => a.status === 'active');
+    const accountRows = activeAccounts.map((a: any) => ({
+      id: a.id,
+      account_number: a.accountNumber ?? null,
+      routing_number: a.routingNumber ?? null,
+      name: a.name ?? null,
+      nickname: a.nickname ?? null,
+      status: a.status ?? null,
+      kind: a.kind ?? null,
+      available_balance: a.availableBalance ?? null,
+      current_balance: a.currentBalance ?? null,
+      legal_business_name: a.legalBusinessName ?? null,
+      dashboard_link: a.dashboardLink ?? null,
+      synced_at: new Date().toISOString(),
+    }));
+    if (accountRows.length > 0) {
+      const { error: acctErr } = await supabase
+        .from('mercury_accounts')
+        .upsert(accountRows, { onConflict: 'id' });
+      if (acctErr) console.error('mercury_accounts upsert error:', acctErr);
+    }
+
+    // 7. Fetch + upsert transactions per active account (incremental)
+    // Look back a rolling window since MAX(posted_at) - 3 days per account (safety
+    // buffer for late-posting items), capped at 90 days if no rows yet.
+    const txCounts: Record<string, number> = {};
+    let totalTxUpserted = 0;
+    const nowMs = Date.now();
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+    const THREE_DAYS_MS  =  3 * 24 * 60 * 60 * 1000;
+
+    for (const acct of activeAccounts) {
+      // per-account watermark
+      const { data: watermark } = await supabase
+        .from('mercury_transactions')
+        .select('posted_at')
+        .eq('account_id', acct.id)
+        .not('posted_at', 'is', null)
+        .order('posted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // If we have a watermark, use it (- 3 day buffer) regardless of age so
+      // long gaps still get filled. Only fall back to a 90-day window if the
+      // account has never been synced.
+      const startMs = watermark?.posted_at
+        ? new Date(watermark.posted_at).getTime() - THREE_DAYS_MS
+        : nowMs - NINETY_DAYS_MS;
+      const startISO = new Date(startMs).toISOString().substring(0, 10);
+
+      const txs: any[] = [];
+      let offset = 0;
+      const limit = 500;
+      while (true) {
+        const txUrl = `https://api.mercury.com/api/v1/account/${acct.id}/transactions?limit=${limit}&offset=${offset}&start=${startISO}`;
+        const r = await fetch(txUrl, { headers: { 'Authorization': `Bearer ${mercuryApiKey}` } });
+        if (!r.ok) {
+          console.error(`  tx fetch ${acct.name}: ${r.status} ${await r.text()}`);
+          break;
+        }
+        const j = await r.json();
+        const list = j.transactions || j;
+        if (!Array.isArray(list) || list.length === 0) break;
+        txs.push(...list);
+        if (list.length < limit) break;
+        offset += limit;
+      }
+
+      if (txs.length === 0) {
+        txCounts[acct.name || acct.id] = 0;
+        continue;
+      }
+
+      const rows = txs.map((t: any) => ({
+        id: t.id,
+        account_id: acct.id,
+        amount: t.amount,
+        currency_exponent: t.currencyExponent ?? null,
+        counterparty_name: t.counterpartyName ?? null,
+        counterparty_account_number: t.counterpartyAccountNumber ?? null,
+        status: t.status ?? null,
+        kind: t.kind ?? null,
+        note: t.note ?? null,
+        posted_at: t.postedAt ?? null,
+        created_at: t.createdAt ?? null,
+        synced_at: new Date().toISOString(),
+      }));
+
+      const { error: txErr } = await supabase
+        .from('mercury_transactions')
+        .upsert(rows, { onConflict: 'id' });
+      if (txErr) {
+        console.error(`  tx upsert ${acct.name}: ${JSON.stringify(txErr)}`);
+        continue;
+      }
+      txCounts[acct.name || acct.id] = rows.length;
+      totalTxUpserted += rows.length;
+    }
+
+    console.log(`Transactions upserted: ${totalTxUpserted} across ${activeAccounts.length} accounts`);
+
     return new Response(JSON.stringify({
       success: true,
       snapshotDate,
@@ -106,6 +208,8 @@ Deno.serve(async (_req: Request) => {
         name: r.account_name,
         balance: r.current_balance,
       })),
+      transactionsUpserted: totalTxUpserted,
+      transactionsPerAccount: txCounts,
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

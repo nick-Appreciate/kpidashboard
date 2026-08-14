@@ -78,11 +78,12 @@ const DOMAINS = [
     // guarded server-of-client-side so direct URLs are blocked too.
     key: 'financials', label: 'Financials', icon: Icon.financials, admin: true,
     items: [
-      { name: 'Bookkeeping', href: '/bookkeeping' },
-      { name: 'Overview',    href: '/financials' },     // portfolio cash flow / net income
-      { name: 'Cash',        href: '/admin/cash' },
-      { name: 'Deposits',    href: '/admin/simmons' },
-      { name: 'Duplicates',  href: '/admin/duplicates' },
+      { name: 'Bookkeeping',       href: '/bookkeeping' },
+      { name: 'Overview',          href: '/financials' },     // portfolio cash flow / net income
+      { name: 'Cash',              href: '/admin/cash' },
+      { name: 'Portfolio Report',  href: '/admin/portfolio-report' },
+      { name: 'Deposits',          href: '/admin/simmons' },
+      { name: 'Duplicates',        href: '/admin/duplicates' },
     ],
   },
   {
