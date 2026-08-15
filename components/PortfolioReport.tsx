@@ -389,10 +389,10 @@ export default function PortfolioReport() {
   // text, and children only need to override colors where semantic.
   return (
     <div className="max-w-7xl mx-auto p-6 print:p-2 print:max-w-none">
-      {/* Print CSS lives in app/globals.css so it always ships as static CSS
-          with the page — the previous styled-jsx block was intermittently
-          not flushing in the production build, leaving the PDF in the
-          un-styled default layout. */}
+      {/* Print CSS is loaded as a dedicated print-only stylesheet so no
+          screen-side Tailwind cascade can override its rules. `media="print"`
+          means the browser only parses it during print rendering. */}
+      <link rel="stylesheet" href="/portfolio-report-print.css" media="print" />
 
       <div className="rounded-lg bg-white text-gray-900 shadow-lg ring-1 ring-gray-200 p-6 print:p-2 print:shadow-none print:ring-0 report-card">
       {/* Header */}

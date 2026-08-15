@@ -1,0 +1,84 @@
+/* Print stylesheet for /admin/portfolio-report — loaded via
+   <link rel="stylesheet" href="/portfolio-report-print.css" media="print">
+   so the browser only parses it during print. That sidesteps every
+   possible screen-CSS cascade / Tailwind-layer collision because these
+   rules simply do not exist on the screen render at all.
+
+   Everything is scoped either to `body` (safe — only applies in print)
+   or to classes only used on the report page (.report-card, .kpi-grid,
+   .chart-with-readout, .kpi-value/-label/-row, .readout, .readout-rows). */
+
+@page { size: letter landscape; margin: 0.3in 0.4in; }
+
+html, body {
+  background: white !important;
+  color: #111 !important;
+}
+body {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  font-size: 10.5px !important;
+}
+
+/* Kill the app chrome so the report is the only thing on the page */
+aside, nav { display: none !important; }
+main       { margin-left: 0 !important; }
+
+.no-print { display: none !important; }
+.print-break-before { page-break-before: always; }
+.print-avoid-break  { page-break-inside: avoid; }
+
+/* Report card: strip shadow / rings / dark theme padding */
+.report-card {
+  box-shadow: none !important;
+  padding: 4px !important;
+  background: white !important;
+  color: #111 !important;
+  --tw-ring-shadow: 0 0 !important;
+}
+.report-card * { color: inherit; }
+
+h1 { font-size: 16px !important; margin: 0 !important; color: #111 !important; }
+h2 { font-size: 11.5px !important; margin: 6px 0 3px !important; color: #111 !important; }
+p  { margin: 0 !important; }
+
+/* KPI grid: 4 columns × 2 rows, compact */
+.kpi-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+  margin-bottom: 8px !important;
+}
+.kpi-grid > div { padding: 4px 6px !important; }
+.kpi-value { font-size: 15px !important; }
+.kpi-label { font-size: 8.5px !important; }
+.kpi-row   { font-size: 9px !important; line-height: 1.15 !important; }
+
+/* Chart + readout: force explicit grid so ResponsiveContainer never
+   overlaps the readout column. */
+.chart-with-readout {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 200px !important;
+  gap: 10px !important;
+}
+.chart-with-readout .chart-box {
+  width: 100% !important;
+  height: 220px !important;
+}
+.chart-with-readout .readout {
+  width: 200px !important;
+  padding-left: 8px !important;
+  border-left: 1px solid #E5E7EB !important;
+  display: block !important;
+}
+.chart-with-readout .readout .readout-rows { font-size: 9px !important; }
+
+/* Recharts' built-in legend is redundant with the SeriesReadout side panel */
+.recharts-legend-wrapper { display: none !important; }
+
+/* Sections + tables */
+section { margin-bottom: 6px !important; }
+table   { font-size: 9.5px !important; }
+thead   { display: table-header-group; }
+tr, td, th { page-break-inside: avoid !important; }
+td, th  { padding: 2px 5px !important; }
