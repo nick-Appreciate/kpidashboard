@@ -389,71 +389,10 @@ export default function PortfolioReport() {
   // text, and children only need to override colors where semantic.
   return (
     <div className="max-w-7xl mx-auto p-6 print:p-2 print:max-w-none">
-      {/* Print styles — tightened for paper: no wasted whitespace, no
-          duplicate legends, and layout that starts each section high on its
-          page so scannable data stays above the fold. */}
-      <style jsx global>{`
-        @media print {
-          @page { size: letter landscape; margin: 0.3in 0.4in; }
-          html, body { background: white !important; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 10.5px !important; }
-
-          /* Hide app chrome */
-          aside, nav { display: none !important; }
-          main { margin-left: 0 !important; }
-
-          .no-print { display: none !important; }
-          .print-break-before { page-break-before: always; }
-          .print-avoid-break { page-break-inside: avoid; }
-          .print-only { display: block !important; }
-
-          /* Report card: strip screen-only decorations */
-          .report-card { box-shadow: none !important; padding: 4px !important; ring-width: 0 !important; }
-          .report-card > * + * { margin-top: 0 !important; }
-
-          h1 { font-size: 16px !important; margin: 0 !important; }
-          h2 { font-size: 11.5px !important; margin: 6px 0 3px !important; }
-          p  { margin: 0 !important; }
-
-          /* KPI grid: 4 columns × 2 rows, compact */
-          .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 6px !important; margin-bottom: 8px !important; }
-          .kpi-grid > div { padding: 4px 6px !important; }
-          .kpi-grid .kpi-value { font-size: 15px !important; }
-          .kpi-grid .kpi-label { font-size: 8.5px !important; }
-          .kpi-grid .kpi-row { font-size: 9px !important; line-height: 1.15 !important; }
-
-          /* Chart + readout: explicit CSS Grid so Recharts' ResponsiveContainer
-             gets a known-narrower column and never renders on top of the readout.
-             (Flex with flex-1 races the ResizeObserver in print media.) */
-          .chart-with-readout {
-            display: grid !important;
-            grid-template-columns: minmax(0, 1fr) 200px !important;
-            gap: 10px !important;
-          }
-          .chart-with-readout .chart-box { width: 100% !important; height: 220px !important; }
-          .chart-with-readout .readout {
-            width: 200px !important;
-            padding-left: 8px !important;
-            border-left: 1px solid #E5E7EB !important;
-          }
-          .chart-with-readout .readout .readout-rows { font-size: 9px !important; }
-
-          /* Hide Recharts' built-in legend everywhere — the SeriesReadout side
-             panel already labels every line, so the browser legend is just
-             clutter under the plot. */
-          .recharts-legend-wrapper { display: none !important; }
-
-          /* Sections + tables: tight vertical rhythm */
-          section { margin-bottom: 6px !important; }
-          table    { font-size: 9.5px !important; }
-          thead    { display: table-header-group; }  /* repeat headers on new pages */
-          tr, td, th { page-break-inside: avoid !important; }
-          td, th   { padding: 2px 5px !important; }
-
-          /* Charts should stay together with their headings */
-          .chart-section h2 + p, .chart-section h2 { page-break-after: avoid !important; }
-        }
-      `}</style>
+      {/* Print CSS lives in app/globals.css so it always ships as static CSS
+          with the page — the previous styled-jsx block was intermittently
+          not flushing in the production build, leaving the PDF in the
+          un-styled default layout. */}
 
       <div className="rounded-lg bg-white text-gray-900 shadow-lg ring-1 ring-gray-200 p-6 print:p-2 print:shadow-none print:ring-0 report-card">
       {/* Header */}
