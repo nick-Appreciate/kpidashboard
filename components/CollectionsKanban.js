@@ -39,7 +39,7 @@ const LOCKED_STAGES = ['current', 'file_for_collections'];
 
 // Region definitions - matches rent-roll stats config
 const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
 };
 
 const isKCProperty = (prop) => {

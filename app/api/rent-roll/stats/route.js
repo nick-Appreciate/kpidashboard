@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 // Region definitions - exact property name matches (case-insensitive)
 const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
   region_columbia: null // Columbia is everything NOT in Kansas City
 };
 

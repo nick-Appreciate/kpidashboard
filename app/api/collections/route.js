@@ -8,7 +8,7 @@ const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_r
 
 // Region definitions for notice type determination
 const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
 };
 const isKCProperty = (prop) =>
   REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));

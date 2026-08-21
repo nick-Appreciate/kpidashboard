@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 // Region definitions for notice type determination
 const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'],
+  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
 };
 const isKCProperty = (prop: string | null) =>
   REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));
