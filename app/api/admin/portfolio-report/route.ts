@@ -19,6 +19,14 @@ export async function GET(request: Request) {
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
 
+  // Refresh today's portfolio_snapshots row from the current source-of-truth
+  // tables before we read anything. The nightly cron writes today's row at
+  // 3:15 UTC, but if sync-appfolio runs later and moves the numbers (e.g. a
+  // move-in bumps Glen Oaks from 32→33 occupied), the report would otherwise
+  // display stale data until tomorrow's cron. This keeps the report and the
+  // /occupancy page in lockstep on the same source-of-truth values.
+  await supabase.rpc('capture_portfolio_snapshot');
+
   // 1. Find anchor dates
   const anchorsQ = await supabase
     .from('portfolio_snapshots')
