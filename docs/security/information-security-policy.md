@@ -116,8 +116,7 @@ Vendor breaches or disclosed vulnerabilities affecting our data are treated as s
 
 **Approval**
 
-I attest that the controls described above accurately reflect Appreciate Inc's current information security program, and that I take responsibility for maintaining and improving them on the cadence described.
+The policy owner (Nick, nick@appreciate.io) attests that the controls described above accurately reflect Appreciate Inc's current information security program, and takes responsibility for maintaining and improving them on the cadence described.
 
-Signed: ____________________________
-Nick, Policy Owner — Appreciate Inc
-Date: ____________________________
+Approved: 2026-08-25
+Appreciate Inc
