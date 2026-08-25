@@ -10,8 +10,9 @@ import { requireAdmin } from '../../../../../lib/auth';
  * authenticate the user with their bank. The token is scoped to this app +
  * this user + the products we're requesting; it expires in ~4 hours.
  *
- * Products requested: Auth + Balance (both free tier). Not asking for
- * Transactions yet — Simmons balance-only is all we need for /admin/cash.
+ * Products requested: Auth only. Balance is not a standalone product in the
+ * current Plaid API — /accounts/balance/get is available on any Item that has
+ * at least one other product initialized. Auth is the lightest choice.
  */
 export async function POST(req: Request) {
   const auth = await requireAdmin(req);
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     const res = await plaidClient().linkTokenCreate({
       user: { client_user_id: auth.user.id },
       client_name: 'Appreciate KPI Dashboard',
-      products: [Products.Auth, Products.Balance],
+      products: [Products.Auth],
       country_codes: [CountryCode.Us],
       language: 'en',
       // Redirect URI would go here if we needed OAuth-only banks; Simmons uses
