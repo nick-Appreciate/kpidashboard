@@ -84,6 +84,7 @@ const DOMAINS = [
       { name: 'Portfolio Report',  href: '/admin/portfolio-report' },
       { name: 'Deposits',          href: '/admin/simmons' },
       { name: 'Duplicates',        href: '/admin/duplicates' },
+      { name: 'Plaid banks',       href: '/admin/plaid-link' },
     ],
   },
   {

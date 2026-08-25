@@ -72,24 +72,11 @@ Deno.serve(async (_req: Request) => {
       });
     }
 
-    // 4. Always compute a "Total Cash" row from individual account balances
-    const hasTotalCash = records.some(r => r.account_name === 'Total Cash');
-    if (!hasTotalCash) {
-      const totalBalance = records.reduce((sum, r) => sum + Number(r.current_balance), 0);
-      records.push({
-        snapshot_date: snapshotDate,
-        account_id: 'total_cash_computed',
-        account_name: 'Total Cash',
-        account_type: 'computed',
-        account_kind: null,
-        current_balance: totalBalance,
-        available_balance: null,
-        account_status: 'active',
-      });
-      console.log(`Computed Total Cash: $${totalBalance.toFixed(2)}`);
-    }
-
-    // 5. Upsert balance records
+    // 4. Upsert the per-account balance records. The "Total Cash" row is no
+    // longer computed inline here — recompute_total_cash() below sums Mercury
+    // AND Plaid-linked balances into one canonical row so /admin/cash reflects
+    // every source of managed funds. Keeping this file responsible only for
+    // Mercury data keeps the source-per-file boundary clean.
     const { error } = await supabase
       .from('mercury_daily_balances')
       .upsert(records, { onConflict: 'snapshot_date,account_id' });
@@ -97,6 +84,13 @@ Deno.serve(async (_req: Request) => {
     if (error) throw new Error(`Upsert error: ${JSON.stringify(error)}`);
 
     console.log(`Logged balances for ${records.length} accounts on ${snapshotDate}`);
+
+    // 4b. Recompute the day's Total Cash across Mercury + Plaid
+    const { data: totalRow, error: totalErr } = await supabase.rpc('recompute_total_cash', {
+      target_date: snapshotDate,
+    });
+    if (totalErr) console.error('recompute_total_cash error:', totalErr);
+    else console.log(`Total Cash (Mercury + Plaid) for ${snapshotDate}: $${Number(totalRow).toFixed(2)}`);
 
     // 6. Upsert accounts (so mercury_transactions FK resolves)
     const activeAccounts = allAccounts.filter((a: any) => a.status === 'active');
