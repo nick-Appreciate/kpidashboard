@@ -6,15 +6,18 @@ import { requireAdmin } from '../../../../../lib/auth';
 // Why balance deltas, not transactions:
 //   mercury_transactions only covers ~1 month of history → gross in/out
 //     would be zero for almost every period and the chart would lie.
-//   simmons_deposits has 18 months but only inflows (no withdrawals).
-//   mercury_daily_balances has 4 years of daily balances per account.
+//   mercury_daily_balances has years of daily balances per account, and the
+//   synthetic 'Total Cash' row already folds in Plaid-linked external banks
+//   (Simmons, etc.) via recompute_total_cash().
 //
-// Net flow per period = total bank balance at period end
-//                      − total bank balance at prior period end
-// where total = Mercury Total Cash + Simmons most-recent balance_after
+// Net flow per period = 'Total Cash' at period end
+//                     − 'Total Cash' at prior period end
 //
-// We also surface per-source detail in the tooltip when transaction data
-// is available for the period (Mercury inflows/outflows, Simmons inflows).
+// We surface per-source detail in the tooltip when transaction data is
+// available (Mercury inflows/outflows). Simmons deposit rows are also
+// summed for the tooltip's `simmons_in` — this is *not* added to the
+// closing balance (that would double-count against Plaid), just shown as
+// context for what deposits landed that period.
 //
 // Returns: { periods: [{ period_start, period_label,
 //                        opening, closing, net,
@@ -43,10 +46,14 @@ export async function GET(request: Request) {
     .order('snapshot_date', { ascending: true });
   if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
 
-  // 2. Simmons deposits — balance_after gives running balance per account.
+  // 2. Simmons deposits — for tooltip context only (inflow amounts per period).
+  //    Balance_after is intentionally NOT summed into the closing balance:
+  //    Plaid-linked Simmons balances are already inside the Mercury 'Total
+  //    Cash' row via recompute_total_cash(), so adding them again would
+  //    double-count.
   const { data: simmonsDeposits, error: sErr } = await supabase
     .from('simmons_deposits')
-    .select('deposit_date, account_suffix, amount, balance_after')
+    .select('deposit_date, amount')
     .gte('deposit_date', cutoffStr)
     .order('deposit_date', { ascending: true });
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
@@ -87,40 +94,10 @@ export async function GET(request: Request) {
     mercuryByPeriod.set(key, Number(row.current_balance));
   }
 
-  // Simmons: track each account's running balance_after; for each period,
-  // sum all accounts' last balance_after.
-  const simmonsAccountsByPeriod = new Map<string, Map<string, number>>(); // period → account → balance_after
-  const accountRunning = new Map<string, number>();
-  for (const d of simmonsDeposits || []) {
-    const acct = (d.account_suffix as string) ?? 'unknown';
-    const date = d.deposit_date as string;
-    const key = bucketKey(new Date(date + 'T12:00:00'));
-    accountRunning.set(acct, Number(d.balance_after));
-    if (!simmonsAccountsByPeriod.has(key)) simmonsAccountsByPeriod.set(key, new Map());
-    // Snapshot of all accounts' running balances at this period
-    const periodSnapshot = simmonsAccountsByPeriod.get(key)!;
-    for (const [a, b] of accountRunning) periodSnapshot.set(a, b);
-  }
-  // For period totals, we also need to carry forward the running balance to
-  // periods with no Simmons activity (account hasn't deposited that month
-  // but its balance hasn't changed). Build a sorted list of all periods we
-  // know about and forward-fill.
-  const allKnownPeriods = new Set<string>([
-    ...mercuryByPeriod.keys(),
-    ...simmonsAccountsByPeriod.keys(),
-  ]);
-  const sortedPeriods = Array.from(allKnownPeriods).sort();
-  const simmonsByPeriod = new Map<string, number>();
-  let lastSimmonsAccts = new Map<string, number>();
-  for (const p of sortedPeriods) {
-    const thisPeriodSnap = simmonsAccountsByPeriod.get(p);
-    if (thisPeriodSnap) {
-      lastSimmonsAccts = new Map(thisPeriodSnap);
-    }
-    let sum = 0;
-    for (const v of lastSimmonsAccts.values()) sum += v;
-    simmonsByPeriod.set(p, sum);
-  }
+  // Sorted list of periods we have Mercury Total Cash for. Simmons no
+  // longer needs its own period map — Plaid balances are already in Total
+  // Cash via recompute_total_cash().
+  const sortedPeriods = Array.from(mercuryByPeriod.keys()).sort();
 
   // Mercury transactions detail — only useful for periods with data
   type TxnDetail = { mercury_in: number; mercury_out: number };
@@ -142,9 +119,9 @@ export async function GET(request: Request) {
     if (amt > 0) simmonsInByPeriod.set(key, (simmonsInByPeriod.get(key) ?? 0) + amt);
   }
 
-  // Compose: opening = prior period's closing, closing = mercury + simmons
-  // We drop the first period in our sorted list (it provides the opening
-  // balance for period 2 only).
+  // Compose: opening = prior period's closing, closing = Total Cash at
+  // period end. We drop the first period in our sorted list (it exists only
+  // to provide the opening balance for period 2).
   type Out = {
     period_start: string;
     period_label: string;
@@ -158,7 +135,7 @@ export async function GET(request: Request) {
   const result: Out[] = [];
   let prevClosing: number | null = null;
   for (const p of sortedPeriods) {
-    const closing = (mercuryByPeriod.get(p) ?? 0) + (simmonsByPeriod.get(p) ?? 0);
+    const closing = mercuryByPeriod.get(p) ?? 0; // already includes Plaid via Total Cash
     if (prevClosing !== null) {
       const net = closing - prevClosing;
       const detail = txnDetailByPeriod.get(p);

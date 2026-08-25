@@ -73,20 +73,24 @@ export default function MercuryDailyByMonthChart() {
   const monthlyData = useMemo(() => {
     if (balances.length === 0) return [];
 
+    // Prefer the synthetic "Total Cash" row per date — it's produced by
+    // recompute_total_cash() and folds in ALL sources (Mercury per-account
+    // + Plaid-linked external banks like Simmons). Summing raw Mercury rows
+    // would silently drop Plaid history.
     const dailyTotals = new Map<string, number>();
     for (const row of balances) {
+      if (row.account_name !== 'Total Cash') continue;
       const date = row.snapshot_date as string;
-      // Skip the synthetic "Total Cash" rows to avoid double-counting
-      if (row.account_name === 'Total Cash') continue;
-      dailyTotals.set(date, (dailyTotals.get(date) || 0) + (Number(row.current_balance) || 0));
+      dailyTotals.set(date, Number(row.current_balance) || 0);
     }
 
-    // If every account_name is "Total Cash" (edge case), fall back to using it
+    // Fallback for dates that don't have a Total Cash row yet (very old
+    // snapshots before recompute ran): sum the raw Mercury accounts.
     if (dailyTotals.size === 0) {
       for (const row of balances) {
-        if (row.account_name !== 'Total Cash') continue;
+        if (row.account_name === 'Total Cash') continue;
         const date = row.snapshot_date as string;
-        dailyTotals.set(date, Number(row.current_balance) || 0);
+        dailyTotals.set(date, (dailyTotals.get(date) || 0) + (Number(row.current_balance) || 0));
       }
     }
 
