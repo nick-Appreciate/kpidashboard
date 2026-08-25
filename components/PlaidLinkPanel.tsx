@@ -17,7 +17,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
-import { Loader2, CheckCircle2, AlertCircle, Building2 } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Building2, History, Trash2 } from 'lucide-react';
 
 interface LinkedItem {
   id: string;
@@ -36,6 +36,8 @@ export default function PlaidLinkPanel() {
   const [result, setResult] = useState<any | null>(null);
   const [exchangeError, setExchangeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [rowBusy, setRowBusy] = useState<Record<string, 'backfill' | 'unlink' | null>>({});
+  const [rowMessage, setRowMessage] = useState<Record<string, { kind: 'ok' | 'err'; text: string } | null>>({});
 
   const { data: items, mutate: refetchItems } = useSWR<{ items: LinkedItem[] }>(
     '/api/admin/plaid/items', fetcher,
@@ -83,6 +85,51 @@ export default function PlaidLinkPanel() {
     token: linkToken,
     onSuccess,
   });
+
+  const backfill = useCallback(async (itemId: string) => {
+    setRowBusy(s => ({ ...s, [itemId]: 'backfill' }));
+    setRowMessage(s => ({ ...s, [itemId]: null }));
+    try {
+      const r = await fetch('/api/admin/plaid/backfill-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId }),
+      });
+      const j = await r.json();
+      if (!r.ok && r.status !== 202) throw new Error(j.error || j.items?.[0]?.error || 'Backfill failed');
+      const itemResult = j.items?.[0];
+      if (itemResult?.error) {
+        setRowMessage(s => ({ ...s, [itemId]: { kind: 'err', text: itemResult.error } }));
+      } else {
+        const days = itemResult?.accounts?.reduce((a: number, x: any) => Math.max(a, x.days_backfilled || 0), 0) || 0;
+        setRowMessage(s => ({ ...s, [itemId]: {
+          kind: 'ok',
+          text: `Backfilled ${days.toLocaleString()} days across ${itemResult?.accounts?.length || 0} account(s). Total Cash rebuilt for ${j.total_cash_rows_updated?.toLocaleString() || 0} historical dates.`,
+        } }));
+      }
+      refetchItems();
+    } catch (err: any) {
+      setRowMessage(s => ({ ...s, [itemId]: { kind: 'err', text: err.message } }));
+    } finally {
+      setRowBusy(s => ({ ...s, [itemId]: null }));
+    }
+  }, [refetchItems]);
+
+  const unlink = useCallback(async (itemId: string, name: string | null) => {
+    if (!confirm(`Unlink ${name || 'this bank'}? Historical balances stay in the database; only the live connection is revoked.`)) return;
+    setRowBusy(s => ({ ...s, [itemId]: 'unlink' }));
+    setRowMessage(s => ({ ...s, [itemId]: null }));
+    try {
+      const r = await fetch(`/api/admin/plaid/items/${itemId}`, { method: 'DELETE' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Unlink failed');
+      refetchItems();
+    } catch (err: any) {
+      setRowMessage(s => ({ ...s, [itemId]: { kind: 'err', text: err.message } }));
+    } finally {
+      setRowBusy(s => ({ ...s, [itemId]: null }));
+    }
+  }, [refetchItems]);
 
   return (
     <div className="max-w-3xl mx-auto p-6 text-slate-100">
@@ -155,32 +202,71 @@ export default function PlaidLinkPanel() {
         <div className="text-slate-500 text-sm">No banks linked yet.</div>
       ) : (
         <ul className="space-y-2">
-          {items.items.map((it) => (
-            <li key={it.id} className="glass-card p-3 flex items-center justify-between">
-              <div>
-                <div className="text-white font-medium">
-                  {it.institution_name || it.institution_id || 'Unknown institution'}
+          {items.items.map((it) => {
+            const rb  = rowBusy[it.id] ?? null;
+            const msg = rowMessage[it.id] ?? null;
+            return (
+              <li key={it.id} className="glass-card p-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-white font-medium">
+                      {it.institution_name || it.institution_id || 'Unknown institution'}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      Linked {new Date(it.linked_at).toLocaleDateString()}
+                      {it.linked_by ? ` by ${it.linked_by}` : ''}
+                      {it.last_synced_at ? ` · last synced ${new Date(it.last_synced_at).toLocaleString()}` : ''}
+                    </div>
+                    {it.status !== 'active' && (
+                      <div className="text-xs text-amber-300 mt-1">
+                        Status: {it.status}{it.status_message ? ` — ${it.status_message}` : ''}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => backfill(it.id)}
+                      disabled={!!rb}
+                      title="Reconstruct up to 24 months of daily balances from transaction history"
+                      className="inline-flex items-center gap-1.5 rounded bg-slate-700/60 hover:bg-slate-700 text-slate-100 text-xs px-2.5 py-1 disabled:opacity-50"
+                    >
+                      {rb === 'backfill'
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <History className="h-3.5 w-3.5" />}
+                      Backfill history
+                    </button>
+                    <button
+                      onClick={() => unlink(it.id, it.institution_name)}
+                      disabled={!!rb}
+                      title="Revoke Plaid access token; historical balances preserved"
+                      className="inline-flex items-center gap-1.5 rounded bg-red-500/15 hover:bg-red-500/25 text-red-200 text-xs px-2.5 py-1 disabled:opacity-50"
+                    >
+                      {rb === 'unlink'
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />}
+                      Unlink
+                    </button>
+                    <div className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ${
+                      it.status === 'active'
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : 'bg-amber-500/20 text-amber-300'
+                    }`}>
+                      {it.status}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-slate-400 mt-0.5">
-                  Linked {new Date(it.linked_at).toLocaleDateString()}
-                  {it.linked_by ? ` by ${it.linked_by}` : ''}
-                  {it.last_synced_at ? ` · last synced ${new Date(it.last_synced_at).toLocaleString()}` : ''}
-                </div>
-                {it.status !== 'active' && (
-                  <div className="text-xs text-amber-300 mt-1">
-                    Status: {it.status}{it.status_message ? ` — ${it.status_message}` : ''}
+                {msg && (
+                  <div className={`mt-2 text-xs px-2 py-1.5 rounded ${
+                    msg.kind === 'ok'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-200'
+                      : 'bg-red-500/15 border border-red-500/30 text-red-200'
+                  }`}>
+                    {msg.text}
                   </div>
                 )}
-              </div>
-              <div className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ${
-                it.status === 'active'
-                  ? 'bg-emerald-500/20 text-emerald-300'
-                  : 'bg-amber-500/20 text-amber-300'
-              }`}>
-                {it.status}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
