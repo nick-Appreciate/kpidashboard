@@ -9,8 +9,13 @@ import { DARK_CHART_DEFAULTS } from '../lib/chartTheme';
 // Rate-over-time chart for the Leasing Lifecycle module.
 // Fetches /api/funnel-timeseries and plots the selected rate.
 //
+// The chart intentionally uses a fixed 12-month lookback (independent of
+// the dashboard's active date filter) so the trend is comparable across
+// dashboard interactions. Property and region filters are still honored.
+//
 // Props:
-//   filterParams — URLSearchParams string (property, region, dates, granularity)
+//   filterParams — URLSearchParams string (property, region — dates are
+//                  overridden below to force a 12-month window)
 //   rateKey      — 'overall' | 'scheduling' | 'completion' | 'application' | 'approval'
 //                  or null to render an empty placeholder.
 //   granularity  — from parent; used for the chart title
@@ -28,9 +33,23 @@ export default function RateOverTimeChart({ filterParams, rateKey, granularity, 
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
 
+  // Force a 12-month window regardless of the dashboard's date filter, so
+  // this chart always shows the same lookback shape. Property/region are
+  // kept as passed.
+  const lookbackParams = useMemo(() => {
+    const p = new URLSearchParams(filterParams || '');
+    const today = new Date();
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setFullYear(today.getFullYear() - 1);
+    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    p.set('startDate', ymd(oneYearAgo));
+    p.set('endDate',   ymd(today));
+    return p.toString();
+  }, [filterParams]);
+
   const shouldFetch = !!rateKey;
   const { data, error, isLoading } = useSWR(
-    shouldFetch ? `/api/funnel-timeseries?${filterParams}` : null,
+    shouldFetch ? `/api/funnel-timeseries?${lookbackParams}` : null,
     fetcher,
     { revalidateOnMount: true, refreshInterval: 5 * 60 * 1000 },
   );
@@ -162,7 +181,7 @@ export default function RateOverTimeChart({ filterParams, rateKey, granularity, 
             {def.label} rate over time
           </h3>
           <p className="text-xs text-slate-500">
-            {def.sub} · {granularity} buckets · click a tile above to switch
+            {def.sub} · last 12 months · {granularity} buckets · click a tile above to switch
           </p>
         </div>
         <button

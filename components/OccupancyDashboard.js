@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 import { fetcher } from '../lib/swr';
+import { matchesKansasCity } from '../lib/propertyGroups';
 import OccupancyRentRollChart from './OccupancyRentRollChart';
 
 // Helper: aggregate daily data points into weekly (one per week, using last value in each week)
@@ -147,18 +148,12 @@ export default function OccupancyDashboard() {
   }, [projections, stats, loading, occupiedOverride, selectedProperty]);
 
 
-  // Define region mappings - KC properties, Columbia is everything else
-  const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
-
+  // Region membership lives in lib/propertyGroups.js — single source of truth.
   const getPropertiesForSelection = (selection) => {
     if (selection === 'region_kansas_city') {
-      return stats?.properties?.filter(prop =>
-        KC_PROPERTIES.some(kc => prop.toLowerCase().includes(kc))
-      ) || [];
+      return stats?.properties?.filter(matchesKansasCity) || [];
     } else if (selection === 'region_columbia') {
-      return stats?.properties?.filter(prop =>
-        !KC_PROPERTIES.some(kc => prop.toLowerCase().includes(kc))
-      ) || [];
+      return stats?.properties?.filter(prop => !matchesKansasCity(prop)) || [];
     }
     return selection;
   };

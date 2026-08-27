@@ -6,6 +6,7 @@ import Chart from 'chart.js/auto';
 import { DARK_CHART_DEFAULTS, CHART_COLORS } from '../lib/chartTheme';
 import DarkSelect from './DarkSelect';
 import { fetcher } from '../lib/swr';
+import { matchesKansasCity } from '../lib/propertyGroups';
 
 // Color palette for multi-property charts
 const propertyColors = [
@@ -54,9 +55,8 @@ const RenewalBadge = ({ status }) => {
   );
 };
 
-// Region definitions — matches rent-roll stats config
-const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
-const isKCProperty = (prop) => KC_PROPERTIES.some(kc => prop?.toLowerCase().includes(kc));
+// Region membership lives in lib/propertyGroups.js — single source of truth.
+const isKCProperty = matchesKansasCity;
 
 // Issue type badge renderer
 const IssueBadge = ({ type }) => {

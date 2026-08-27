@@ -1,17 +1,14 @@
 import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
+import { matchesKansasCity } from '../../../lib/propertyGroups';
 
 export const dynamic = 'force-dynamic';
 
 // Stage definitions
 const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_rights', 'eviction', 'current', 'file_for_collections'];
 
-// Region definitions for notice type determination
-const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
-};
-const isKCProperty = (prop) =>
-  REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));
+// Region membership lives in lib/propertyGroups.js.
+const isKCProperty = matchesKansasCity;
 
 export async function GET(request) {
   const auth = await requireAuth(request);

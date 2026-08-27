@@ -5,6 +5,7 @@ import { LogoLoader } from './Logo';
 import JustCallDialer, { useJustCall } from './JustCallDialer';
 import DarkSelect from './DarkSelect';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, ReferenceLine } from 'recharts';
+import { matchesKansasCity } from '../lib/propertyGroups';
 
 const PhoneIcon = ({ className = "h-3 w-3" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -37,14 +38,8 @@ const STAGES = ['needs_contacted', 'balance_letter', 'notice', 'reservation_of_r
 // - 'current': Only units with balance <= 0
 const LOCKED_STAGES = ['current', 'file_for_collections'];
 
-// Region definitions - matches rent-roll stats config
-const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
-};
-
-const isKCProperty = (prop) => {
-  return REGION_PROPERTIES.region_kansas_city.some(kc => prop?.toLowerCase().includes(kc));
-};
+// Region membership lives in lib/propertyGroups.js.
+const isKCProperty = matchesKansasCity;
 
 // Contact button with hover tooltip
 function ContactButton({ number, date, notes, onClick, formatDate }) {

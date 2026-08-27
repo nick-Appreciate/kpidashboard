@@ -1,10 +1,12 @@
 import { requireAuth } from '../../../../lib/auth';
 import { NextResponse } from 'next/server';
+import { KC_PROPERTY_MATCHERS } from '../../../../lib/propertyGroups';
 
-// Region definitions - exact property name matches (case-insensitive)
+// Source of truth for the KC list is lib/propertyGroups.js — add new
+// properties there, not here.
 const REGION_PROPERTIES = {
-  region_kansas_city: ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor', 'ide lofts'],
-  region_columbia: null // Columbia is everything NOT in Kansas City
+  region_kansas_city: KC_PROPERTY_MATCHERS,
+  region_columbia: null, // Columbia is everything NOT in Kansas City
 };
 
 export async function GET(request) {

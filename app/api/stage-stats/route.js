@@ -1,6 +1,7 @@
 import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
 
+
 export const dynamic = 'force-dynamic';
 
 // --- Granularity bucketing helpers ---
@@ -57,30 +58,10 @@ function parseDateStr(s) {
   return new Date(y, m - 1, d);
 }
 
-// Region definitions - matches occupancy dashboard
-const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
-
-function filterByRegion(records, region) {
-  if (!region) return records;
-  return records.filter(record => {
-    // Check property field first, fall back to unit field for rental_applications
-    const prop = (record.property || '').toLowerCase();
-    const unit = (record.unit || '').toLowerCase();
-    // If no property/unit info at all, include the record (older imports without property data)
-    if (!prop && !unit) return true;
-    const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc) || unit.includes(kc));
-    if (region === 'region_kansas_city') return matchesKC;
-    if (region === 'region_columbia') return !matchesKC;
-    if (region === 'farquhar') {
-      // No Glen Oaks ever, no Hilltop after 2026-04-22 sale
-      const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
-      const isGlenOaks = prop.includes('glen oaks') || unit.includes('glen oaks');
-      const isHilltop = prop.includes('hilltop') || unit.includes('hilltop');
-      return !isGlenOaks && !(hilltopGone && isHilltop);
-    }
-    return true;
-  });
-}
+// Region membership lives in lib/propertyGroups.js — the single source of
+// truth. filterRecordsByRegion accepts records with `property` and/or `unit`,
+// handles the Farquhar cutoff, and matches the fuzzy KC substring list.
+import { filterRecordsByRegion as filterByRegion } from '../../../lib/propertyGroups';
 
 export async function GET(request) {
   const auth = await requireAuth(request);

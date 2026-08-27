@@ -37,6 +37,7 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
 import { fetchAllRows } from '../../../../lib/supabase-paging';
+import { matchesKansasCity } from '../../../../lib/propertyGroups';
 
 // Mapping from AppFolio GL number → rent_roll_snapshots column name
 const GL_COLUMN_MAP = {
@@ -70,10 +71,8 @@ export async function GET(request) {
     const regionParam   = (searchParams.get('region') || '').trim();
     const propertyParam = (searchParams.get('property') || '').trim();
 
-    // Same substring convention as /api/rent-roll/stats and the other
-    // Occupancy endpoints. Kept in sync manually — if you edit this list,
-    // update REGION_PROPERTIES in rent-roll/stats/route.js too.
-    const KC_NEEDLES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
+    // Region definitions come from lib/propertyGroups.js — the single source
+    // of truth for KC substring matchers and the Farquhar cutoff.
     const HILLTOP_GONE_DATE = new Date('2026-04-22T00:00:00');
 
     // Resolve a `region` or `property` into a concrete property_name list
@@ -97,11 +96,10 @@ export async function GET(request) {
           return NextResponse.json({ error: distinctErr.message }, { status: 500 });
         }
         const allProps = Array.from(new Set((distinctRows || []).map(r => r.property_name).filter(Boolean)));
-        const isKc = (p) => KC_NEEDLES.some(kc => (p || '').toLowerCase().includes(kc));
         if (regionParam === 'region_kansas_city') {
-          propertyList = allProps.filter(isKc);
+          propertyList = allProps.filter(p => matchesKansasCity(p));
         } else if (regionParam === 'region_columbia') {
-          propertyList = allProps.filter(p => !isKc(p));
+          propertyList = allProps.filter(p => !matchesKansasCity(p));
         } else if (regionParam === 'farquhar') {
           const hilltopGone = new Date() >= HILLTOP_GONE_DATE;
           propertyList = allProps.filter(p =>

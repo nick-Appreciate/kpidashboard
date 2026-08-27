@@ -16,18 +16,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '../../../../lib/auth';
 import { fetchAllRows } from '../../../../lib/supabase-paging';
+import { matchesKansasCity } from '../../../../lib/propertyGroups';
 
 // Live data; opt out of Next.js 14's default GET-handler cache.
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const KC_NEEDLES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
-
-function inKcRegion(name: string | null | undefined): boolean {
-  if (!name) return false;
-  const lower = name.toLowerCase();
-  return KC_NEEDLES.some(n => lower.includes(n));
-}
+// Region membership lives in lib/propertyGroups.js. See matchesKansasCity.
+const inKcRegion = (name: string | null | undefined) => matchesKansasCity(name);
 
 interface SourceRow {
   source: string;

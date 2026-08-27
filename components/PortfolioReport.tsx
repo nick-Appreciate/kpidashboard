@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
+import { KC_PROPERTY_MATCHERS } from '../lib/propertyGroups';
 import { Printer, RefreshCw, Loader2, ArrowUp, ArrowDown, Minus, Filter, X } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip,
@@ -93,14 +94,17 @@ interface ReportData {
 // Property groups for the "quick pick" preset chips. Combines region-based
 // groupings (used in app/api/rent-roll/stats) with ownership groupings.
 // Farquhar = everything EXCEPT Glen Oaks (per ownership contract) AND — after
-// the 2026-04-22 Hilltop sale — no Hilltop either.
+// the 2026-04-22 Hilltop sale — no Hilltop either. The KC preset uses the
+// shared KC_PROPERTY_MATCHERS list from lib/propertyGroups.js so new KC
+// properties added there flow into this preset automatically.
 const HILLTOP_SOLD = new Date() >= new Date('2026-04-22T00:00:00');
+const kcSubstringMatch = (name: string) => {
+  const s = (name || '').toLowerCase();
+  return KC_PROPERTY_MATCHERS.some(m => s.includes(m));
+};
 const PROPERTY_PRESETS: Array<{ label: string; matches: (name: string) => boolean }> = [
-  // KC metro — matches app/api/rent-roll/stats REGION_PROPERTIES.region_kansas_city
-  // Includes Independence (Maple Manor) and downtown KCMO (Ide Lofts) — the KC
-  // metro area, not just the city-of-KCK/KCMO limits.
   { label: 'Kansas City metro',
-    matches: (n) => /hilltop|oakwood|glen oaks|normandy|maple manor|ide lofts/i.test(n) },
+    matches: kcSubstringMatch },
   { label: 'Columbia',
     matches: (n) => /pioneer|sylvan|pecan|washington|fairview|oakland gravel/i.test(n) },
   { label: 'Farquhar',

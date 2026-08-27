@@ -1,26 +1,6 @@
 import { requireAuth } from '../../../lib/auth';
 import { NextResponse } from 'next/server';
-
-// Region definitions - matches occupancy dashboard
-const KC_PROPERTIES = ['hilltop', 'oakwood', 'glen oaks', 'normandy', 'maple manor'];
-
-function filterByRegion(records, region) {
-  if (!region) return records;
-  return records.filter(record => {
-    const prop = (record.property || '').toLowerCase();
-    const unit = (record.unit || '').toLowerCase();
-    const matchesKC = KC_PROPERTIES.some(kc => prop.includes(kc) || unit.includes(kc));
-    if (region === 'region_kansas_city') return matchesKC;
-    if (region === 'region_columbia') return !matchesKC;
-    if (region === 'farquhar') {
-      const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
-      const isGlenOaks = prop.includes('glen oaks') || unit.includes('glen oaks');
-      const isHilltop = prop.includes('hilltop') || unit.includes('hilltop');
-      return !isGlenOaks && !(hilltopGone && isHilltop);
-    }
-    return true;
-  });
-}
+import { filterRecordsByRegion as filterByRegion } from '../../../lib/propertyGroups';
 
 export async function GET(request) {
   const auth = await requireAuth(request);
