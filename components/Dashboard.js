@@ -6,6 +6,7 @@ import Chart from 'chart.js/auto';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import Link from 'next/link';
 import LeadsPerUnitChart from './LeadsPerUnitChart';
+import RateOverTimeChart from './RateOverTimeChart';
 import SourcesChart from './SourcesChart';
 import TimeSeriesChart from './TimeSeriesChart';
 import TopPropertiesChart from './TopPropertiesChart';
@@ -31,6 +32,8 @@ export default function Dashboard() {
   });
   const [selectedStages, setSelectedStages] = useState(['inquiries']);
   const [granularity, setGranularity] = useState('weekly');
+  // Which lifecycle rate the drill-in chart is showing (null = no chart).
+  const [selectedRate, setSelectedRate] = useState(null);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerHovered, setHeaderHovered] = useState(false);
 
@@ -608,22 +611,48 @@ export default function Dashboard() {
             <div style={{ height: '180px' }}>
               <canvas ref={funnelChartRef}></canvas>
             </div>
-            {/* Compact conversion stats */}
+            {/* Compact conversion stats \u2014 click a tile to drill into the rate over time. */}
             <div className="grid grid-cols-5 gap-2 mt-4 pt-3 border-t border-[var(--glass-border)]">
               {[
-                { label: 'Overall', sub: 'Inquiry \u2192 Lease', value: `${funnelData.summary.overallConversion}%`, color: '#6366f1' },
-                { label: 'Scheduling', sub: 'Inquiry \u2192 Showing', value: `${funnelData.stages[1]?.conversionFromPrevious || 0}%`, color: '#8b5cf6' },
-                { label: 'Completion', sub: 'Scheduled \u2192 Complete', value: `${funnelData.summary.showingCompletionRate || 0}%`, color: '#a78bfa' },
-                { label: 'Application', sub: 'Complete \u2192 Applied', value: `${funnelData.stages[3]?.conversionFromPrevious || 0}%`, color: '#f472b6' },
-                { label: 'Approval', sub: 'Applied \u2192 Lease', value: `${funnelData.summary.applicationApprovalRate || 0}%`, color: '#34d399' },
-              ].map(({ label, sub, value, color }) => (
-                <div key={label} className="text-center py-2 px-1 rounded-lg" style={{ backgroundColor: `${color}10`, border: `1px solid ${color}18` }}>
-                  <p className="text-lg font-bold" style={{ color }}>{value}</p>
-                  <p className="text-[11px] font-medium text-slate-300 leading-tight">{label}</p>
-                  <p className="text-[10px] text-slate-500 leading-tight">{sub}</p>
-                </div>
-              ))}
+                { key: 'overall',     label: 'Overall',     sub: 'Inquiry \u2192 Lease',      value: `${funnelData.summary.overallConversion}%`,                color: '#6366f1' },
+                { key: 'scheduling',  label: 'Scheduling',  sub: 'Inquiry \u2192 Showing',    value: `${funnelData.stages[1]?.conversionFromPrevious || 0}%`,   color: '#8b5cf6' },
+                { key: 'completion',  label: 'Completion',  sub: 'Scheduled \u2192 Complete', value: `${funnelData.summary.showingCompletionRate || 0}%`,       color: '#a78bfa' },
+                { key: 'application', label: 'Application', sub: 'Complete \u2192 Applied',   value: `${funnelData.stages[3]?.conversionFromPrevious || 0}%`,   color: '#f472b6' },
+                { key: 'approval',    label: 'Approval',    sub: 'Applied \u2192 Lease',      value: `${funnelData.summary.applicationApprovalRate || 0}%`,     color: '#34d399' },
+              ].map(({ key, label, sub, value, color }) => {
+                const isActive = selectedRate === key;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setSelectedRate(prev => prev === key ? null : key)}
+                    aria-pressed={isActive}
+                    className="text-center py-2 px-1 rounded-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent"
+                    style={{
+                      backgroundColor: isActive ? `${color}30` : `${color}10`,
+                      border: `1px solid ${isActive ? color : `${color}18`}`,
+                      boxShadow: isActive ? `0 0 0 1px ${color}55` : 'none',
+                    }}
+                  >
+                    <p className="text-lg font-bold" style={{ color }}>{value}</p>
+                    <p className="text-[11px] font-medium text-slate-300 leading-tight">{label}</p>
+                    <p className="text-[10px] text-slate-500 leading-tight">{sub}</p>
+                  </button>
+                );
+              })}
             </div>
+
+            {/* Rate-over-time drill-in \u2014 only rendered when a tile is selected. */}
+            <RateOverTimeChart
+              filterParams={(() => {
+                const p = new URLSearchParams(filterParams);
+                p.set('granularity', granularity);
+                return p.toString();
+              })()}
+              rateKey={selectedRate}
+              granularity={granularity}
+              onClose={() => setSelectedRate(null)}
+            />
           </div>
         )}
 
