@@ -28,13 +28,7 @@ import { RECHARTS_THEME } from '../lib/chartTheme';
 // KC substring matchers and the Farquhar cutoff.
 import { filterRecordsByRegion } from '../lib/propertyGroups';
 
-type RegionKey = 'all' | 'region_kansas_city' | 'region_columbia' | 'farquhar';
-const REGION_OPTIONS: Array<{ key: RegionKey; label: string }> = [
-  { key: 'all',                 label: 'All' },
-  { key: 'region_kansas_city',  label: 'Kansas City' },
-  { key: 'region_columbia',     label: 'Columbia' },
-  { key: 'farquhar',            label: 'Farquhar' },
-];
+export type RegionKey = 'all' | 'region_kansas_city' | 'region_columbia' | 'farquhar';
 
 interface MonthTotal {
   month: string;
@@ -84,13 +78,14 @@ const fmtCurrencyFull = (n: number) => {
 };
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
-export default function OwnerNetIncomeChart() {
+export default function OwnerNetIncomeChart({ region = 'all' }: { region?: RegionKey }) {
+  // `region` is a controlled prop driven by the parent page-level filter,
+  // so every chart / tile / table on the page moves together.
   const [rawData, setRawData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'portfolio' | 'byProperty'>('portfolio');
   const [months, setMonths] = useState(12);
-  const [region, setRegion] = useState<RegionKey>('all');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -238,17 +233,6 @@ export default function OwnerNetIncomeChart() {
                   months === n ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >{n}mo</button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 bg-slate-800/50 rounded-md p-0.5 shrink-0">
-            {REGION_OPTIONS.map(o => (
-              <button
-                key={o.key}
-                onClick={() => setRegion(o.key)}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                  region === o.key ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >{o.label}</button>
             ))}
           </div>
         </div>

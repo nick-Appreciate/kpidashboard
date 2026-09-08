@@ -8,6 +8,17 @@ import {
 import DarkSelect from './DarkSelect';
 import { CHART_PALETTE, RECHARTS_THEME } from '../lib/chartTheme';
 import OwnerNetIncomeChart from './OwnerNetIncomeChart';
+// Region membership (KC / Columbia / Farquhar) lives in lib/propertyGroups.
+// Any page-level filter for these regions has to consult that shared source.
+import { matchesKansasCity, matchesFarquhar } from '../lib/propertyGroups';
+
+type RegionKey = 'all' | 'region_kansas_city' | 'region_columbia' | 'farquhar';
+const REGION_OPTIONS: Array<{ key: RegionKey; label: string }> = [
+  { key: 'all',                 label: 'All' },
+  { key: 'region_kansas_city',  label: 'Kansas City' },
+  { key: 'region_columbia',     label: 'Columbia' },
+  { key: 'farquhar',            label: 'Farquhar' },
+];
 
 // Lightweight shape for the per-property overhead lookup. Sourced from
 // /api/admin/property-periods which now backs both the Owners admin page
@@ -137,6 +148,7 @@ export default function FinancialsDashboard() {
   // Filters
   const [selectedProperty, setSelectedProperty] = useState('Total');
   const [selectedOwner, setSelectedOwner] = useState('all');
+  const [selectedRegion, setSelectedRegion] = useState<RegionKey>('all');
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['noi']);
   const [metricDropdownOpen, setMetricDropdownOpen] = useState(false);
   const [metricSearch, setMetricSearch] = useState('');
@@ -214,13 +226,35 @@ export default function FinancialsDashboard() {
     ];
   }, [propertyOwners]);
 
-  // Get properties for selected owner
+  // Property membership for the selected region (KC / Columbia / Farquhar).
+  // Uses the shared matchers in lib/propertyGroups so this stays in sync
+  // with every other region-aware filter across the app.
+  const regionPropertyFilter = useMemo<string[] | null>(() => {
+    if (selectedRegion === 'all') return null;
+    const today = new Date();
+    return properties.filter(p => {
+      if (!p) return false;
+      if (selectedRegion === 'region_kansas_city') return matchesKansasCity(p);
+      if (selectedRegion === 'region_columbia')    return !matchesKansasCity(p);
+      if (selectedRegion === 'farquhar')           return matchesFarquhar(p, '', today);
+      return true;
+    });
+  }, [selectedRegion, properties]);
+
+  // Get properties for selected owner. When both an owner AND a region are
+  // selected, intersect (only properties that satisfy both). This is the
+  // single filter every downstream chart / tile / table respects.
   const ownerPropertyFilter = useMemo<string[] | null>(() => {
-    if (selectedOwner === 'all') return null;
-    return propertyOwners
-      .filter(po => po.owners === selectedOwner)
-      .map(po => po.property_name);
-  }, [selectedOwner, propertyOwners]);
+    const ownerList = selectedOwner === 'all'
+      ? null
+      : propertyOwners.filter(po => po.owners === selectedOwner).map(po => po.property_name);
+    if (!ownerList && !regionPropertyFilter) return null;
+    if (!ownerList) return regionPropertyFilter;
+    if (!regionPropertyFilter) return ownerList;
+    // Intersection
+    const regionSet = new Set(regionPropertyFilter);
+    return ownerList.filter(p => regionSet.has(p));
+  }, [selectedOwner, propertyOwners, regionPropertyFilter]);
 
   // Property options filtered by owner
   const propertyOptions = useMemo(() => {
@@ -657,6 +691,18 @@ export default function FinancialsDashboard() {
               className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/10 ${snapshotMode === 'month_end' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
             >Month End</button>
           </div>
+          {/* Region pills — page-level filter respected by every chart, tile,
+              and table on this page. Intersects with the Owner and Property
+              dropdowns when they are also set. */}
+          <div className="inline-flex rounded-md border border-white/10 overflow-hidden">
+            {REGION_OPTIONS.map((o, i) => (
+              <button
+                key={o.key}
+                onClick={() => setSelectedRegion(o.key)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-white/10' : ''} ${selectedRegion === o.key ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
+              >{o.label}</button>
+            ))}
+          </div>
           <DarkSelect value={selectedOwner} onChange={setSelectedOwner} options={ownerOptions} searchable />
           <DarkSelect value={selectedProperty} onChange={setSelectedProperty} options={propertyOptions} searchable />
           {/* Multi-select metric dropdown */}
@@ -717,7 +763,7 @@ export default function FinancialsDashboard() {
           {/* Owner Net Income — models true net to owner after the
               insurance + debt costs paid outside AppFolio (sourced from
               property_debt_insurance / Cash Balance.xls). */}
-          <OwnerNetIncomeChart />
+          <OwnerNetIncomeChart region={selectedRegion} />
 
           {/* Chart */}
           <div className="glass-card p-6">
