@@ -24,6 +24,17 @@ import {
   Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { RECHARTS_THEME } from '../lib/chartTheme';
+// Region membership lives in lib/propertyGroups — single source of truth for
+// KC substring matchers and the Farquhar cutoff.
+import { filterRecordsByRegion } from '../lib/propertyGroups';
+
+type RegionKey = 'all' | 'region_kansas_city' | 'region_columbia' | 'farquhar';
+const REGION_OPTIONS: Array<{ key: RegionKey; label: string }> = [
+  { key: 'all',                 label: 'All' },
+  { key: 'region_kansas_city',  label: 'Kansas City' },
+  { key: 'region_columbia',     label: 'Columbia' },
+  { key: 'farquhar',            label: 'Farquhar' },
+];
 
 interface MonthTotal {
   month: string;
@@ -71,6 +82,7 @@ const fmtCurrencyFull = (n: number) => {
   const abs = Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 });
   return v < 0 ? `($${abs})` : `$${abs}`;
 };
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 export default function OwnerNetIncomeChart() {
   const [rawData, setRawData] = useState<ApiResponse | null>(null);
@@ -78,6 +90,7 @@ export default function OwnerNetIncomeChart() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'portfolio' | 'byProperty'>('portfolio');
   const [months, setMonths] = useState(12);
+  const [region, setRegion] = useState<RegionKey>('all');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -95,7 +108,44 @@ export default function OwnerNetIncomeChart() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const data = rawData;
+  // Apply region filter to the raw rows, then recompute totals from what's
+  // left. Doing it client-side keeps the API response cache-friendly and
+  // avoids paying for a re-fetch on every filter change.
+  const data = useMemo(() => {
+    if (!rawData) return null;
+    if (region === 'all') return rawData;
+    const filteredRows = filterRecordsByRegion(rawData.rows, region);
+    if (filteredRows === rawData.rows) return rawData;
+    // Rebuild per-month totals from the filtered rows.
+    const totalsByMonth = new Map<string, MonthTotal>();
+    for (const m of rawData.months) {
+      totalsByMonth.set(m, {
+        month: m,
+        distributions: 0, contributions: 0,
+        insurance: 0, taxes: 0, debt_service: 0, net_to_owner: 0,
+      });
+    }
+    for (const r of filteredRows) {
+      const t = totalsByMonth.get(r.month);
+      if (!t) continue;
+      t.distributions += r.distributions;
+      t.contributions += r.contributions;
+      t.insurance     += r.insurance;
+      t.taxes         += r.taxes;
+      t.debt_service  += r.debt_service;
+      t.net_to_owner  += r.net_to_owner;
+    }
+    const totals = Array.from(totalsByMonth.values()).map(t => ({
+      ...t,
+      distributions: round2(t.distributions),
+      contributions: round2(t.contributions),
+      insurance:     round2(t.insurance),
+      taxes:         round2(t.taxes),
+      debt_service:  round2(t.debt_service),
+      net_to_owner:  round2(t.net_to_owner),
+    }));
+    return { ...rawData, rows: filteredRows, totals };
+  }, [rawData, region]);
 
   const totalsForChart = useMemo(() => {
     if (!data?.totals) return [];
@@ -188,6 +238,17 @@ export default function OwnerNetIncomeChart() {
                   months === n ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >{n}mo</button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 bg-slate-800/50 rounded-md p-0.5 shrink-0">
+            {REGION_OPTIONS.map(o => (
+              <button
+                key={o.key}
+                onClick={() => setRegion(o.key)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  region === o.key ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >{o.label}</button>
             ))}
           </div>
         </div>
