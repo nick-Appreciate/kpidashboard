@@ -12,13 +12,16 @@ import OwnerNetIncomeChart from './OwnerNetIncomeChart';
 // Any page-level filter for these regions has to consult that shared source.
 import { matchesKansasCity, matchesFarquhar } from '../lib/propertyGroups';
 
-type RegionKey = 'all' | 'region_kansas_city' | 'region_columbia' | 'farquhar';
-const REGION_OPTIONS: Array<{ key: RegionKey; label: string }> = [
-  { key: 'all',                 label: 'All' },
-  { key: 'region_kansas_city',  label: 'Kansas City' },
-  { key: 'region_columbia',     label: 'Columbia' },
-  { key: 'farquhar',            label: 'Farquhar' },
-];
+// Region "properties" — regions are surfaced inside the Portfolio dropdown as
+// aggregation-scope options next to individual properties. Selecting one is
+// treated as an aggregate mode (sum across the matching properties) just
+// like the existing 'Total' option.
+const REGION_KEYS = new Set(['region_kansas_city', 'region_columbia', 'farquhar']);
+const REGION_LABELS: Record<string, string> = {
+  region_kansas_city: 'Kansas City (region)',
+  region_columbia:    'Columbia (region)',
+  farquhar:           'Farquhar (portfolio)',
+};
 
 // Lightweight shape for the per-property overhead lookup. Sourced from
 // /api/admin/property-periods which now backs both the Owners admin page
@@ -148,7 +151,6 @@ export default function FinancialsDashboard() {
   // Filters
   const [selectedProperty, setSelectedProperty] = useState('Total');
   const [selectedOwner, setSelectedOwner] = useState('all');
-  const [selectedRegion, setSelectedRegion] = useState<RegionKey>('all');
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['noi']);
   const [metricDropdownOpen, setMetricDropdownOpen] = useState(false);
   const [metricSearch, setMetricSearch] = useState('');
@@ -226,24 +228,31 @@ export default function FinancialsDashboard() {
     ];
   }, [propertyOwners]);
 
-  // Property membership for the selected region (KC / Columbia / Farquhar).
-  // Uses the shared matchers in lib/propertyGroups so this stays in sync
-  // with every other region-aware filter across the app.
+  // The scope aggregates across multiple properties whenever the user picked
+  // Total or a region (KC / Columbia / Farquhar) — as opposed to picking a
+  // single specific property. The rest of this component reads this flag in
+  // place of the older `isAggregateScope` check.
+  const isRegionSelected = REGION_KEYS.has(selectedProperty);
+  const isAggregateScope = selectedProperty === 'Total' || isRegionSelected;
+
+  // Property membership for the selected region, resolved against the shared
+  // matchers in lib/propertyGroups so it stays in sync with every other
+  // region-aware filter across the app.
   const regionPropertyFilter = useMemo<string[] | null>(() => {
-    if (selectedRegion === 'all') return null;
+    if (!isRegionSelected) return null;
     const today = new Date();
     return properties.filter(p => {
       if (!p) return false;
-      if (selectedRegion === 'region_kansas_city') return matchesKansasCity(p);
-      if (selectedRegion === 'region_columbia')    return !matchesKansasCity(p);
-      if (selectedRegion === 'farquhar')           return matchesFarquhar(p, '', today);
+      if (selectedProperty === 'region_kansas_city') return matchesKansasCity(p);
+      if (selectedProperty === 'region_columbia')    return !matchesKansasCity(p);
+      if (selectedProperty === 'farquhar')           return matchesFarquhar(p, '', today);
       return true;
     });
-  }, [selectedRegion, properties]);
+  }, [selectedProperty, properties, isRegionSelected]);
 
-  // Get properties for selected owner. When both an owner AND a region are
-  // selected, intersect (only properties that satisfy both). This is the
-  // single filter every downstream chart / tile / table respects.
+  // The single filter every downstream chart / tile / table respects.
+  // Combines the Owner selection with the region selection (intersection
+  // when both are set), so filters don't fight each other.
   const ownerPropertyFilter = useMemo<string[] | null>(() => {
     const ownerList = selectedOwner === 'all'
       ? null
@@ -251,22 +260,31 @@ export default function FinancialsDashboard() {
     if (!ownerList && !regionPropertyFilter) return null;
     if (!ownerList) return regionPropertyFilter;
     if (!regionPropertyFilter) return ownerList;
-    // Intersection
     const regionSet = new Set(regionPropertyFilter);
     return ownerList.filter(p => regionSet.has(p));
   }, [selectedOwner, propertyOwners, regionPropertyFilter]);
 
-  // Property options filtered by owner
+  // Property options filtered by owner. Region choices (KC / Columbia /
+  // Farquhar) live at the top of this same dropdown as aggregation scopes,
+  // so the user picks one single "scope" without dueling filter widgets.
   const propertyOptions = useMemo(() => {
-    let props = properties;
-    if (ownerPropertyFilter) {
-      props = properties.filter(p => ownerPropertyFilter.includes(p));
-    }
+    // When an owner is selected, individual property options narrow to that
+    // owner's properties; region options are always available regardless of
+    // owner so the user can combine them.
+    const ownerOnlyFilter = selectedOwner === 'all'
+      ? null
+      : propertyOwners.filter(po => po.owners === selectedOwner).map(po => po.property_name);
+    const props = ownerOnlyFilter
+      ? properties.filter(p => ownerOnlyFilter.includes(p))
+      : properties;
     return [
-      { value: 'Total', label: 'Portfolio (Total)' },
-      ...props.map(p => ({ value: p, label: p }))
+      { value: 'Total',              label: 'Portfolio (Total)' },
+      { value: 'region_kansas_city', label: REGION_LABELS.region_kansas_city },
+      { value: 'region_columbia',    label: REGION_LABELS.region_columbia },
+      { value: 'farquhar',           label: REGION_LABELS.farquhar },
+      ...props.map(p => ({ value: p, label: p })),
     ];
-  }, [properties, ownerPropertyFilter]);
+  }, [properties, selectedOwner, propertyOwners]);
 
   // Build metric options: summary metrics + GL accounts from COA
   const metricOptions = useMemo(() => {
@@ -294,7 +312,7 @@ export default function FinancialsDashboard() {
 
   // Reset property selection when owner changes
   useEffect(() => {
-    if (selectedOwner !== 'all' && selectedProperty !== 'Total') {
+    if (selectedOwner !== 'all' && !isAggregateScope) {
       if (ownerPropertyFilter && !ownerPropertyFilter.includes(selectedProperty)) {
         setSelectedProperty('Total');
       }
@@ -337,10 +355,14 @@ export default function FinancialsDashboard() {
   // Chart data — supports multiple metrics
   const { chartData, chartKeys } = useMemo(() => {
     const CAP_RATE = 0.065;
-    const ownerSumMode = selectedProperty === 'Total' && ownerPropertyFilter != null;
+    const ownerSumMode = isAggregateScope && ownerPropertyFilter != null;
     const relevantProperties = ownerSumMode
       ? ownerPropertyFilter!
-      : selectedProperty === 'Total' ? ['Total'] : [selectedProperty];
+      : isAggregateScope ? ['Total'] : [selectedProperty];
+    // When an aggregate scope is selected but no filter is active (e.g. plain
+    // "Portfolio (Total)"), fall back to the 'Total' aggregate row that
+    // AppFolio itself emits per period. When a filter IS active (region or
+    // owner), we sum the per-property rows instead — done in the loop below.
 
     if (viewMode === 'byProperty') {
       // By Property: X-axis = properties, default to current (latest) month
@@ -436,7 +458,7 @@ export default function FinancialsDashboard() {
 
     // Resolve which set of properties contributes the overhead overlay
     let scopeProperties: string[];
-    if (selectedProperty && selectedProperty !== 'Total' && selectedProperty !== 'all') {
+    if (selectedProperty && !isAggregateScope && selectedProperty !== 'all') {
       scopeProperties = [selectedProperty];
     } else if (ownerPropertyFilter) {
       scopeProperties = ownerPropertyFilter;
@@ -485,7 +507,7 @@ export default function FinancialsDashboard() {
     // --- BY MONTH: columns = months, rows = accounts for selected property ---
     if (viewMode === 'byMonth') {
       // Determine which property's data to show
-      const ownerSumMode = selectedProperty === 'Total' && ownerPropertyFilter != null;
+      const ownerSumMode = isAggregateScope && ownerPropertyFilter != null;
       const targetProp = ownerSumMode ? null : selectedProperty; // null = sum owner props
 
       // Filter data to relevant property/properties
@@ -552,7 +574,7 @@ export default function FinancialsDashboard() {
       tableRows.push({ type: 'spacer', label: '', indent: 0, amounts: {} });
       addSummary('Cash Flow', 0, true);
 
-      const propLabel = selectedProperty === 'Total' ? 'Portfolio' : selectedProperty;
+      const propLabel = isAggregateScope ? 'Portfolio' : selectedProperty;
       return { rows: tableRows, columns, title: `Cash Flow — ${propLabel} — Monthly` };
     }
 
@@ -691,18 +713,6 @@ export default function FinancialsDashboard() {
               className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-white/10 ${snapshotMode === 'month_end' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
             >Month End</button>
           </div>
-          {/* Region pills — page-level filter respected by every chart, tile,
-              and table on this page. Intersects with the Owner and Property
-              dropdowns when they are also set. */}
-          <div className="inline-flex rounded-md border border-white/10 overflow-hidden">
-            {REGION_OPTIONS.map((o, i) => (
-              <button
-                key={o.key}
-                onClick={() => setSelectedRegion(o.key)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-white/10' : ''} ${selectedRegion === o.key ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-slate-300 hover:bg-white/5'}`}
-              >{o.label}</button>
-            ))}
-          </div>
           <DarkSelect value={selectedOwner} onChange={setSelectedOwner} options={ownerOptions} searchable />
           <DarkSelect value={selectedProperty} onChange={setSelectedProperty} options={propertyOptions} searchable />
           {/* Multi-select metric dropdown */}
@@ -763,12 +773,12 @@ export default function FinancialsDashboard() {
           {/* Owner Net Income — models true net to owner after the
               insurance + debt costs paid outside AppFolio (sourced from
               property_debt_insurance / Cash Balance.xls). */}
-          <OwnerNetIncomeChart region={selectedRegion} />
+          <OwnerNetIncomeChart region={isRegionSelected ? (selectedProperty as any) : 'all'} />
 
           {/* Chart */}
           <div className="glass-card p-6">
             <h2 className="text-lg font-semibold text-white mb-4">
-              {metricLabel} — {viewMode === 'byProperty' ? `By Property (${stats?.periodLabel || 'Current Month'})` : (selectedProperty === 'Total' ? 'Portfolio' : selectedProperty)}
+              {metricLabel} — {viewMode === 'byProperty' ? `By Property (${stats?.periodLabel || 'Current Month'})` : (isRegionSelected ? REGION_LABELS[selectedProperty] : isAggregateScope ? 'Portfolio' : selectedProperty)}
             </h2>
             {chartData.length === 0 ? (
               <div className="flex items-center justify-center text-slate-500 text-sm" style={{ aspectRatio: '3' }}>
