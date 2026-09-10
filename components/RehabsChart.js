@@ -97,9 +97,12 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
   };
 
   // "In Rehab" pill toggles a single aggregate line that plots the sum of
-  // every status per date EXCEPT Complete and Rented — i.e. units still
-  // occupying rehab pipeline capacity. Independent of the per-status pills.
-  const IN_REHAB_STATUSES = STATUS_ORDER.filter(s => s !== 'Complete' && s !== 'Rented');
+  // every status per date EXCEPT Complete, Rented, Notice, and Eviction —
+  // i.e. units actively occupying rehab-crew capacity. Notice and Eviction
+  // are legal-track statuses, not rehab work-in-progress, so they don't
+  // count. Independent of the per-status pills.
+  const IN_REHAB_EXCLUDED = new Set(['Complete', 'Rented', 'Notice', 'Eviction']);
+  const IN_REHAB_STATUSES = STATUS_ORDER.filter(s => !IN_REHAB_EXCLUDED.has(s));
   const toggleInRehab = () => setShowInRehab(prev => !prev);
 
   const chartData = useMemo(() => {
