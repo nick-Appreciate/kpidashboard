@@ -53,7 +53,9 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
   // Use all in-progress rehabs for today's data point
   const rehabs = allRehabs.filter(r => r.status === 'in_progress' || !r.status);
   const [selectedStatuses, setSelectedStatuses] = useState(['In Progress', 'Complete']);
-  const [showAll, setShowAll] = useState(false); // "All" = single summed line
+  // "In Rehab" = sum of every status EXCEPT Complete and Rented (i.e. units
+  // currently occupying rehab pipeline capacity).
+  const [showInRehab, setShowInRehab] = useState(false);
   const [timeRange, setTimeRange] = useState('30'); // days
   const [historyData, setHistoryData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -94,10 +96,11 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
     );
   };
 
-  // "All" pill toggles a single aggregate line that plots the sum of every
-  // status per date. Independent of the per-status pills — you can turn All
-  // on alongside any individual status line.
-  const toggleAll = () => setShowAll(prev => !prev);
+  // "In Rehab" pill toggles a single aggregate line that plots the sum of
+  // every status per date EXCEPT Complete and Rented — i.e. units still
+  // occupying rehab pipeline capacity. Independent of the per-status pills.
+  const IN_REHAB_STATUSES = STATUS_ORDER.filter(s => s !== 'Complete' && s !== 'Rented');
+  const toggleInRehab = () => setShowInRehab(prev => !prev);
 
   const chartData = useMemo(() => {
     // Get today's date in Central Time
@@ -115,8 +118,9 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
           ? (snapshot[`${VACANT_PREFIX}${dbKey}`] || 0)
           : (snapshot[dbKey] || 0);
       });
-      // Per-point sum for the "All" aggregate line.
-      point.All = STATUS_ORDER.reduce((s, k) => s + (point[k] || 0), 0);
+      // Per-point sum for the "In Rehab" aggregate line — excludes Complete
+      // and Rented, since those units are out of the rehab pipeline.
+      point.InRehab = IN_REHAB_STATUSES.reduce((s, k) => s + (point[k] || 0), 0);
       return point;
     });
 
@@ -129,7 +133,7 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
       }).length;
       todayPoint[status] = count;
     });
-    todayPoint.All = STATUS_ORDER.reduce((s, k) => s + (todayPoint[k] || 0), 0);
+    todayPoint.InRehab = IN_REHAB_STATUSES.reduce((s, k) => s + (todayPoint[k] || 0), 0);
 
     // Merge historical with today (replace if today exists in history)
     const hasToday = historicalPoints.some(p => p.date === todayStr);
@@ -155,8 +159,8 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
     return totals;
   }, [rehabs]);
 
-  const allTotal = useMemo(
-    () => STATUS_ORDER.reduce((s, k) => s + (statusTotals[k] || 0), 0),
+  const inRehabTotal = useMemo(
+    () => IN_REHAB_STATUSES.reduce((s, k) => s + (statusTotals[k] || 0), 0),
     [statusTotals],
   );
 
@@ -188,20 +192,20 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
         />
       </div>
 
-      {/* Status multi-select buttons — "All" first (single summed line),
-          then each status (individual per-status lines). */}
+      {/* Status pills — "In Rehab" first (single summed line of everything
+          except Complete + Rented), then each status individually. */}
       <div className="flex flex-wrap gap-2 mb-4">
         <button
-          key="__all"
-          onClick={toggleAll}
-          title="Toggle a single line showing the sum of every status"
+          key="__in_rehab"
+          onClick={toggleInRehab}
+          title="Toggle a single line showing units currently in the rehab pipeline (every status except Complete and Rented)"
           className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-            showAll
+            showInRehab
               ? 'bg-white text-slate-900 border-transparent'
               : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/20'
           }`}
         >
-          All ({allTotal})
+          In Rehab ({inRehabTotal})
         </button>
         {STATUS_ORDER.map(status => (
           <button
@@ -245,12 +249,12 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
               contentStyle={{ ...RECHARTS_THEME.tooltip.contentStyle, fontSize: 12 }}
             />
             <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-            {showAll && (
+            {showInRehab && (
               <Line
-                key="__all"
+                key="__in_rehab"
                 type="monotone"
-                dataKey="All"
-                name="All (sum)"
+                dataKey="InRehab"
+                name="In Rehab"
                 stroke="#ffffff"
                 strokeWidth={2.5}
                 dot={{ r: 4 }}
