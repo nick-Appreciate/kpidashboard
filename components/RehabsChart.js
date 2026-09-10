@@ -53,6 +53,7 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
   // Use all in-progress rehabs for today's data point
   const rehabs = allRehabs.filter(r => r.status === 'in_progress' || !r.status);
   const [selectedStatuses, setSelectedStatuses] = useState(['In Progress', 'Complete']);
+  const [showAll, setShowAll] = useState(false); // "All" = single summed line
   const [timeRange, setTimeRange] = useState('30'); // days
   const [historyData, setHistoryData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -93,12 +94,10 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
     );
   };
 
-  // "All" pill: sets every status to selected (or clears if all are already
-  // selected — click twice to reset). Highlighted when every status is on.
-  const allSelected = selectedStatuses.length === STATUS_ORDER.length;
-  const toggleAll = () => {
-    setSelectedStatuses(allSelected ? [] : [...STATUS_ORDER]);
-  };
+  // "All" pill toggles a single aggregate line that plots the sum of every
+  // status per date. Independent of the per-status pills — you can turn All
+  // on alongside any individual status line.
+  const toggleAll = () => setShowAll(prev => !prev);
 
   const chartData = useMemo(() => {
     // Get today's date in Central Time
@@ -116,6 +115,8 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
           ? (snapshot[`${VACANT_PREFIX}${dbKey}`] || 0)
           : (snapshot[dbKey] || 0);
       });
+      // Per-point sum for the "All" aggregate line.
+      point.All = STATUS_ORDER.reduce((s, k) => s + (point[k] || 0), 0);
       return point;
     });
 
@@ -128,6 +129,7 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
       }).length;
       todayPoint[status] = count;
     });
+    todayPoint.All = STATUS_ORDER.reduce((s, k) => s + (todayPoint[k] || 0), 0);
 
     // Merge historical with today (replace if today exists in history)
     const hasToday = historicalPoints.some(p => p.date === todayStr);
@@ -186,13 +188,15 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
         />
       </div>
 
-      {/* Status multi-select buttons — "All" first, then each status */}
+      {/* Status multi-select buttons — "All" first (single summed line),
+          then each status (individual per-status lines). */}
       <div className="flex flex-wrap gap-2 mb-4">
         <button
           key="__all"
           onClick={toggleAll}
+          title="Toggle a single line showing the sum of every status"
           className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-            allSelected
+            showAll
               ? 'bg-white text-slate-900 border-transparent'
               : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/20'
           }`}
@@ -241,6 +245,18 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
               contentStyle={{ ...RECHARTS_THEME.tooltip.contentStyle, fontSize: 12 }}
             />
             <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+            {showAll && (
+              <Line
+                key="__all"
+                type="monotone"
+                dataKey="All"
+                name="All (sum)"
+                stroke="#ffffff"
+                strokeWidth={2.5}
+                dot={{ r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+            )}
             {selectedStatuses.map(status => (
               <Line
                 key={status}
