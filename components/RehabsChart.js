@@ -99,7 +99,6 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
   const toggleAll = () => {
     setSelectedStatuses(allSelected ? [] : [...STATUS_ORDER]);
   };
-  const allTotal = STATUS_ORDER.reduce((s, k) => s + (statusTotals[k] || 0), 0);
 
   const chartData = useMemo(() => {
     // Get today's date in Central Time
@@ -153,6 +152,11 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
     });
     return totals;
   }, [rehabs]);
+
+  const allTotal = useMemo(
+    () => STATUS_ORDER.reduce((s, k) => s + (statusTotals[k] || 0), 0),
+    [statusTotals],
+  );
 
   const formatDate = (dateStr) => {
     const date = new Date(dateStr);
