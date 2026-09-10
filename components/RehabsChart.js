@@ -62,6 +62,8 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
     const fetchHistory = async () => {
       setLoading(true);
       try {
+        // `timeRange === 'all'` skips the days filter server-side and returns
+        // every snapshot the table has (send a sentinel value the route reads).
         const params = new URLSearchParams({ days: timeRange });
         // 'farquhar' is a region alias — no per-region snapshots exist, use portfolio-wide
         if (selectedProperty && selectedProperty !== 'all' && selectedProperty !== 'portfolio' && selectedProperty !== 'farquhar') {
@@ -90,6 +92,14 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
         : [...prev, status]
     );
   };
+
+  // "All" pill: sets every status to selected (or clears if all are already
+  // selected — click twice to reset). Highlighted when every status is on.
+  const allSelected = selectedStatuses.length === STATUS_ORDER.length;
+  const toggleAll = () => {
+    setSelectedStatuses(allSelected ? [] : [...STATUS_ORDER]);
+  };
+  const allTotal = STATUS_ORDER.reduce((s, k) => s + (statusTotals[k] || 0), 0);
 
   const chartData = useMemo(() => {
     // Get today's date in Central Time
@@ -160,17 +170,31 @@ export default function RehabsChart({ rehabs: allRehabs = [], selectedProperty =
           searchable={false}
           className="w-36"
           options={[
-            { value: '7', label: 'Last 7 days' },
-            { value: '14', label: 'Last 14 days' },
-            { value: '30', label: 'Last 30 days' },
-            { value: '60', label: 'Last 60 days' },
-            { value: '90', label: 'Last 90 days' },
+            { value: '7',   label: 'Last 7 days' },
+            { value: '14',  label: 'Last 14 days' },
+            { value: '30',  label: 'Last 30 days' },
+            { value: '60',  label: 'Last 60 days' },
+            { value: '90',  label: 'Last 90 days' },
+            { value: '180', label: 'Last 180 days' },
+            { value: '365', label: 'Last 365 days' },
+            { value: 'all', label: 'All time' },
           ]}
         />
       </div>
 
-      {/* Status multi-select buttons */}
+      {/* Status multi-select buttons — "All" first, then each status */}
       <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          key="__all"
+          onClick={toggleAll}
+          className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+            allSelected
+              ? 'bg-white text-slate-900 border-transparent'
+              : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/20'
+          }`}
+        >
+          All ({allTotal})
+        </button>
         {STATUS_ORDER.map(status => (
           <button
             key={status}

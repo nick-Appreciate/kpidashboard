@@ -16,20 +16,28 @@ export async function GET(request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const days = parseInt(searchParams.get('days') || '30', 10);
+    const daysParam = searchParams.get('days') || '30';
+    const isAllTime = daysParam === 'all';
+    const days = parseInt(daysParam, 10);
     const property = searchParams.get('property');
-    
-    // Calculate start date in Central Time
+
+    // For a bounded window, compute the start date in Central Time. For
+    // "all time" we simply skip the `.gte()` filter so every stored snapshot
+    // comes back.
     const today = getCentralTimeDate();
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - days);
-    const startDateStr = startDate.toISOString().split('T')[0];
-    
+
     let query = supabase
       .from('rehab_daily_snapshots')
       .select('*')
-      .gte('snapshot_date', startDateStr)
-      .order('snapshot_date', { ascending: true });
+      .order('snapshot_date', { ascending: true })
+      .range(0, 99999); // avoid the 1000-row PostgREST cap for long windows
+
+    if (!isAllTime && Number.isFinite(days) && days > 0) {
+      const startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split('T')[0];
+      query = query.gte('snapshot_date', startDateStr);
+    }
     
     if (property && property !== 'all' && property !== 'portfolio') {
       query = query.eq('property', property);
