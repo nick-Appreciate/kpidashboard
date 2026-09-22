@@ -381,7 +381,11 @@ Deno.serve(async (_req: Request) => {
       .eq('id', 1)
       .single();
 
-    const startDate = cursorRow?.last_posted_date || EARLIEST_DATE;
+    // Always filter against EARLIEST_DATE, not last_posted_date. The cursor
+    // handles resume position; using last_posted_date as the filter created a
+    // bug where paginating backwards through Brex history threw away any txn
+    // older than the last-newest, so the sync never advanced past a gap.
+    const startDate = EARLIEST_DATE;
 
     console.log(`Starting sync from date: ${startDate}`);
 

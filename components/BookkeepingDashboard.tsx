@@ -11,13 +11,15 @@ import { useBills } from "../hooks/useBills";
 import BillRow from "./bookkeeping/BillRow";
 import UploadActivityTracker from "./bookkeeping/UploadActivityTracker";
 import ParseSettingsTab from "./bookkeeping/ParseSettingsTab";
+import ReconciliationTab from "./bookkeeping/ReconciliationTab";
 import type { UnifiedBill, UnifiedFilterOption, SourceFilter, UnifiedSortOption } from "../types/bookkeeping";
 
-type TabOption = "feed" | "parse_settings";
+type TabOption = "reconciliation" | "feed" | "parse_settings";
 
 function getInitialTab(param: string | null): TabOption {
   if (param === "parse_settings") return "parse_settings";
-  return "feed";
+  if (param === "feed") return "feed";
+  return "reconciliation";
 }
 
 export default function BookkeepingDashboard() {
@@ -207,6 +209,14 @@ export default function BookkeepingDashboard() {
           {/* Tabs */}
           <div className="flex gap-1 mt-3 pt-3 border-t border-[var(--glass-border)]">
             <button
+              onClick={() => setActiveTab("reconciliation")}
+              className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                activeTab === "reconciliation" ? "bg-accent text-surface-base" : "bg-white/5 text-slate-400 hover:bg-white/10"
+              }`}
+            >
+              Reconciliation
+            </button>
+            <button
               onClick={() => setActiveTab("feed")}
               className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${
                 activeTab === "feed" ? "bg-accent text-surface-base" : "bg-white/5 text-slate-400 hover:bg-white/10"
@@ -276,7 +286,9 @@ export default function BookkeepingDashboard() {
         </div>
 
         {/* Tab Content */}
-        {activeTab === "feed" ? (
+        {activeTab === "reconciliation" ? (
+          <ReconciliationTab since="2026-01-01" />
+        ) : activeTab === "feed" ? (
           <>
             {/* Upload Activity Tracker */}
             <UploadActivityTracker
