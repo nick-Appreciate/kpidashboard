@@ -60,6 +60,9 @@ export async function POST(request: Request) {
 
   const brexUpdates: Record<string, unknown> = { updated_at: nowIso };
   const mercuryUpdates: Record<string, unknown> = {};
+  // Populated when the user supplies a bill_id by hand, so the response can
+  // echo back which AppFolio bill they actually linked to.
+  let linkedBill: { vendor_name: string | null; total: number; lines: number } | null = null;
 
   switch (action) {
     case 'corporate': {
@@ -84,7 +87,29 @@ export async function POST(request: Request) {
       // Brex/Mercury row — the UI can leave it on the queue and try again
       // after the next AppFolio sync.
       let resolvedBillId = matched_af_bill_id;
-      if (!resolvedBillId) {
+
+      if (resolvedBillId) {
+        // Manual override. Verify the bill actually exists before recording
+        // the link — otherwise a typo'd id silently clears the row off the
+        // queue and points at nothing. The bill's vendor/total go back to the
+        // client so the user can see what they just linked to.
+        const { data: lines, error: billErr } = await supabaseAdmin
+          .from('af_bill_detail')
+          .select('vendor_name, amount, bill_date, paid_date')
+          .eq('bill_id', String(resolvedBillId));
+        if (billErr) return NextResponse.json({ error: billErr.message }, { status: 500 });
+        if (!lines || lines.length === 0) {
+          return NextResponse.json({
+            error: `No AppFolio bill #${resolvedBillId} exists in our synced bill data. Double-check the bill id, or wait for the next AppFolio sync if it was just entered.`,
+            bad_bill_id: true,
+          }, { status: 404 });
+        }
+        linkedBill = {
+          vendor_name: lines[0].vendor_name ?? null,
+          total: lines.reduce((s: number, l: { amount: number | null }) => s + Number(l.amount ?? 0), 0),
+          lines: lines.length,
+        };
+      } else {
         const { data: found, error: findErr } = await supabaseAdmin
           .rpc('find_af_match', { p_source: source, p_source_id: source_id });
         if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
@@ -228,5 +253,6 @@ export async function POST(request: Request) {
     action,
     matched_bill_id: matchedBillId ?? null,
     af_link: matchedBillId ? `https://appreciateinc.appfolio.com/accounting/payable_invoices/${matchedBillId}` : null,
+    linked_bill: linkedBill,
   });
 }

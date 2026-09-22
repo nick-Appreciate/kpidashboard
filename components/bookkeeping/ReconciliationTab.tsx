@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Undo2, Link2, Flag } from 'lucide-react';
+import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Undo2, Link2, Flag, PenLine } from 'lucide-react';
 
 type Row = {
   source: 'brex' | 'mercury';
@@ -78,6 +78,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
   const [flashKey, setFlashKey] = useState<{ key: string; text: string } | null>(null);
   const [sweeping, setSweeping] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [manualLink, setManualLink] = useState<{ key: string; billId: string } | null>(null);
 
   const fetchData = useCallback(async () => {
     setRefreshing(true);
@@ -141,12 +142,25 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
           window.setTimeout(() => setFlashKey(f => (f?.key === key ? null : f)), 3200);
           return;
         }
+        // Typo'd bill id — keep the input open so they can correct it.
+        if (res.status === 404 && j.bad_bill_id) {
+          setFlashKey({ key, text: `no AF bill #${payload?.matched_af_bill_id}` });
+          window.setTimeout(() => setFlashKey(f => (f?.key === key ? null : f)), 3200);
+          return;
+        }
         throw new Error(j.error || res.statusText);
       }
 
       if (action === 'match' && j.matched_bill_id) {
-        setFlashKey({ key, text: `matched AF #${j.matched_bill_id}` });
+        const b = j.linked_bill;
+        setFlashKey({
+          key,
+          text: b
+            ? `linked AF #${j.matched_bill_id} — ${b.vendor_name ?? 'unknown vendor'} ${formatMoney(Number(b.total))}`
+            : `matched AF #${j.matched_bill_id}`,
+        });
       }
+      setManualLink(null);
 
       // Fade out, then drop from the list.
       setRemovingKeys(prev => new Set(prev).add(key));
@@ -360,6 +374,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                   const key = `${row.source}:${row.source_id}`;
                   const isPending = pendingId === key;
                   const isRemoving = removingKeys.has(key);
+                  const isManual = manualLink?.key === key;
                   const flash = flashKey?.key === key ? flashKey.text : null;
                   return (
                     <tr
@@ -418,11 +433,47 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         {flash && (
-                          <span className={`mr-2 text-xs ${flash.startsWith('matched') ? 'text-emerald-400' : 'text-amber-400'}`}>
+                          <span className={`mr-2 text-xs ${flash.startsWith('matched') || flash.startsWith('linked') ? 'text-emerald-400' : 'text-amber-400'}`}>
                             {flash}
                           </span>
                         )}
-                        {isRemoving ? null : (
+                        {isRemoving ? null : isManual ? (
+                          // Manual override: link straight to a bill_id the
+                          // bookkeeper looked up in AppFolio, bypassing the
+                          // date/amount matcher entirely.
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={manualLink.billId}
+                              onChange={e => setManualLink({ key, billId: e.target.value })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && manualLink.billId.trim()) {
+                                  doAction(row, 'match', { matched_af_bill_id: manualLink.billId.trim() });
+                                }
+                                if (e.key === 'Escape') setManualLink(null);
+                              }}
+                              placeholder="AF bill #"
+                              className="dark-input w-24 text-xs px-2 py-1"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => doAction(row, 'match', { matched_af_bill_id: manualLink.billId.trim() })}
+                              disabled={isPending || !manualLink.billId.trim()}
+                              className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded disabled:opacity-30"
+                              title="Link to this AppFolio bill"
+                            >
+                              {isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={() => setManualLink(null)}
+                              className="p-1 text-slate-400 hover:bg-white/10 rounded"
+                              title="Cancel"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
                           <div className="inline-flex items-center gap-1">
                             <button
                               onClick={() => doAction(row, 'match')}
@@ -435,6 +486,14 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                               ) : (
                                 <Link2 className="w-4 h-4" />
                               )}
+                            </button>
+                            <button
+                              onClick={() => setManualLink({ key, billId: '' })}
+                              disabled={isPending}
+                              className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/15 rounded disabled:opacity-30"
+                              title="Link manually to a specific AppFolio bill # (bypasses date/amount matching)"
+                            >
+                              <PenLine className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => {
