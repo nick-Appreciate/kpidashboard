@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
+import { fetchAllRows } from '../../../../../lib/supabase-paging';
 
 // Banking net cash flow per period, derived from actual bank balance deltas.
 //
@@ -58,12 +59,15 @@ export async function GET(request: Request) {
     .order('deposit_date', { ascending: true });
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
 
-  // 3. Mercury transactions (for tooltip detail, when available)
-  const { data: mercuryTxns, error: tErr } = await supabase
-    .from('mercury_transactions')
-    .select('amount, posted_at')
-    .eq('status', 'sent')
-    .gte('posted_at', cutoffStr);
+  // 3. Mercury transactions (for tooltip detail, when available). 24 months
+  //    routinely blows past 1000 rows — page through with fetchAllRows.
+  const { data: mercuryTxns, error: tErr } = await fetchAllRows<{ amount: number; posted_at: string }>(
+    () => supabase
+      .from('mercury_transactions')
+      .select('amount, posted_at')
+      .eq('status', 'sent')
+      .gte('posted_at', cutoffStr),
+  );
   if (tErr) return NextResponse.json({ error: tErr.message }, { status: 500 });
 
   // Helper: bucket a date into period_start (YYYY-MM-01 or quarter-start)

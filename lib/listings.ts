@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchAllRows } from './supabase-paging';
 import { DEFAULT_LOCALE, getDictionary, type Locale } from './i18n';
 
 // Types that mirror the af_listings + af_listing_photos tables, shaped for
@@ -75,17 +76,22 @@ function rowToListing(row: any, photos: string[]): Listing {
 
 /** Fetch every active listing + its photos. Server components should use this. */
 export async function fetchActiveListings(): Promise<Listing[]> {
+  // Photos routinely exceed 1000 rows once we're past ~65 listings — page both.
   const [{ data: listingRows, error: le }, { data: photoRows, error: pe }] =
     await Promise.all([
-      supabase
-        .from('af_listings')
-        .select('*')
-        .is('inactive_since', null)
-        .order('available_on', { ascending: true, nullsFirst: false }),
-      supabase
-        .from('af_listing_photos')
-        .select('listing_id, photo_url, position')
-        .order('position', { ascending: true }),
+      fetchAllRows<any>(() =>
+        supabase
+          .from('af_listings')
+          .select('*')
+          .is('inactive_since', null)
+          .order('available_on', { ascending: true, nullsFirst: false }),
+      ),
+      fetchAllRows<{ listing_id: string; photo_url: string; position: number }>(() =>
+        supabase
+          .from('af_listing_photos')
+          .select('listing_id, photo_url, position')
+          .order('position', { ascending: true }),
+      ),
     ]);
 
   if (le) {

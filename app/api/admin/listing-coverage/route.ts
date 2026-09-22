@@ -127,12 +127,14 @@ export async function GET(req: NextRequest) {
   if (rehabsErr) return NextResponse.json({ error: rehabsErr.message }, { status: 500 });
   const rehabs = (rehabsData || []) as RehabRow[];
 
-  // 3) Latest snapshot — every unit so we can pull bed/bath/sqft + occupied count
-  const { data: latestUnits, error: rrErr } = await supabase
-    .from('rent_roll_snapshots')
-    .select('property, unit, status, bed_bath, sqft, total_rent')
-    .eq('snapshot_date', latestDate)
-    .range(0, 9999);
+  // 3) Latest snapshot — every unit so we can pull bed/bath/sqft + occupied count.
+  //    Portfolio-wide, this pages past 1000 rows; use fetchAllRows.
+  const { data: latestUnits, error: rrErr } = await fetchAllRows<RentRollRow>(() =>
+    supabase
+      .from('rent_roll_snapshots')
+      .select('property, unit, status, bed_bath, sqft, total_rent')
+      .eq('snapshot_date', latestDate),
+  );
   if (rrErr) return NextResponse.json({ error: rrErr.message }, { status: 500 });
   const allUnits = (latestUnits || []) as RentRollRow[];
   const unitByKey = new Map<string, RentRollRow>();
@@ -146,18 +148,23 @@ export async function GET(req: NextRequest) {
 
   // 4) All active af_listings — service role to bypass RLS.
   //    Also load af_unit_directory so we can resolve unit ↔ listing
-  //    via the canonical rentable_uid → af_listings.id join.
+  //    via the canonical rentable_uid → af_listings.id join. Both tables
+  //    are portfolio-wide and can exceed 1000 rows — page through.
   const [
     { data: listings, error: lErr },
     { data: unitDirRows },
   ] = await Promise.all([
-    adminSupabase()
-      .from('af_listings')
-      .select('id, listing_id, address, rent, bedrooms, bathrooms, square_feet, available_on, default_photo_url, marketing_description, detail_page_url, first_seen_at, scraped_at')
-      .is('inactive_since', null),
-    supabase
-      .from('af_unit_directory')
-      .select('property_name, unit_name, rentable_uid'),
+    fetchAllRows<ListingRow & { id?: string }>(() =>
+      adminSupabase()
+        .from('af_listings')
+        .select('id, listing_id, address, rent, bedrooms, bathrooms, square_feet, available_on, default_photo_url, marketing_description, detail_page_url, first_seen_at, scraped_at')
+        .is('inactive_since', null),
+    ),
+    fetchAllRows<{ property_name: string; unit_name: string; rentable_uid: string }>(() =>
+      supabase
+        .from('af_unit_directory')
+        .select('property_name, unit_name, rentable_uid'),
+    ),
   ]);
   if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
   const activeListings = (listings || []) as (ListingRow & { id?: string })[];

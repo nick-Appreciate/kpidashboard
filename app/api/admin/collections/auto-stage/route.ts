@@ -1,4 +1,5 @@
 import { requireAdmin } from '../../../../../lib/auth';
+import { fetchAllRows } from '../../../../../lib/supabase-paging';
 import { NextResponse } from 'next/server';
 import { matchesKansasCity } from '../../../../../lib/propertyGroups';
 
@@ -43,11 +44,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'No delinquency data found', updates: 0 });
     }
 
-    // Get delinquency data
-    const { data: delinquencyData, error: delinquencyError } = await supabase
-      .from('af_delinquency')
-      .select('occupancy_id, property_name, unit, name, amount_receivable, rent')
-      .eq('snapshot_date', latestDate);
+    // Get delinquency data — full portfolio snapshot can exceed 1000 rows.
+    const { data: delinquencyData, error: delinquencyError } = await fetchAllRows<any>(() =>
+      supabase
+        .from('af_delinquency')
+        .select('occupancy_id, property_name, unit, name, amount_receivable, rent')
+        .eq('snapshot_date', latestDate),
+    );
 
     if (delinquencyError) {
       return NextResponse.json({ error: delinquencyError.message }, { status: 500 });

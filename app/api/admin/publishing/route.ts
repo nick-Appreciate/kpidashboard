@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../../../../lib/auth';
+import { fetchAllRows } from '../../../../lib/supabase-paging';
 
 // Live data; opt out of Next.js 14's default GET-handler cache.
 export const dynamic = 'force-dynamic';
@@ -134,9 +135,11 @@ export async function GET(req: NextRequest) {
     // matches af_listings.id, sourced from AppFolio's unit_directory
     // report. Lets us know exactly which listing belongs to which
     // physical unit — no more bed/bath guessing on shared addresses.
-    supabase
-      .from('af_unit_directory')
-      .select('property_name, unit_name, rentable_uid'),
+    fetchAllRows<{ property_name: string; unit_name: string; rentable_uid: string }>(() =>
+      supabase
+        .from('af_unit_directory')
+        .select('property_name, unit_name, rentable_uid'),
+    ),
   ]);
   if (rehabsErr) return NextResponse.json({ error: rehabsErr.message }, { status: 500 });
   const rehabs = (rehabsData || []) as RehabRow[];
@@ -158,10 +161,12 @@ export async function GET(req: NextRequest) {
   const rentRollByUnit = new Map<string, any>();
   const occupiedAvgByPropertyBB = new Map<string, { sum: number; count: number }>();
   if (latestDate) {
-    const { data: rrows } = await supabase
-      .from('rent_roll_snapshots')
-      .select('property, unit, bed_bath, sqft, total_rent, status')
-      .eq('snapshot_date', latestDate);
+    const { data: rrows } = await fetchAllRows<any>(() =>
+      supabase
+        .from('rent_roll_snapshots')
+        .select('property, unit, bed_bath, sqft, total_rent, status')
+        .eq('snapshot_date', latestDate),
+    );
     for (const r of rrows || []) {
       rentRollByUnit.set(`${r.property}||${r.unit}`, r);
       if (r.status === 'Current' && r.total_rent != null && r.bed_bath) {
@@ -185,10 +190,12 @@ export async function GET(req: NextRequest) {
   // and hides Glen Oaks listings (all carry NULL available_on) from
   // the user-scoped client. /admin/listing-coverage already does this.
   const admin = adminSupabase();
-  const { data: listings } = await admin
-    .from('af_listings')
-    .select('id, address, city, state, zip, rent, bedrooms, bathrooms, square_feet, available_on, application_fee, deposit, pet_policy, marketing_description, application_url, default_photo_url')
-    .is('inactive_since', null);
+  const { data: listings } = await fetchAllRows<ListingRow>(() =>
+    admin
+      .from('af_listings')
+      .select('id, address, city, state, zip, rent, bedrooms, bathrooms, square_feet, available_on, application_fee, deposit, pet_policy, marketing_description, application_url, default_photo_url')
+      .is('inactive_since', null),
+  );
   // Bucket listings by inferred property name so unit-matching only
   // searches within the same property — and so we can do a bed/bath
   // fallback when address-substring fails.
@@ -209,11 +216,14 @@ export async function GET(req: NextRequest) {
   const listingIds = (listings || []).map(l => l.id).filter(Boolean);
   const photosByListing = new Map<string, string[]>();
   if (listingIds.length > 0) {
-    const { data: photoRows } = await admin
-      .from('af_listing_photos')
-      .select('listing_id, photo_url, position')
-      .in('listing_id', listingIds)
-      .order('position', { ascending: true });
+    // 100 listings × 15 photos easily blows past 1000. Page through.
+    const { data: photoRows } = await fetchAllRows<{ listing_id: string; photo_url: string; position: number }>(() =>
+      admin
+        .from('af_listing_photos')
+        .select('listing_id, photo_url, position')
+        .in('listing_id', listingIds)
+        .order('position', { ascending: true }),
+    );
     for (const p of photoRows || []) {
       if (!p.listing_id || !p.photo_url) continue;
       const arr = photosByListing.get(p.listing_id) || [];
@@ -223,10 +233,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Latest publishing log per (property, unit, channel)
-  const { data: logRows } = await supabase
-    .from('publishing_log')
-    .select('property, unit, channel, posted_at')
-    .order('posted_at', { ascending: false });
+  const { data: logRows } = await fetchAllRows<PostLogRow>(() =>
+    supabase
+      .from('publishing_log')
+      .select('property, unit, channel, posted_at')
+      .order('posted_at', { ascending: false }),
+  );
   const latestPostByKey = new Map<string, string>();
   for (const r of (logRows || []) as PostLogRow[]) {
     const key = `${r.property}||${r.unit}||${r.channel}`;

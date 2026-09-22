@@ -1,4 +1,5 @@
 import { requireAuth } from '../../../lib/auth';
+import { fetchAllRows } from '../../../lib/supabase-paging';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -14,33 +15,28 @@ export async function GET(request: Request) {
     const property = searchParams.get('property');
     const priority = searchParams.get('priority');
 
-    let query = supabase
-      .from('af_work_orders')
-      .select(`
-        id, work_order_id, work_order_number, service_request_number,
-        service_request_description, job_description, work_order_issue,
-        instructions, status_notes, status, priority, work_order_type,
-        property_name, property_id, unit_name, unit_id,
-        primary_tenant, requesting_tenant, submitted_by_tenant,
-        vendor, vendor_id, vendor_trade, assigned_user,
-        created_at, created_by, scheduled_start, scheduled_end,
-        completed_on, canceled_on, amount,
-        vendor_bill_id, vendor_bill_amount, tenant_total_charge_amount,
-        recurring
-      `)
-      .order('created_at', { ascending: false });
-
-    if (status && status !== 'all') {
-      query = query.eq('status', status);
-    }
-    if (property && property !== 'all') {
-      query = query.eq('property_name', property);
-    }
-    if (priority && priority !== 'all') {
-      query = query.eq('priority', priority);
-    }
-
-    const { data, error } = await query;
+    // Full portfolio work-order history easily exceeds 1000 rows — page.
+    const { data, error } = await fetchAllRows<any>(() => {
+      let query = supabase
+        .from('af_work_orders')
+        .select(`
+          id, work_order_id, work_order_number, service_request_number,
+          service_request_description, job_description, work_order_issue,
+          instructions, status_notes, status, priority, work_order_type,
+          property_name, property_id, unit_name, unit_id,
+          primary_tenant, requesting_tenant, submitted_by_tenant,
+          vendor, vendor_id, vendor_trade, assigned_user,
+          created_at, created_by, scheduled_start, scheduled_end,
+          completed_on, canceled_on, amount,
+          vendor_bill_id, vendor_bill_amount, tenant_total_charge_amount,
+          recurring
+        `)
+        .order('created_at', { ascending: false });
+      if (status && status !== 'all') query = query.eq('status', status);
+      if (property && property !== 'all') query = query.eq('property_name', property);
+      if (priority && priority !== 'all') query = query.eq('priority', priority);
+      return query;
+    });
     if (error) throw error;
 
     // Get bill details for work orders that have vendor_bill_id
@@ -60,12 +56,15 @@ export async function GET(request: Request) {
       }
     }
 
-    // Get distinct values for filters
-    const { data: properties } = await supabase
-      .from('af_work_orders')
-      .select('property_name')
-      .not('property_name', 'is', null)
-      .order('property_name');
+    // Get distinct values for filters — page through so the property
+    // dropdown never silently drops entries past the 1000-row cap.
+    const { data: properties } = await fetchAllRows<{ property_name: string }>(() =>
+      supabase
+        .from('af_work_orders')
+        .select('property_name')
+        .not('property_name', 'is', null)
+        .order('property_name'),
+    );
 
     const distinctProperties = Array.from(new Set((properties || []).map(p => p.property_name)));
 
