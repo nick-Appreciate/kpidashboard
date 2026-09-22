@@ -9,7 +9,7 @@ export const metadata = {
 
 export default function BookkeepingPage() {
   return (
-    <AdminOnly>
+    <AdminOnly page="bookkeeping">
       <Suspense>
         <BookkeepingDashboard />
       </Suspense>

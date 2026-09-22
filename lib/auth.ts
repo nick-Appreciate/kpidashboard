@@ -158,3 +158,35 @@ export async function requireAdmin(request: Request): Promise<AuthResult> {
 export function isAuthError(result: AuthResult): result is AuthFailure {
   return 'error' in result;
 }
+
+/**
+ * Verify the request comes from a user whose role has a granted permission
+ * for the given page_key. Admins bypass the check.
+ *
+ * Reads role_page_permissions live so toggles in the Users → Permissions
+ * matrix take effect immediately without a redeploy.
+ */
+export async function requirePage(request: Request, pageKey: string): Promise<AuthResult> {
+  const result = await requireAuth(request);
+  if ('error' in result) return result;
+
+  if (result.appUser.role === 'admin') return result;
+
+  const { data, error } = await result.supabase
+    .from('role_page_permissions')
+    .select('allowed')
+    .eq('role', result.appUser.role)
+    .eq('page_key', pageKey)
+    .maybeSingle();
+
+  if (error || !data?.allowed) {
+    return {
+      error: NextResponse.json(
+        { error: `Your role ('${result.appUser.role}') does not have access to '${pageKey}'.` },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return result;
+}

@@ -1,3 +1,4 @@
+import AdminOnly from '../../../components/AdminOnly';
 import PortfolioReport from '../../../components/PortfolioReport';
 
 export const metadata = {
@@ -6,5 +7,9 @@ export const metadata = {
 };
 
 export default function PortfolioReportPage() {
-  return <PortfolioReport />;
+  return (
+    <AdminOnly page="portfolio_report">
+      <PortfolioReport />
+    </AdminOnly>
+  );
 }

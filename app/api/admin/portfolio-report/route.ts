@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '../../../../lib/auth';
+import { requirePage } from '../../../../lib/auth';
 
 // Portfolio status report — returns EVERYTHING needed for the report page in a
 // single unfiltered payload. All aggregation + filtering is done client-side so
@@ -15,7 +15,7 @@ import { requireAdmin } from '../../../../lib/auth';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const auth = await requireAdmin(request);
+  const auth = await requirePage(request, 'portfolio_report');
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
 

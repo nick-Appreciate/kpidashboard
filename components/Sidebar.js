@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '../contexts/AuthContext';
 
 /**
  * Sidebar — primary site navigation.
@@ -42,57 +43,55 @@ const Chevron = ({ open }) => (
 );
 
 // --- navigation model ------------------------------------------------------
-// Each domain expands to sub-items. `admin: true` hides the item (or whole
-// domain) from non-admins. Order reflects daily-use frequency.
+// Each item carries a page_key that maps to role_page_permissions. The
+// sidebar shows an item only when hasPermission(page_key) is true, and
+// hides a whole domain when every item in it is hidden.
 const DOMAINS = [
   {
     key: 'leasing', label: 'Leasing', icon: Icon.leasing,
     items: [
-      { name: 'Overview',      href: '/leasing' },
-      { name: 'Speed to Lead', href: '/leasing/speed-to-lead' },
-      { name: 'Renewals',      href: '/renewals' },
-      { name: 'Coverage',      href: '/leasing/coverage',   admin: true },
-      { name: 'Publishing',    href: '/leasing/publishing', admin: true },
-      { name: 'Sources',       href: '/leasing/sources',    admin: true },
+      { name: 'Overview',      href: '/leasing',              page: 'leasing_overview' },
+      { name: 'Speed to Lead', href: '/leasing/speed-to-lead', page: 'leasing_speed_to_lead' },
+      { name: 'Renewals',      href: '/renewals',             page: 'renewals' },
+      { name: 'Coverage',      href: '/leasing/coverage',     page: 'leasing_coverage' },
+      { name: 'Publishing',    href: '/leasing/publishing',   page: 'leasing_publishing' },
+      { name: 'Sources',       href: '/leasing/sources',      page: 'leasing_sources' },
     ],
   },
   {
     key: 'operations', label: 'Operations', icon: Icon.collections,
     items: [
-      { name: 'Collections', href: '/collections' },
-      { name: 'Occupancy',   href: '/occupancy' },
+      { name: 'Collections', href: '/collections', page: 'collections' },
+      { name: 'Occupancy',   href: '/occupancy',   page: 'occupancy' },
     ],
   },
   {
     key: 'maintenance', label: 'Maintenance', icon: Icon.maintenance,
     items: [
-      { name: 'Rehabs',      href: '/rehabs' },
-      { name: 'Inspections', href: '/inspections' },
-      { name: 'Work Orders', href: '/work-orders' },
-      { name: 'Time Cards',  href: '/admin/time-cards' },
-      { name: 'Utilities',   href: '/admin/utilities' },
+      { name: 'Rehabs',      href: '/rehabs',           page: 'rehabs' },
+      { name: 'Inspections', href: '/inspections',      page: 'inspections' },
+      { name: 'Work Orders', href: '/work-orders',      page: 'work_orders' },
+      { name: 'Time Cards',  href: '/admin/time-cards', page: 'time_cards' },
+      { name: 'Utilities',   href: '/admin/utilities',  page: 'utilities' },
     ],
   },
   {
-    // Whole section is admin-only (hidden for non-admins). Pages are also
-    // guarded server-of-client-side so direct URLs are blocked too.
-    key: 'financials', label: 'Financials', icon: Icon.financials, admin: true,
+    key: 'financials', label: 'Financials', icon: Icon.financials,
     items: [
-      { name: 'Bookkeeping',       href: '/bookkeeping' },
-      { name: 'Overview',          href: '/financials' },     // portfolio cash flow / net income
-      { name: 'Cash',              href: '/admin/cash' },
-      { name: 'Portfolio Report',  href: '/admin/portfolio-report' },
-      { name: 'Deposits',          href: '/admin/simmons' },
-      { name: 'Duplicates',        href: '/admin/duplicates' },
-      { name: 'Plaid banks',       href: '/admin/plaid-link' },
+      { name: 'Bookkeeping',      href: '/bookkeeping',            page: 'bookkeeping' },
+      { name: 'Overview',         href: '/financials',             page: 'financials' },
+      { name: 'Cash',             href: '/admin/cash',             page: 'cash' },
+      { name: 'Portfolio Report', href: '/admin/portfolio-report', page: 'portfolio_report' },
+      { name: 'Deposits',         href: '/admin/simmons',          page: 'deposits' },
+      { name: 'Plaid banks',      href: '/admin/plaid-link',       page: 'plaid_link' },
     ],
   },
   {
-    key: 'admin', label: 'Admin', icon: Icon.admin, admin: true,
+    key: 'admin', label: 'Admin', icon: Icon.admin,
     items: [
-      { name: 'Properties', href: '/admin/properties' },
-      { name: 'Users',      href: '/admin/users' },
-      { name: 'Alerts',     href: '/admin/alerts', badge: 'alerts' },
+      { name: 'Properties', href: '/admin/properties',                   page: 'properties' },
+      { name: 'Users',      href: '/admin/users',                        page: 'users' },
+      { name: 'Alerts',     href: '/admin/alerts', badge: 'alerts',      page: 'alerts' },
     ],
   },
 ];
@@ -106,13 +105,12 @@ export default function Sidebar({ user, onLogout, alertCount = 0 }) {
   const pathname = usePathname();
   const hoverTimeoutRef = useRef(null);
 
-  const isAdmin = user?.role === 'admin';
+  const { hasPermission } = useAuth();
 
-  // Resolve each domain to only the items this user may see, and drop domains
-  // that end up empty (e.g. the admin-only Admin domain for a normal user).
+  // Resolve each domain to only the items this user's role has permission for
+  // (admin bypasses in hasPermission), then drop empty domains.
   const domains = DOMAINS
-    .filter((d) => !d.admin || isAdmin)
-    .map((d) => ({ ...d, items: d.items.filter((i) => !i.admin || isAdmin) }))
+    .map((d) => ({ ...d, items: d.items.filter((i) => hasPermission(i.page)) }))
     .filter((d) => d.items.length > 0);
 
   const domainLandingHref = (d) => d.items[0].href;

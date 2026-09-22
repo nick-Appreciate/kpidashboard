@@ -80,10 +80,38 @@ const DEV_USER = {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
+  const [permissions, setPermissions] = useState(null); // { [page_key]: boolean } for the current role, or null while loading
   const [loading, setLoading] = useState(true);
   const initialCheckDone = useRef(false);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Load role_page_permissions for whichever role appUser has, whenever it
+  // changes. Admin bypasses — hasPermission below returns true unconditionally.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPerms() {
+      if (!appUser?.role || appUser.role === 'admin') {
+        setPermissions(null);
+        return;
+      }
+      const { data, error } = await supabaseBrowser
+        .from('role_page_permissions')
+        .select('page_key, allowed')
+        .eq('role', appUser.role);
+      if (cancelled) return;
+      if (error) {
+        console.error('Error loading role_page_permissions:', error);
+        setPermissions({});
+        return;
+      }
+      const map = {};
+      for (const row of data || []) map[row.page_key] = !!row.allowed;
+      setPermissions(map);
+    }
+    loadPerms();
+    return () => { cancelled = true; };
+  }, [appUser?.role]);
 
   useEffect(() => {
     // Only run initial check once
@@ -245,16 +273,30 @@ export function AuthProvider({ children }) {
 
   const isAdmin = appUser?.role === 'admin';
 
+  // hasPermission(page_key): true if the current user's role has that page
+  // toggled on in role_page_permissions. Admins always return true. If the
+  // role's permissions haven't finished loading yet, returns false — the
+  // caller should show a loading state during that window rather than
+  // eagerly rendering forbidden content.
+  const hasPermission = (pageKey) => {
+    if (!appUser) return false;
+    if (appUser.role === 'admin') return true;
+    if (permissions === null) return false;
+    return !!permissions[pageKey];
+  };
+
   return (
-    <AuthContext.Provider value={{ 
-      user, 
+    <AuthContext.Provider value={{
+      user,
       appUser,
-      signIn, 
-      signOut, 
+      permissions,
+      hasPermission,
+      signIn,
+      signOut,
       resetPassword,
       updatePassword,
-      loading, 
-      isAdmin 
+      loading,
+      isAdmin
     }}>
       {children}
     </AuthContext.Provider>
