@@ -17,6 +17,12 @@ type Row = {
   flagged_at: string | null;
   flagged_reason: string | null;
   flagged_by: string | null;
+  /**
+   * Where the vendor came from. 'rule' is the hardcoded merchant CASE and is
+   * treated as certain, so the picker is locked. 'map' was set by hand and
+   * stays editable. null means unknown — the picker shows its placeholder.
+   */
+  vendor_source: 'rule' | 'map' | null;
 };
 
 type SourceFilter = 'all' | 'brex' | 'mercury';
@@ -613,26 +619,35 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                       <td className="px-3 py-2 text-slate-400 text-xs max-w-[240px] truncate" title={row.memo || ''}>{row.memo || '—'}</td>
                       <td className="px-3 py-2 text-slate-300">
                         <div className="flex items-center gap-1.5">
-                          <select
-                            value={row.suggested_af_vendor_id ?? ''}
-                            onChange={e => setVendorFor(row, e.target.value)}
-                            className="dark-select text-xs px-1.5 py-1 max-w-[190px]"
-                            title="Map this merchant to an AppFolio vendor. Vendors already claimed by another merchant are disabled."
-                          >
-                            <option value="">
-                              {row.suggested_af_vendor ? `${row.suggested_af_vendor} (unmapped)` : '— pick vendor —'}
-                            </option>
-                            {vendors.map(v => {
-                              const takenByOther =
-                                !!v.claimed_by &&
-                                v.claimed_by.toLowerCase() !== row.vendor_or_merchant.toLowerCase();
-                              return (
-                                <option key={v.vendor_id} value={v.vendor_id} disabled={takenByOther}>
-                                  {v.vendor_name}{takenByOther ? ` — used by ${v.claimed_by}` : ''}
-                                </option>
-                              );
-                            })}
-                          </select>
+                          {row.vendor_source === 'rule' ? (
+                            // Recognised by the merchant rules — treated as
+                            // certain, so it isn't up for reassignment here.
+                            <span
+                              className="text-slate-200 truncate max-w-[190px]"
+                              title={`Matched by merchant rule — not editable. ${row.suggested_af_vendor}`}
+                            >
+                              {row.suggested_af_vendor}
+                            </span>
+                          ) : (
+                            <select
+                              value={row.suggested_af_vendor_id ?? ''}
+                              onChange={e => setVendorFor(row, e.target.value)}
+                              className="dark-select text-xs px-1.5 py-1 max-w-[190px]"
+                              title="Map this merchant to an AppFolio vendor. Vendors already claimed by another merchant are disabled."
+                            >
+                              <option value="">— select vendor —</option>
+                              {vendors.map(v => {
+                                const takenByOther =
+                                  !!v.claimed_by &&
+                                  v.claimed_by.toLowerCase() !== row.vendor_or_merchant.toLowerCase();
+                                return (
+                                  <option key={v.vendor_id} value={v.vendor_id} disabled={takenByOther}>
+                                    {v.vendor_name}{takenByOther ? ` — used by ${v.claimed_by}` : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          )}
                           {row.suggested_af_vendor_id && (
                             <a
                               href={createBillUrl(row.suggested_af_vendor_id)}
