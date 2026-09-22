@@ -26,43 +26,16 @@ async function pushBrexMemo(expenseId: string, memo: string): Promise<string | n
   return `Brex API ${res.status}: ${text.slice(0, 300)}`;
 }
 
-/**
- * Standardized memo we push to Brex when a Brex expense is matched to an
- * AppFolio bill. Fits on one line so it renders cleanly in the Brex
- * dashboard's memo column, and carries the AF link so employees can jump
- * straight to the bill.
- */
-/**
- * Accept either a full AppFolio payable-invoice URL — what you get by
- * copying the address bar with the bill open — or a bare bill number.
- *   https://appreciateinc.appfolio.com/accounting/payable_invoices/26069
- * Anchored on the payable_invoices segment so a stray number in a query
- * string can't be mistaken for the bill id. Returns null if neither form
- * matches, rather than guessing.
- */
-function parseAfBillId(input: string): string | null {
-  const raw = input.trim();
-  if (/^\d+$/.test(raw)) return raw;
-  const m = raw.match(/payable_invoices\/(\d+)/);
-  return m ? m[1] : null;
-}
-
-function billedToAfMemo(billId: string | number): string {
-  const url = `https://appreciateinc.appfolio.com/accounting/payable_invoices/${billId}`;
-  return `Billed · Property Expense · AppFolio Bill #${billId} · ${url}`;
-}
-
 export async function POST(request: Request) {
   const auth = await requirePage(request, 'bookkeeping');
   if ('error' in auth) return auth.error;
   const supabase = auth.supabase;
 
   const body = await request.json();
-  const { source, source_id, action, matched_af_bill_id, reason } = body as {
+  const { source, source_id, action, reason } = body as {
     source: 'brex' | 'mercury';
     source_id: string;
-    action: 'corporate' | 'match' | 'flag' | 'undo';
-    matched_af_bill_id?: string;
+    action: 'corporate' | 'flag' | 'undo';
     reason?: string;
   };
 
@@ -75,10 +48,6 @@ export async function POST(request: Request) {
 
   const brexUpdates: Record<string, unknown> = { updated_at: nowIso };
   const mercuryUpdates: Record<string, unknown> = {};
-  // Populated when the user supplies a bill_id by hand, so the response can
-  // echo back which AppFolio bill they actually linked to.
-  let linkedBill: { vendor_name: string | null; total: number; lines: number } | null = null;
-
   switch (action) {
     case 'corporate': {
       // The approver is stamped server-side from the authenticated session,
@@ -93,56 +62,6 @@ export async function POST(request: Request) {
       mercuryUpdates.corporate_at = nowIso;
       mercuryUpdates.corporate_note = note;
       mercuryUpdates.corporate_by = actor;
-      break;
-    }
-    case 'match': {
-      // Explicit, user-supplied link only. Automatic matching lives in the
-      // sweep route, which calls find_af_match across the whole queue.
-      const resolvedBillId = parseAfBillId(String(matched_af_bill_id ?? ''));
-      if (!resolvedBillId) {
-        return NextResponse.json({
-          error: 'Paste the AppFolio bill link (…/accounting/payable_invoices/26069) or just the bill number.',
-          bad_bill_id: true,
-        }, { status: 400 });
-      }
-
-      // Verify the bill actually exists before recording the link — otherwise
-      // a typo'd id silently clears the row off the queue pointing at nothing.
-      // The bill's vendor/total go back to the client so the user can confirm
-      // what they just linked to.
-      const { data: lines, error: billErr } = await supabaseAdmin
-        .from('af_bill_detail')
-        .select('vendor_name, amount')
-        .eq('bill_id', String(resolvedBillId));
-      if (billErr) return NextResponse.json({ error: billErr.message }, { status: 500 });
-      if (!lines || lines.length === 0) {
-        return NextResponse.json({
-          error: `No AppFolio bill #${resolvedBillId} exists in our synced bill data. Double-check the bill id, or wait for the next AppFolio sync if it was just entered.`,
-          bad_bill_id: true,
-        }, { status: 404 });
-      }
-      linkedBill = {
-        vendor_name: lines[0].vendor_name ?? null,
-        total: lines.reduce((s: number, l: { amount: number | null }) => s + Number(l.amount ?? 0), 0),
-        lines: lines.length,
-      };
-
-      if (source === 'brex') {
-        const n = Number(resolvedBillId);
-        if (!Number.isFinite(n)) {
-          return NextResponse.json({ error: 'AF bill_id is non-numeric — cannot store on brex_expenses.matched_bill_id (int)' }, { status: 400 });
-        }
-        brexUpdates.matched_bill_id = n;
-        brexUpdates.matched_at = nowIso;
-        brexUpdates.matched_by = actor;
-        // 'matched_auto' is written by the sweep route; anything routed
-        // through here was linked by hand.
-        brexUpdates.match_status = 'matched_manual';
-      } else {
-        mercuryUpdates.matched_bill_id = resolvedBillId;
-        mercuryUpdates.matched_at = nowIso;
-        mercuryUpdates.matched_by = actor;
-      }
       break;
     }
     case 'flag':
@@ -187,15 +106,11 @@ export async function POST(request: Request) {
   }
 
   if (source === 'brex') {
-    // For every action that surfaces a memo inside Brex (corporate, flag,
-    // match), push to Brex first — if the API call fails we don't mutate our
-    // DB, so the row stays actionable in the UI.
-    let memoToPush = '';
-    if (action === 'corporate' || action === 'flag') {
-      memoToPush = (brexUpdates.corporate_note as string | undefined) ?? '';
-    } else if (action === 'match') {
-      memoToPush = billedToAfMemo(brexUpdates.matched_bill_id as number);
-    }
+    // Corporate and flag both surface a memo inside Brex. Push it first — if
+    // the API call fails we don't mutate our DB, so the row stays actionable.
+    const memoToPush = (action === 'corporate' || action === 'flag')
+      ? ((brexUpdates.corporate_note as string | undefined) ?? '')
+      : '';
 
     if (memoToPush) {
       // Need the expense_id (not the raw brex_id) to PUT.
@@ -239,14 +154,5 @@ export async function POST(request: Request) {
     }
   }
 
-  const matchedBillId = (brexUpdates.matched_bill_id ?? mercuryUpdates.matched_bill_id) as string | number | null | undefined;
-  return NextResponse.json({
-    ok: true,
-    source,
-    source_id,
-    action,
-    matched_bill_id: matchedBillId ?? null,
-    af_link: matchedBillId ? `https://appreciateinc.appfolio.com/accounting/payable_invoices/${matchedBillId}` : null,
-    linked_bill: linkedBill,
-  });
+  return NextResponse.json({ ok: true, source, source_id, action });
 }
