@@ -62,15 +62,21 @@ export async function POST(request: Request) {
   const mercuryUpdates: Record<string, unknown> = {};
 
   switch (action) {
-    case 'corporate':
+    case 'corporate': {
+      // The approver is stamped server-side from the authenticated session,
+      // not taken from the request body, so it can't be spoofed.
+      const note = `${reason || 'Marked corporate from reconciliation'} · approved by ${actor}`;
       brexUpdates.is_corporate = true;
       brexUpdates.corporate_at = nowIso;
-      brexUpdates.corporate_note = reason || 'Marked corporate from reconciliation';
+      brexUpdates.corporate_note = note;
+      brexUpdates.corporate_by = actor;
       brexUpdates.match_status = 'corporate';
       mercuryUpdates.is_corporate = true;
       mercuryUpdates.corporate_at = nowIso;
-      mercuryUpdates.corporate_note = reason || 'Marked corporate from reconciliation';
+      mercuryUpdates.corporate_note = note;
+      mercuryUpdates.corporate_by = actor;
       break;
+    }
     case 'match': {
       // If the client didn't pass an explicit bill_id, re-query AppFolio
       // (our synced af_bill_detail table) at click time to auto-resolve
@@ -113,7 +119,7 @@ export async function POST(request: Request) {
       // via corporate_note; Mercury has its own columns)
       brexUpdates.is_corporate = true;
       brexUpdates.corporate_at = nowIso;
-      brexUpdates.corporate_note = `[DISMISSED] ${reason || 'no reason'}`;
+      brexUpdates.corporate_note = `[DISMISSED by ${actor}] ${reason || 'no reason'}`;
       brexUpdates.match_status = 'dismissed';
       mercuryUpdates.dismissed_at = nowIso;
       mercuryUpdates.dismissed_reason = reason || 'no reason';
@@ -127,7 +133,7 @@ export async function POST(request: Request) {
       brexUpdates.match_status = 'flagged';
       // The BREX memo push branch below reads corporate_note as its source;
       // reuse that here so we don't need a second push code path.
-      brexUpdates.corporate_note = `[FLAGGED] ${reason || 'unknown — please review'}`;
+      brexUpdates.corporate_note = `[FLAGGED by ${actor}] ${reason || 'unknown — please review'}`;
       mercuryUpdates.flagged_at = nowIso;
       mercuryUpdates.flagged_reason = reason || 'Unknown — needs review';
       mercuryUpdates.flagged_by = actor;
@@ -136,6 +142,7 @@ export async function POST(request: Request) {
       brexUpdates.is_corporate = false;
       brexUpdates.corporate_at = null;
       brexUpdates.corporate_note = null;
+      brexUpdates.corporate_by = null;
       brexUpdates.matched_bill_id = null;
       brexUpdates.matched_at = null;
       brexUpdates.matched_by = null;
@@ -146,6 +153,7 @@ export async function POST(request: Request) {
       mercuryUpdates.is_corporate = false;
       mercuryUpdates.corporate_at = null;
       mercuryUpdates.corporate_note = null;
+      mercuryUpdates.corporate_by = null;
       mercuryUpdates.matched_bill_id = null;
       mercuryUpdates.matched_at = null;
       mercuryUpdates.matched_by = null;

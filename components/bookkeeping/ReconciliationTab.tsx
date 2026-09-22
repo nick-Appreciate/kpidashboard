@@ -439,7 +439,14 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                             <button
                               onClick={() => {
                                 const category = corporateCategoryFor(row.vendor_or_merchant);
-                                const memo = `Corporate — ${category} (${row.vendor_or_merchant})`;
+                                const base = `Corporate — ${category} (${row.vendor_or_merchant})`;
+                                const note = prompt(
+                                  `Mark corporate. Add a note explaining why — it gets appended to the memo pushed to Brex.\n\nAuto memo: ${base}`,
+                                  '',
+                                );
+                                // Cancel aborts; empty string still proceeds with just the auto memo.
+                                if (note === null) return;
+                                const memo = note.trim() ? `${base} — ${note.trim()}` : base;
                                 doAction(row, 'corporate', { reason: memo });
                               }}
                               disabled={isPending}
