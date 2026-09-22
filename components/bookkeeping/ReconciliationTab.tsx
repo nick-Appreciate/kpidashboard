@@ -77,6 +77,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
   const [removingKeys, setRemovingKeys] = useState<Set<string>>(new Set());
   const [flashKey, setFlashKey] = useState<{ key: string; text: string } | null>(null);
   const [sweeping, setSweeping] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const fetchData = useCallback(async () => {
     setRefreshing(true);
@@ -165,6 +166,28 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
     }
   };
 
+  // Pull fresh Brex + Mercury data on demand rather than waiting for the
+  // cron, then re-read the queue.
+  const runSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/admin/reconciliation/resync`, { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      await fetchData();
+      const failed = (j.results || []).filter((r: { ok: boolean }) => !r.ok);
+      if (failed.length > 0) {
+        const detail = failed
+          .map((r: { name: string; detail: unknown }) => `${r.name}: ${String(r.detail)}`)
+          .join('\n');
+        alert(`Some syncs failed:\n${detail}`);
+      }
+    } catch (e) {
+      alert(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const runSweep = async () => {
     setSweeping(true);
     try {
@@ -227,9 +250,19 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
               {sweeping ? 'Sweeping…' : 'Auto-match'}
             </button>
             <button
+              onClick={runSync}
+              disabled={syncing || refreshing || sweeping}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 disabled:opacity-40"
+              title="Pull fresh Brex + Mercury transactions now instead of waiting for the scheduled sync"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button
               onClick={fetchData}
-              disabled={refreshing}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300"
+              disabled={refreshing || syncing}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40"
+              title="Re-read the queue without pulling new bank data"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
