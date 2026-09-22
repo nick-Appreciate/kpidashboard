@@ -22,20 +22,27 @@ type CategoryFilter = 'all' | 'has_vendor' | 'no_vendor';
 const AF_BASE = 'https://appreciateinc.appfolio.com';
 
 function createBillUrl(vendorId: string | null) {
-  // AppFolio's "New Bill" form with vendor pre-selected. Vendor param uses
-  // a v_<vendor_id> prefix. Other fields (amount, date) aren't pre-fillable
-  // via query string in the current AppFolio UI, so we let the bookkeeper
-  // fill them in with the transaction row visible next to them.
+  // AppFolio's "New Bill" form. NF confirmed exact format:
+  //   /accounting/bills/new?bill_form%5Bprefixed_payee_id%5D=v_<vendor_id>
+  // Encode the brackets literally to match — URLSearchParams' encoding of
+  // reserved chars is inconsistent across runtimes.
   if (!vendorId) return `${AF_BASE}/accounting/bills/new`;
-  const p = new URLSearchParams();
-  p.set('bill_form[prefixed_payee_id]', `v_${vendorId}`);
-  return `${AF_BASE}/accounting/bills/new?${p.toString()}`;
+  return `${AF_BASE}/accounting/bills/new?bill_form%5Bprefixed_payee_id%5D=v_${encodeURIComponent(vendorId)}`;
 }
 
-/** Build a Brex dashboard deep-link. Modern Brex uses /expenses/<expense_id>. */
-function brexExpenseUrl(expenseId: string | null) {
-  if (!expenseId) return 'https://dashboard.brex.com/expenses';
-  return `https://dashboard.brex.com/expenses/${expenseId}`;
+/**
+ * Build a Brex dashboard link. Neither the base64-encoded ?expenseId= param
+ * nor /expenses/<id> path routes to a specific expense — both redirect to the
+ * Brex home page. Until we have a confirmed URL from NF, fall back to filtering
+ * the Expenses list by the merchant so at least the target is a couple of
+ * clicks away.
+ */
+function brexExpenseUrl(_expenseId: string | null, merchant: string | null) {
+  const base = 'https://dashboard.brex.com/expenses';
+  if (!merchant) return base;
+  const q = new URLSearchParams();
+  q.set('filter', `SEARCHQUERY:${merchant}`);
+  return `${base}?${q.toString()}`;
 }
 
 function formatMoney(n: number) {
@@ -276,7 +283,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                       <td className="px-3 py-2 text-slate-200">
                         {row.source === 'brex' && row.brex_expense_id ? (
                           <a
-                            href={brexExpenseUrl(row.brex_expense_id)}
+                            href={brexExpenseUrl(row.brex_expense_id, row.vendor_or_merchant)}
                             target="_blank"
                             rel="noreferrer"
                             className="hover:text-accent inline-flex items-center gap-1"
