@@ -124,6 +124,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
   const [billFilter, setBillFilter] = useState('');
   const [selectedBills, setSelectedBills] = useState<Set<string>>(new Set());
   const [linking, setLinking] = useState(false);
+  const [feeLeakage, setFeeLeakage] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
 
   const fetchData = useCallback(async () => {
     setRefreshing(true);
@@ -132,6 +133,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Fetch failed');
       setRows(json.items);
+      setFeeLeakage({ total: Number(json.fee_leakage ?? 0), count: Number(json.fee_leakage_count ?? 0) });
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -445,7 +447,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
         </div>
 
         {/* KPI row */}
-        <div className="grid grid-cols-5 gap-3 mb-3">
+        <div className="grid grid-cols-6 gap-3 mb-3">
           <div className="bg-white/5 rounded-lg p-3">
             <div className="text-xs text-slate-400">Total unmatched</div>
             <div className="text-lg font-semibold text-slate-100">{counts.total}</div>
@@ -470,6 +472,16 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
             <div className="text-xs text-amber-300">Flagged</div>
             <div className="text-lg font-semibold text-amber-200">{counts.flagged_n}</div>
             <div className="text-xs text-amber-400/70">awaiting review</div>
+          </div>
+          <div
+            className="bg-rose-500/10 rounded-lg p-3"
+            title="Card and ACH convenience fees we paid that never appeared on the AppFolio bill, so they were never billed back to a property. Summed from the variance on every approximate match."
+          >
+            <div className="text-xs text-rose-300">Fee leakage</div>
+            <div className="text-lg font-semibold text-rose-200">{formatMoney(feeLeakage.total)}</div>
+            <div className="text-xs text-rose-400/70">
+              across {feeLeakage.count} charge{feeLeakage.count === 1 ? '' : 's'}
+            </div>
           </div>
         </div>
 
