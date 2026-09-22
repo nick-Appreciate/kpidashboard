@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const { source, source_id, action, matched_af_bill_id, reason } = body as {
     source: 'brex' | 'mercury';
     source_id: string;
-    action: 'corporate' | 'match' | 'dismiss' | 'flag' | 'undo';
+    action: 'corporate' | 'match' | 'flag' | 'undo';
     matched_af_bill_id?: string;
     reason?: string;
   };
@@ -139,19 +139,9 @@ export async function POST(request: Request) {
       }
       break;
     }
-    case 'dismiss':
-      // Both sides: use dismissed_at + reason (Brex has corporate flags we reuse loosely
-      // via corporate_note; Mercury has its own columns)
-      brexUpdates.is_corporate = true;
-      brexUpdates.corporate_at = nowIso;
-      brexUpdates.corporate_note = `[DISMISSED by ${actor}] ${reason || 'no reason'}`;
-      brexUpdates.match_status = 'dismissed';
-      mercuryUpdates.dismissed_at = nowIso;
-      mercuryUpdates.dismissed_reason = reason || 'no reason';
-      break;
     case 'flag':
-      // "I don't know what this is — escalate." Distinct from dismiss.
-      // Pushes a FLAGGED memo to Brex so a reviewer can see it in-app.
+      // "I don't know what this is — escalate." Pushes a FLAGGED memo to
+      // Brex so a reviewer can see it in-app.
       brexUpdates.flagged_at = nowIso;
       brexUpdates.flagged_reason = reason || 'Unknown — needs review';
       brexUpdates.flagged_by = actor;
@@ -182,8 +172,6 @@ export async function POST(request: Request) {
       mercuryUpdates.matched_bill_id = null;
       mercuryUpdates.matched_at = null;
       mercuryUpdates.matched_by = null;
-      mercuryUpdates.dismissed_at = null;
-      mercuryUpdates.dismissed_reason = null;
       mercuryUpdates.flagged_at = null;
       mercuryUpdates.flagged_reason = null;
       mercuryUpdates.flagged_by = null;
@@ -193,11 +181,11 @@ export async function POST(request: Request) {
   }
 
   if (source === 'brex') {
-    // For every action that surfaces a memo inside Brex (corporate, dismiss,
+    // For every action that surfaces a memo inside Brex (corporate, flag,
     // match), push to Brex first — if the API call fails we don't mutate our
     // DB, so the row stays actionable in the UI.
     let memoToPush = '';
-    if (action === 'corporate' || action === 'dismiss' || action === 'flag') {
+    if (action === 'corporate' || action === 'flag') {
       memoToPush = (brexUpdates.corporate_note as string | undefined) ?? '';
     } else if (action === 'match') {
       memoToPush = billedToAfMemo(brexUpdates.matched_bill_id as number);

@@ -49,7 +49,8 @@ export async function POST(request: Request) {
   const actor = 'auto-sweep';
   const nowIso = new Date().toISOString();
 
-  // 1. Pull the current outstanding list (RPC already filters corp/matched/dismissed).
+  // 1. Pull the current outstanding list (RPC already filters corporate,
+  //    matched and flagged rows out).
   const { data: outstanding, error: rpcErr } = await supabaseAdmin
     .rpc('reconciliation_unmatched', { since_date: since });
   if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
