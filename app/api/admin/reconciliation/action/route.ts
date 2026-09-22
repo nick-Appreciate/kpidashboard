@@ -2,16 +2,17 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
 
 /**
- * PATCH a Brex card expense's memo. Returns null on success, error string on
- * failure. Brex's expenses-card endpoint accepts { memo: "..." } and stamps the
- * text onto the expense record employees see in the Brex dashboard.
+ * Update a Brex card expense's memo. Returns null on success, error string
+ * on failure. Brex's expenses-card endpoint takes PUT (not PATCH — confirmed
+ * against the live API on 2026-09-22), and needs a token with expenses.card
+ * write scope.
  */
 async function pushBrexMemo(expenseId: string, memo: string): Promise<string | null> {
   const token = process.env.BREX_API_KEY;
   if (!token) return 'BREX_API_KEY not configured on server';
 
   const res = await fetch(`https://platform.brexapis.com/v1/expenses/card/${expenseId}`, {
-    method: 'PATCH',
+    method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
