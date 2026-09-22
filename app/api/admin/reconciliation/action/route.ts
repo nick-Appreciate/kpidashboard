@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
+// @ts-ignore — supabase.js is untyped JS
+import { supabaseAdmin } from '../../../../../lib/supabase';
 
 /**
  * Update a Brex card expense's memo. Returns null on success, error string
@@ -148,17 +150,29 @@ export async function POST(request: Request) {
       if (brexErr) return NextResponse.json({ error: `Push to Brex failed — ${brexErr}` }, { status: 502 });
     }
 
-    const { error } = await supabase
+    // brex_expenses has SELECT-only RLS — use the service-role client so
+    // the row actually updates. Also verify a row was hit so we don't
+    // silently no-op when the brex_id doesn't match anything.
+    const { data: updated, error } = await supabaseAdmin
       .from('brex_expenses')
       .update(brexUpdates)
-      .eq('brex_id', source_id);
+      .eq('brex_id', source_id)
+      .select('id');
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: `No brex_expenses row for source_id=${source_id}` }, { status: 404 });
+    }
   } else {
-    const { error } = await supabase
+    // mercury_transactions also has SELECT-only RLS.
+    const { data: updated, error } = await supabaseAdmin
       .from('mercury_transactions')
       .update(mercuryUpdates)
-      .eq('id', Number(source_id));
+      .eq('id', source_id)
+      .select('id');
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: `No mercury_transactions row for source_id=${source_id}` }, { status: 404 });
+    }
   }
 
   return NextResponse.json({ ok: true, source, source_id, action });
