@@ -1,6 +1,28 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../../lib/auth';
 
+/**
+ * PATCH a Brex card expense's memo. Returns null on success, error string on
+ * failure. Brex's expenses-card endpoint accepts { memo: "..." } and stamps the
+ * text onto the expense record employees see in the Brex dashboard.
+ */
+async function pushBrexMemo(expenseId: string, memo: string): Promise<string | null> {
+  const token = process.env.BREX_API_KEY;
+  if (!token) return 'BREX_API_KEY not configured on server';
+
+  const res = await fetch(`https://platform.brexapis.com/v1/expenses/card/${expenseId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ memo }),
+  });
+  if (res.ok) return null;
+  const text = await res.text().catch(() => '');
+  return `Brex API ${res.status}: ${text.slice(0, 300)}`;
+}
+
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ('error' in auth) return auth.error;
@@ -87,6 +109,29 @@ export async function POST(request: Request) {
   }
 
   if (source === 'brex') {
+    // For the two actions that surface a memo to the employee inside Brex
+    // (corporate, dismiss), push the memo to Brex first — if the API call
+    // fails we don't mutate our DB, so the row stays actionable in the UI.
+    if (action === 'corporate' || action === 'dismiss') {
+      const memoToPush = (brexUpdates.corporate_note as string | undefined) ?? '';
+      if (memoToPush) {
+        // Need the expense_id (not the raw brex_id) to PATCH.
+        const { data: exp, error: expErr } = await supabase
+          .from('brex_expenses')
+          .select('expense_id')
+          .eq('brex_id', source_id)
+          .maybeSingle();
+        if (expErr) return NextResponse.json({ error: expErr.message }, { status: 500 });
+        if (!exp?.expense_id) {
+          return NextResponse.json({
+            error: 'No enriched expense_id for this transaction — cannot push to Brex. Run sync-brex enrichment or mark it inside Brex directly.',
+          }, { status: 409 });
+        }
+        const brexErr = await pushBrexMemo(exp.expense_id, memoToPush);
+        if (brexErr) return NextResponse.json({ error: `Push to Brex failed — ${brexErr}` }, { status: 502 });
+      }
+    }
+
     const { error } = await supabase
       .from('brex_expenses')
       .update(brexUpdates)
