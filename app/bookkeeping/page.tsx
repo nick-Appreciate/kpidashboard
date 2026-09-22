@@ -4,7 +4,7 @@ import BookkeepingDashboard from '../../components/BookkeepingDashboard';
 
 export const metadata = {
   title: 'Bookkeeping - Appreciate Dashboard',
-  description: 'Unified bookkeeping: Brex expenses, billing invoices, and duplicate detection',
+  description: 'Reconcile Brex + Mercury outflows against AppFolio bills',
 };
 
 export default function BookkeepingPage() {
