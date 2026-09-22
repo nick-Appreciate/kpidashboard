@@ -24,6 +24,17 @@ async function pushBrexMemo(expenseId: string, memo: string): Promise<string | n
   return `Brex API ${res.status}: ${text.slice(0, 300)}`;
 }
 
+/**
+ * Standardized memo we push to Brex when a Brex expense is matched to an
+ * AppFolio bill. Fits on one line so it renders cleanly in the Brex
+ * dashboard's memo column, and carries the AF link so employees can jump
+ * straight to the bill.
+ */
+function billedToAfMemo(billId: string | number): string {
+  const url = `https://appreciateinc.appfolio.com/accounting/payable_invoices/${billId}`;
+  return `Billed · Property Expense · AppFolio Bill #${billId} · ${url}`;
+}
+
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ('error' in auth) return auth.error;
@@ -110,27 +121,31 @@ export async function POST(request: Request) {
   }
 
   if (source === 'brex') {
-    // For the two actions that surface a memo to the employee inside Brex
-    // (corporate, dismiss), push the memo to Brex first — if the API call
-    // fails we don't mutate our DB, so the row stays actionable in the UI.
+    // For every action that surfaces a memo inside Brex (corporate, dismiss,
+    // match), push to Brex first — if the API call fails we don't mutate our
+    // DB, so the row stays actionable in the UI.
+    let memoToPush = '';
     if (action === 'corporate' || action === 'dismiss') {
-      const memoToPush = (brexUpdates.corporate_note as string | undefined) ?? '';
-      if (memoToPush) {
-        // Need the expense_id (not the raw brex_id) to PATCH.
-        const { data: exp, error: expErr } = await supabase
-          .from('brex_expenses')
-          .select('expense_id')
-          .eq('brex_id', source_id)
-          .maybeSingle();
-        if (expErr) return NextResponse.json({ error: expErr.message }, { status: 500 });
-        if (!exp?.expense_id) {
-          return NextResponse.json({
-            error: 'No enriched expense_id for this transaction — cannot push to Brex. Run sync-brex enrichment or mark it inside Brex directly.',
-          }, { status: 409 });
-        }
-        const brexErr = await pushBrexMemo(exp.expense_id, memoToPush);
-        if (brexErr) return NextResponse.json({ error: `Push to Brex failed — ${brexErr}` }, { status: 502 });
+      memoToPush = (brexUpdates.corporate_note as string | undefined) ?? '';
+    } else if (action === 'match') {
+      memoToPush = billedToAfMemo(brexUpdates.matched_bill_id as number);
+    }
+
+    if (memoToPush) {
+      // Need the expense_id (not the raw brex_id) to PUT.
+      const { data: exp, error: expErr } = await supabase
+        .from('brex_expenses')
+        .select('expense_id')
+        .eq('brex_id', source_id)
+        .maybeSingle();
+      if (expErr) return NextResponse.json({ error: expErr.message }, { status: 500 });
+      if (!exp?.expense_id) {
+        return NextResponse.json({
+          error: 'No enriched expense_id for this transaction — cannot push to Brex. Run sync-brex enrichment or mark it inside Brex directly.',
+        }, { status: 409 });
       }
+      const brexErr = await pushBrexMemo(exp.expense_id, memoToPush);
+      if (brexErr) return NextResponse.json({ error: `Push to Brex failed — ${brexErr}` }, { status: 502 });
     }
 
     const { error } = await supabase
