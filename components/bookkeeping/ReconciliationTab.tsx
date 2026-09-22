@@ -57,6 +57,9 @@ const withinTolerance = (deltaCents: number, chargeCents: number) => {
   return d < TOLERANCE_CENTS || d < Math.abs(chargeCents) * TOLERANCE_PCT;
 };
 
+/** How far from the charge a bill can sit and still be offered as a suggestion. */
+const SUGGEST_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+
 const AF_BASE = 'https://appreciateinc.appfolio.com';
 
 function createBillUrl(_vendorId: string | null) {
@@ -767,18 +770,52 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                             const forceable = !exact
                               && selectedBills.size > 0
                               && withinTolerance(deltaCents, cents(target));
+
+                            // Rank single bills that could cover this charge on
+                            // their own — exact first, then anything inside the
+                            // $5 / 2% tolerance, closest first. Suggestions are
+                            // never pre-checked; the convention varies enough by
+                            // hand that the call stays with the reviewer.
+                            //
+                            // Amount alone is too loose: without the date guard
+                            // a January bill surfaces as a "likely match" for a
+                            // July charge purely because it lands within $5.
+                            const chargeTime = new Date(row.posted_date).getTime();
+                            const nearInTime = (b: Bill) => {
+                              const d = b.paid_date || b.bill_date;
+                              if (!d) return false;
+                              return Math.abs(new Date(d).getTime() - chargeTime) <= SUGGEST_WINDOW_MS;
+                            };
+                            const scored = bills.map(b => {
+                              const d = cents(Number(b.total)) - cents(target);
+                              const closeEnough = d === 0 || withinTolerance(d, cents(target));
+                              return { b, d, suggested: closeEnough && nearInTime(b) };
+                            });
+                            const ranked = scored
+                              .map((s, i) => ({ ...s, i }))
+                              .sort((a, z) => {
+                                if (a.suggested !== z.suggested) return a.suggested ? -1 : 1;
+                                if (a.suggested) return Math.abs(a.d) - Math.abs(z.d);
+                                return a.i - z.i;   // otherwise keep the RPC's date ordering
+                              });
+                            const suggestedCount = scored.filter(s => s.suggested).length;
                             const shown = billFilter.trim()
-                              ? bills.filter(b =>
+                              ? ranked.filter(({ b }) =>
                                   `${b.bill_id} ${b.properties ?? ''} ${b.memo ?? ''} ${b.total}`
                                     .toLowerCase()
                                     .includes(billFilter.trim().toLowerCase()))
-                              : bills;
+                              : ranked;
                             return (
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between gap-3 flex-wrap">
                                   <div className="text-xs text-slate-400">
                                     {bills.length} unclaimed {row.suggested_af_vendor} bill{bills.length === 1 ? '' : 's'} since 2026-01-01
                                     {' · '}select any combination that totals {formatMoney(target)}
+                                    {suggestedCount > 0 && (
+                                      <span className="text-cyan-300">
+                                        {' · '}{suggestedCount} likely match{suggestedCount === 1 ? '' : 'es'} pinned above — verify before linking
+                                      </span>
+                                    )}
                                   </div>
                                   <input
                                     value={billFilter}
@@ -801,12 +838,16 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {shown.map(b => {
+                                      {shown.map(({ b, d, suggested }) => {
                                         const checked = selectedBills.has(b.bill_id);
                                         return (
                                           <tr
                                             key={b.bill_id}
-                                            className={`border-t border-[var(--glass-border)] ${checked ? 'bg-emerald-500/10' : 'hover:bg-white/5'}`}
+                                            className={`border-t border-[var(--glass-border)] ${
+                                              checked ? 'bg-emerald-500/10'
+                                                : suggested ? 'bg-cyan-500/[0.07] hover:bg-cyan-500/10'
+                                                : 'hover:bg-white/5'
+                                            }`}
                                           >
                                             <td className="px-2 py-1.5">
                                               <input
@@ -834,10 +875,15 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                                             <td className="px-2 py-1.5 text-slate-400 whitespace-nowrap">
                                               {b.paid_date || b.bill_date || '—'}
                                             </td>
-                                            <td className="px-2 py-1.5 text-right text-slate-100 whitespace-nowrap">
-                                              {formatMoney(Number(b.total))}
+                                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                              <span className="text-slate-100">{formatMoney(Number(b.total))}</span>
                                               {b.line_count > 1 && (
                                                 <span className="text-slate-500"> ({b.line_count})</span>
+                                              )}
+                                              {suggested && (
+                                                <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-cyan-500/20 text-cyan-300">
+                                                  {d === 0 ? 'exact' : `${d > 0 ? '+' : '-'}${formatMoney(Math.abs(d) / 100)}`}
+                                                </span>
                                               )}
                                             </td>
                                             <td className="px-2 py-1.5 text-slate-400 max-w-[200px] truncate" title={b.properties ?? ''}>
