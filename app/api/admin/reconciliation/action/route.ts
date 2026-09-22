@@ -35,12 +35,18 @@ export async function POST(request: Request) {
   const { source, source_id, action, reason } = body as {
     source: 'brex' | 'mercury';
     source_id: string;
-    action: 'corporate' | 'flag' | 'undo';
+    action: 'corporate' | 'flag' | 'dismiss' | 'undo';
     reason?: string;
   };
 
   if (!source || !source_id || !action) {
     return NextResponse.json({ error: 'source, source_id, and action are required' }, { status: 400 });
+  }
+
+  // Dismiss buries a charge without either billing it back or classifying it,
+  // so it's the one action that needs more than bookkeeping access.
+  if (action === 'dismiss' && auth.appUser?.role !== 'admin') {
+    return NextResponse.json({ error: 'Dismiss requires an admin role.' }, { status: 403 });
   }
 
   const actor = auth.user?.email || 'unknown';
@@ -64,6 +70,19 @@ export async function POST(request: Request) {
       mercuryUpdates.corporate_by = actor;
       break;
     }
+    case 'dismiss':
+      brexUpdates.dismissed_at = nowIso;
+      brexUpdates.dismissed_reason = reason || 'No reason given';
+      brexUpdates.dismissed_by = actor;
+      brexUpdates.match_status = 'dismissed';
+      // The Brex memo push below reads corporate_note as its source; reuse it
+      // rather than adding a parallel code path. is_corporate stays false —
+      // a dismissal is not a corporate classification.
+      brexUpdates.corporate_note = `[DISMISSED by ${actor}] ${reason || 'no reason'}`;
+      mercuryUpdates.dismissed_at = nowIso;
+      mercuryUpdates.dismissed_reason = reason || 'No reason given';
+      mercuryUpdates.dismissed_by = actor;
+      break;
     case 'flag':
       // "I don't know what this is — escalate." Pushes a FLAGGED memo to
       // Brex so a reviewer can see it in-app.
@@ -90,6 +109,9 @@ export async function POST(request: Request) {
       brexUpdates.flagged_at = null;
       brexUpdates.flagged_reason = null;
       brexUpdates.flagged_by = null;
+      brexUpdates.dismissed_at = null;
+      brexUpdates.dismissed_reason = null;
+      brexUpdates.dismissed_by = null;
       mercuryUpdates.is_corporate = false;
       mercuryUpdates.corporate_at = null;
       mercuryUpdates.corporate_note = null;
@@ -100,6 +122,9 @@ export async function POST(request: Request) {
       mercuryUpdates.flagged_at = null;
       mercuryUpdates.flagged_reason = null;
       mercuryUpdates.flagged_by = null;
+      mercuryUpdates.dismissed_at = null;
+      mercuryUpdates.dismissed_reason = null;
+      mercuryUpdates.dismissed_by = null;
       break;
     default:
       return NextResponse.json({ error: `unknown action: ${action}` }, { status: 400 });
@@ -108,7 +133,7 @@ export async function POST(request: Request) {
   if (source === 'brex') {
     // Corporate and flag both surface a memo inside Brex. Push it first — if
     // the API call fails we don't mutate our DB, so the row stays actionable.
-    const memoToPush = (action === 'corporate' || action === 'flag')
+    const memoToPush = (action === 'corporate' || action === 'flag' || action === 'dismiss')
       ? ((brexUpdates.corporate_note as string | undefined) ?? '')
       : '';
 

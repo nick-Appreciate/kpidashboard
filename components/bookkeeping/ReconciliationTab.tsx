@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Link2, Flag } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 type Row = {
   source: 'brex' | 'mercury';
@@ -114,6 +115,8 @@ function corporateCategoryFor(merchant: string): string {
 }
 
 export default function ReconciliationTab({ since = '2026-01-01' }: { since?: string }) {
+  // Dismiss is admin-only; the server enforces it too.
+  const { isAdmin } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -313,7 +316,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
     };
   }, [rows]);
 
-  const doAction = async (row: Row, action: 'corporate' | 'flag' | 'undo', payload?: Record<string, string>) => {
+  const doAction = async (row: Row, action: 'corporate' | 'flag' | 'dismiss' | 'undo', payload?: Record<string, string>) => {
     const key = `${row.source}:${row.source_id}`;
     setPendingId(key);
     try {
@@ -753,6 +756,22 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                             >
                               <Flag className={`w-4 h-4 ${isFlagged ? 'fill-current' : ''}`} />
                             </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => {
+                                  const reason = prompt(
+                                    'Dismiss this charge — it will drop off the queue without being billed back or classified.\n\nWhy?',
+                                  );
+                                  if (reason === null) return;
+                                  doAction(row, 'dismiss', reason.trim() ? { reason: reason.trim() } : undefined);
+                                }}
+                                disabled={isPending}
+                                className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-500/15 rounded"
+                                title="Dismiss (admin only) — removes the charge from the queue without billing or classifying it"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>
