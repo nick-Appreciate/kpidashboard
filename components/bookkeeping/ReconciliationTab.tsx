@@ -14,6 +14,9 @@ type Row = {
   suggested_af_vendor_id: string | null;
   external_link: string | null;
   brex_expense_id: string | null;
+  flagged_at: string | null;
+  flagged_reason: string | null;
+  flagged_by: string | null;
 };
 
 type SourceFilter = 'all' | 'brex' | 'mercury';
@@ -121,10 +124,11 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
       mercury_amt: merc.reduce((s, r) => s + Number(r.amount), 0),
       has_vendor_n: rows.filter(r => r.suggested_af_vendor).length,
       no_vendor_n: rows.filter(r => !r.suggested_af_vendor).length,
+      flagged_n: rows.filter(r => r.flagged_at).length,
     };
   }, [rows]);
 
-  const doAction = async (row: Row, action: 'corporate' | 'match' | 'flag', payload?: Record<string, string>) => {
+  const doAction = async (row: Row, action: 'corporate' | 'match' | 'flag' | 'undo', payload?: Record<string, string>) => {
     const key = `${row.source}:${row.source_id}`;
     setPendingId(key);
     try {
@@ -159,7 +163,14 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
       }
       setManualLink(null);
 
-      // Fade out, then drop from the list.
+      // Flag and unflag keep the row on the queue — it only changes
+      // appearance and sorts to the top — so refetch rather than fading out.
+      if (action === 'flag' || action === 'undo') {
+        await fetchData();
+        return;
+      }
+
+      // Corporate and match genuinely leave the queue: fade, then drop.
       setRemovingKeys(prev => new Set(prev).add(key));
       window.setTimeout(() => {
         setRows(prev => prev.filter(r => !(r.source === row.source && r.source_id === row.source_id)));
@@ -282,7 +293,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
         </div>
 
         {/* KPI row */}
-        <div className="grid grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-5 gap-3 mb-3">
           <div className="bg-white/5 rounded-lg p-3">
             <div className="text-xs text-slate-400">Total unmatched</div>
             <div className="text-lg font-semibold text-slate-100">{counts.total}</div>
@@ -298,10 +309,15 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
             <div className="text-lg font-semibold text-cyan-200">{counts.mercury_n}</div>
             <div className="text-xs text-cyan-400/70">{formatMoney(counts.mercury_amt)}</div>
           </div>
+          <div className="bg-slate-500/10 rounded-lg p-3">
+            <div className="text-xs text-slate-300">No AppFolio vendor</div>
+            <div className="text-lg font-semibold text-slate-200">{counts.no_vendor_n}</div>
+            <div className="text-xs text-slate-400/70">need new vendor</div>
+          </div>
           <div className="bg-amber-500/10 rounded-lg p-3">
-            <div className="text-xs text-amber-300">No AppFolio vendor</div>
-            <div className="text-lg font-semibold text-amber-200">{counts.no_vendor_n}</div>
-            <div className="text-xs text-amber-400/70">need new vendor</div>
+            <div className="text-xs text-amber-300">Flagged</div>
+            <div className="text-lg font-semibold text-amber-200">{counts.flagged_n}</div>
+            <div className="text-xs text-amber-400/70">awaiting review</div>
           </div>
         </div>
 
@@ -372,13 +388,14 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                   const isPending = pendingId === key;
                   const isRemoving = removingKeys.has(key);
                   const isManual = manualLink?.key === key;
+                  const isFlagged = !!row.flagged_at;
                   const flash = flashKey?.key === key ? flashKey.text : null;
                   return (
                     <tr
                       key={key}
                       className={`border-t border-[var(--glass-border)] hover:bg-white/5 transition-all duration-400 ease-in-out ${
                         isRemoving ? 'opacity-0 -translate-x-4 bg-emerald-500/5' : 'opacity-100'
-                      }`}
+                      } ${isFlagged ? 'bg-amber-500/[0.07]' : ''}`}
                     >
                       <td className="px-3 py-2 text-slate-300 whitespace-nowrap">{row.posted_date}</td>
                       <td className="px-3 py-2">
@@ -408,6 +425,15 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                           </a>
                         ) : (
                           row.vendor_or_merchant
+                        )}
+                        {isFlagged && (
+                          <div className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-400/90">
+                            <Flag className="w-3 h-3 mt-px shrink-0" />
+                            <span>
+                              {row.flagged_reason || 'flagged for review'}
+                              {row.flagged_by && <span className="text-amber-400/60"> — {row.flagged_by}</span>}
+                            </span>
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-2 text-right text-slate-100 font-medium whitespace-nowrap">{formatMoney(Number(row.amount))}</td>
@@ -501,14 +527,24 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                             </button>
                             <button
                               onClick={() => {
+                                if (isFlagged) {
+                                  doAction(row, 'undo');
+                                  return;
+                                }
                                 const reason = prompt('Why is this unknown? (optional — helps whoever reviews this)') ?? '';
                                 doAction(row, 'flag', reason ? { reason } : undefined);
                               }}
                               disabled={isPending}
-                              className="p-1 text-slate-400 hover:text-amber-400 hover:bg-amber-500/15 rounded"
-                              title="Flag as unknown — escalates for review, drops off the queue with a note"
+                              className={`p-1 rounded ${
+                                isFlagged
+                                  ? 'text-amber-400 bg-amber-500/15 hover:bg-amber-500/25'
+                                  : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/15'
+                              }`}
+                              title={isFlagged
+                                ? 'Clear this flag and return the row to the normal queue'
+                                : 'Flag as unknown — escalates for review and pins the row to the top'}
                             >
-                              <Flag className="w-4 h-4" />
+                              <Flag className={`w-4 h-4 ${isFlagged ? 'fill-current' : ''}`} />
                             </button>
                           </div>
                         )}
