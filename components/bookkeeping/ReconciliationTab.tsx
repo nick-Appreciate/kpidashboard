@@ -13,6 +13,7 @@ type Row = {
   suggested_af_vendor: string | null;
   suggested_af_vendor_id: string | null;
   external_link: string | null;
+  brex_expense_id: string | null;
 };
 
 type SourceFilter = 'all' | 'brex' | 'mercury';
@@ -27,6 +28,17 @@ function createBillUrl(vendorId: string | null, amount: number, date: string) {
   p.set('payable_invoice[total_amount]', String(amount));
   p.set('payable_invoice[bill_date]', date);
   return `${AF_BASE}/accounting/payable_invoices/new?${p.toString()}`;
+}
+
+/** Build a Brex dashboard deep-link the same way BillRow does. */
+function brexExpenseUrl(expenseId: string | null, merchantName?: string) {
+  if (!expenseId) return 'https://dashboard.brex.com/expenses';
+  const encoded = typeof window !== 'undefined'
+    ? window.btoa(`Expense:${expenseId}`)
+    : Buffer.from(`Expense:${expenseId}`).toString('base64');
+  const params = new URLSearchParams({ expenseId: encoded });
+  if (merchantName) params.set('filter', `SEARCHQUERY:${merchantName}`);
+  return `https://dashboard.brex.com/expenses?${params.toString()}`;
 }
 
 function formatMoney(n: number) {
@@ -265,7 +277,18 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                         </span>
                       </td>
                       <td className="px-3 py-2 text-slate-200">
-                        {row.external_link ? (
+                        {row.source === 'brex' && row.brex_expense_id ? (
+                          <a
+                            href={brexExpenseUrl(row.brex_expense_id, row.vendor_or_merchant)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-accent inline-flex items-center gap-1"
+                            title="Open in Brex dashboard"
+                          >
+                            {row.vendor_or_merchant}
+                            <ExternalLink className="w-3 h-3 opacity-60" />
+                          </a>
+                        ) : row.external_link ? (
                           <a href={row.external_link} target="_blank" rel="noreferrer" className="hover:text-accent inline-flex items-center gap-1">
                             {row.vendor_or_merchant}
                             <ExternalLink className="w-3 h-3 opacity-60" />
