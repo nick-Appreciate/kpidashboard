@@ -71,26 +71,43 @@ export async function POST(request: Request) {
       mercuryUpdates.corporate_at = nowIso;
       mercuryUpdates.corporate_note = reason || 'Marked corporate from reconciliation';
       break;
-    case 'match':
-      if (!matched_af_bill_id) {
-        return NextResponse.json({ error: 'matched_af_bill_id required for match action' }, { status: 400 });
+    case 'match': {
+      // If the client didn't pass an explicit bill_id, re-query AppFolio
+      // (our synced af_bill_detail table) at click time to auto-resolve
+      // the match. Returns 409 if there's still no AF bill covering this
+      // Brex/Mercury row — the UI can leave it on the queue and try again
+      // after the next AppFolio sync.
+      let resolvedBillId = matched_af_bill_id;
+      if (!resolvedBillId) {
+        const { data: found, error: findErr } = await supabaseAdmin
+          .rpc('find_af_match', { p_source: source, p_source_id: source_id });
+        if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
+        const hit = Array.isArray(found) ? found[0] : found;
+        if (!hit?.matched_bill_id) {
+          return NextResponse.json({
+            error: 'No AppFolio bill covers this transaction yet. It will drop off automatically the next time an AF bill lands that matches.',
+            no_match: true,
+          }, { status: 409 });
+        }
+        resolvedBillId = hit.matched_bill_id;
       }
-      // brex_expenses.matched_bill_id is integer; only accept numeric AF bill_ids for Brex
+
       if (source === 'brex') {
-        const n = Number(matched_af_bill_id);
+        const n = Number(resolvedBillId);
         if (!Number.isFinite(n)) {
-          return NextResponse.json({ error: 'matched_af_bill_id must be numeric for Brex' }, { status: 400 });
+          return NextResponse.json({ error: 'AF bill_id is non-numeric — cannot store on brex_expenses.matched_bill_id (int)' }, { status: 400 });
         }
         brexUpdates.matched_bill_id = n;
         brexUpdates.matched_at = nowIso;
         brexUpdates.matched_by = actor;
-        brexUpdates.match_status = 'matched_manual';
+        brexUpdates.match_status = matched_af_bill_id ? 'matched_manual' : 'matched_auto';
       } else {
-        mercuryUpdates.matched_bill_id = matched_af_bill_id;
+        mercuryUpdates.matched_bill_id = resolvedBillId;
         mercuryUpdates.matched_at = nowIso;
         mercuryUpdates.matched_by = actor;
       }
       break;
+    }
     case 'dismiss':
       // Both sides: use dismissed_at + reason (Brex has corporate flags we reuse loosely
       // via corporate_note; Mercury has its own columns)
@@ -175,5 +192,13 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, source, source_id, action });
+  const matchedBillId = (brexUpdates.matched_bill_id ?? mercuryUpdates.matched_bill_id) as string | number | null | undefined;
+  return NextResponse.json({
+    ok: true,
+    source,
+    source_id,
+    action,
+    matched_bill_id: matchedBillId ?? null,
+    af_link: matchedBillId ? `https://appreciateinc.appfolio.com/accounting/payable_invoices/${matchedBillId}` : null,
+  });
 }

@@ -74,7 +74,9 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [matchInput, setMatchInput] = useState<{ key: string; billId: string } | null>(null);
+  const [removingKeys, setRemovingKeys] = useState<Set<string>>(new Set());
+  const [flashKey, setFlashKey] = useState<{ key: string; text: string } | null>(null);
+  const [sweeping, setSweeping] = useState(false);
 
   const fetchData = useCallback(async () => {
     setRefreshing(true);
@@ -129,17 +131,60 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: row.source, source_id: row.source_id, action, ...payload }),
       });
+      const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
+        // Explicit "no AF bill matches this yet" — don't scare the user
+        // with an alert, just flash it inline.
+        if (res.status === 409 && j.no_match) {
+          setFlashKey({ key, text: 'no AF match yet — try after next sync' });
+          window.setTimeout(() => setFlashKey(f => (f?.key === key ? null : f)), 3200);
+          return;
+        }
         throw new Error(j.error || res.statusText);
       }
-      // Optimistic remove
-      setRows(prev => prev.filter(r => !(r.source === row.source && r.source_id === row.source_id)));
-      setMatchInput(null);
+
+      if (action === 'match' && j.matched_bill_id) {
+        setFlashKey({ key, text: `matched AF #${j.matched_bill_id}` });
+      }
+
+      // Fade out, then drop from the list.
+      setRemovingKeys(prev => new Set(prev).add(key));
+      window.setTimeout(() => {
+        setRows(prev => prev.filter(r => !(r.source === row.source && r.source_id === row.source_id)));
+        setRemovingKeys(prev => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        setFlashKey(f => (f?.key === key ? null : f));
+      }, 420);
     } catch (e) {
       alert(`Failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setPendingId(null);
+    }
+  };
+
+  const runSweep = async () => {
+    setSweeping(true);
+    try {
+      const res = await fetch(`/api/admin/reconciliation/sweep?since=${since}`, { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.statusText);
+      // Refresh the list so newly-matched rows drop off. Show a quick summary.
+      await fetchData();
+      const parts = [
+        `scanned ${j.scanned}`,
+        `matched ${j.matched}`,
+        j.brex_pushed ? `${j.brex_pushed} pushed to Brex` : null,
+        j.brex_skipped_no_expense_id ? `${j.brex_skipped_no_expense_id} skipped (no expense_id)` : null,
+        (j.failures?.length ?? 0) > 0 ? `${j.failures.length} failed` : null,
+      ].filter(Boolean).join(' · ');
+      alert(`Sweep: ${parts}`);
+    } catch (e) {
+      alert(`Sweep failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSweeping(false);
     }
   };
 
@@ -172,6 +217,15 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={runSweep}
+              disabled={sweeping || refreshing}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40"
+              title="Re-check every row against AppFolio and remove any that now match"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${sweeping ? 'animate-spin' : ''}`} />
+              {sweeping ? 'Sweeping…' : 'Auto-match'}
+            </button>
             <button
               onClick={fetchData}
               disabled={refreshing}
@@ -272,9 +326,15 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                 {filtered.map(row => {
                   const key = `${row.source}:${row.source_id}`;
                   const isPending = pendingId === key;
-                  const inMatch = matchInput?.key === key;
+                  const isRemoving = removingKeys.has(key);
+                  const flash = flashKey?.key === key ? flashKey.text : null;
                   return (
-                    <tr key={key} className="border-t border-[var(--glass-border)] hover:bg-white/5">
+                    <tr
+                      key={key}
+                      className={`border-t border-[var(--glass-border)] hover:bg-white/5 transition-all duration-400 ease-in-out ${
+                        isRemoving ? 'opacity-0 -translate-x-4 bg-emerald-500/5' : 'opacity-100'
+                      }`}
+                    >
                       <td className="px-3 py-2 text-slate-300 whitespace-nowrap">{row.posted_date}</td>
                       <td className="px-3 py-2">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
@@ -324,41 +384,24 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                         )}
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
-                        {inMatch ? (
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="text"
-                              value={matchInput.billId}
-                              onChange={e => setMatchInput({ key, billId: e.target.value })}
-                              placeholder="AF bill_id"
-                              className="dark-input w-24 text-xs px-2 py-1"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => doAction(row, 'match', { matched_af_bill_id: matchInput.billId })}
-                              disabled={isPending || !matchInput.billId.trim()}
-                              className="p-1 text-emerald-400 hover:bg-emerald-500/15 rounded disabled:opacity-30"
-                              title="Confirm match"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setMatchInput(null)}
-                              className="p-1 text-slate-400 hover:bg-white/10 rounded"
-                              title="Cancel"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
+                        {flash && (
+                          <span className={`mr-2 text-xs ${flash.startsWith('matched') ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {flash}
+                          </span>
+                        )}
+                        {isRemoving ? null : (
                           <div className="inline-flex items-center gap-1">
                             <button
-                              onClick={() => setMatchInput({ key, billId: '' })}
+                              onClick={() => doAction(row, 'match')}
                               disabled={isPending}
-                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 rounded"
-                              title="Match to AppFolio bill"
+                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 rounded disabled:opacity-30"
+                              title="Check AppFolio for a matching bill and auto-resolve"
                             >
-                              <Link2 className="w-4 h-4" />
+                              {isPending ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Link2 className="w-4 h-4" />
+                              )}
                             </button>
                             <button
                               onClick={() => {
