@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Link2, Flag, PenLine } from 'lucide-react';
+import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Link2, Flag } from 'lucide-react';
 
 type Row = {
   source: 'brex' | 'mercury';
@@ -135,13 +135,6 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Explicit "no AF bill matches this yet" — don't scare the user
-        // with an alert, just flash it inline.
-        if (res.status === 409 && j.no_match) {
-          setFlashKey({ key, text: 'no AF match yet — try after next sync' });
-          window.setTimeout(() => setFlashKey(f => (f?.key === key ? null : f)), 3200);
-          return;
-        }
         // Typo'd bill id — keep the input open so they can correct it.
         if (res.status === 404 && j.bad_bill_id) {
           setFlashKey({ key, text: `no AF bill #${payload?.matched_af_bill_id}` });
@@ -476,24 +469,12 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                         ) : (
                           <div className="inline-flex items-center gap-1">
                             <button
-                              onClick={() => doAction(row, 'match')}
-                              disabled={isPending}
-                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 rounded disabled:opacity-30"
-                              title="Check AppFolio for a matching bill and auto-resolve"
-                            >
-                              {isPending ? (
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Link2 className="w-4 h-4" />
-                              )}
-                            </button>
-                            <button
                               onClick={() => setManualLink({ key, billId: '' })}
                               disabled={isPending}
-                              className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/15 rounded disabled:opacity-30"
-                              title="Link manually to a specific AppFolio bill # (bypasses date/amount matching)"
+                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 rounded disabled:opacity-30"
+                              title="Link to a specific AppFolio bill # — automatic matching runs from Auto-match at the top"
                             >
-                              <PenLine className="w-4 h-4" />
+                              <Link2 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => {

@@ -81,47 +81,33 @@ export async function POST(request: Request) {
       break;
     }
     case 'match': {
-      // If the client didn't pass an explicit bill_id, re-query AppFolio
-      // (our synced af_bill_detail table) at click time to auto-resolve
-      // the match. Returns 409 if there's still no AF bill covering this
-      // Brex/Mercury row — the UI can leave it on the queue and try again
-      // after the next AppFolio sync.
-      let resolvedBillId = matched_af_bill_id;
-
-      if (resolvedBillId) {
-        // Manual override. Verify the bill actually exists before recording
-        // the link — otherwise a typo'd id silently clears the row off the
-        // queue and points at nothing. The bill's vendor/total go back to the
-        // client so the user can see what they just linked to.
-        const { data: lines, error: billErr } = await supabaseAdmin
-          .from('af_bill_detail')
-          .select('vendor_name, amount, bill_date, paid_date')
-          .eq('bill_id', String(resolvedBillId));
-        if (billErr) return NextResponse.json({ error: billErr.message }, { status: 500 });
-        if (!lines || lines.length === 0) {
-          return NextResponse.json({
-            error: `No AppFolio bill #${resolvedBillId} exists in our synced bill data. Double-check the bill id, or wait for the next AppFolio sync if it was just entered.`,
-            bad_bill_id: true,
-          }, { status: 404 });
-        }
-        linkedBill = {
-          vendor_name: lines[0].vendor_name ?? null,
-          total: lines.reduce((s: number, l: { amount: number | null }) => s + Number(l.amount ?? 0), 0),
-          lines: lines.length,
-        };
-      } else {
-        const { data: found, error: findErr } = await supabaseAdmin
-          .rpc('find_af_match', { p_source: source, p_source_id: source_id });
-        if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
-        const hit = Array.isArray(found) ? found[0] : found;
-        if (!hit?.matched_bill_id) {
-          return NextResponse.json({
-            error: 'No AppFolio bill covers this transaction yet. It will drop off automatically the next time an AF bill lands that matches.',
-            no_match: true,
-          }, { status: 409 });
-        }
-        resolvedBillId = hit.matched_bill_id;
+      // Explicit, user-supplied link only. Automatic matching lives in the
+      // sweep route, which calls find_af_match across the whole queue.
+      const resolvedBillId = matched_af_bill_id;
+      if (!resolvedBillId) {
+        return NextResponse.json({ error: 'matched_af_bill_id is required' }, { status: 400 });
       }
+
+      // Verify the bill actually exists before recording the link — otherwise
+      // a typo'd id silently clears the row off the queue pointing at nothing.
+      // The bill's vendor/total go back to the client so the user can confirm
+      // what they just linked to.
+      const { data: lines, error: billErr } = await supabaseAdmin
+        .from('af_bill_detail')
+        .select('vendor_name, amount')
+        .eq('bill_id', String(resolvedBillId));
+      if (billErr) return NextResponse.json({ error: billErr.message }, { status: 500 });
+      if (!lines || lines.length === 0) {
+        return NextResponse.json({
+          error: `No AppFolio bill #${resolvedBillId} exists in our synced bill data. Double-check the bill id, or wait for the next AppFolio sync if it was just entered.`,
+          bad_bill_id: true,
+        }, { status: 404 });
+      }
+      linkedBill = {
+        vendor_name: lines[0].vendor_name ?? null,
+        total: lines.reduce((s: number, l: { amount: number | null }) => s + Number(l.amount ?? 0), 0),
+        lines: lines.length,
+      };
 
       if (source === 'brex') {
         const n = Number(resolvedBillId);
@@ -131,7 +117,9 @@ export async function POST(request: Request) {
         brexUpdates.matched_bill_id = n;
         brexUpdates.matched_at = nowIso;
         brexUpdates.matched_by = actor;
-        brexUpdates.match_status = matched_af_bill_id ? 'matched_manual' : 'matched_auto';
+        // 'matched_auto' is written by the sweep route; anything routed
+        // through here was linked by hand.
+        brexUpdates.match_status = 'matched_manual';
       } else {
         mercuryUpdates.matched_bill_id = resolvedBillId;
         mercuryUpdates.matched_at = nowIso;
