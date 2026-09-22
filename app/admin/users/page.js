@@ -78,6 +78,11 @@ export default function UsersPage() {
     if (appUser?.role === 'admin') fetchUsers();
   }, [appUser, fetchUsers]);
 
+  const showFeedback = useCallback((message, type = 'success') => {
+    setFeedback({ message, type });
+    setTimeout(() => setFeedback(null), 4000);
+  }, []);
+
   const fetchPerms = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/role-permissions');
@@ -125,11 +130,6 @@ export default function UsersPage() {
       setPermTogglePending(null);
     }
   }, [showFeedback]);
-
-  const showFeedback = useCallback((message, type = 'success') => {
-    setFeedback({ message, type });
-    setTimeout(() => setFeedback(null), 4000);
-  }, []);
 
   // Stats
   const stats = useMemo(() => {
