@@ -30,15 +30,10 @@ function createBillUrl(vendorId: string | null, amount: number, date: string) {
   return `${AF_BASE}/accounting/payable_invoices/new?${p.toString()}`;
 }
 
-/** Build a Brex dashboard deep-link the same way BillRow does. */
-function brexExpenseUrl(expenseId: string | null, merchantName?: string) {
+/** Build a Brex dashboard deep-link. Modern Brex uses /expenses/<expense_id>. */
+function brexExpenseUrl(expenseId: string | null) {
   if (!expenseId) return 'https://dashboard.brex.com/expenses';
-  const encoded = typeof window !== 'undefined'
-    ? window.btoa(`Expense:${expenseId}`)
-    : Buffer.from(`Expense:${expenseId}`).toString('base64');
-  const params = new URLSearchParams({ expenseId: encoded });
-  if (merchantName) params.set('filter', `SEARCHQUERY:${merchantName}`);
-  return `https://dashboard.brex.com/expenses?${params.toString()}`;
+  return `https://dashboard.brex.com/expenses/${expenseId}`;
 }
 
 function formatMoney(n: number) {
@@ -279,7 +274,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                       <td className="px-3 py-2 text-slate-200">
                         {row.source === 'brex' && row.brex_expense_id ? (
                           <a
-                            href={brexExpenseUrl(row.brex_expense_id, row.vendor_or_merchant)}
+                            href={brexExpenseUrl(row.brex_expense_id)}
                             target="_blank"
                             rel="noreferrer"
                             className="hover:text-accent inline-flex items-center gap-1"
