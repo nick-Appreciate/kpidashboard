@@ -32,12 +32,21 @@ function createBillUrl(_vendorId: string | null) {
  * Build a Brex expense deep-link. NF confirmed the working format is:
  *   /expenses?expenseId=<btoa("Expense:"+expense_id)>&filter=
  * with the base64 URL-encoded and a trailing empty filter param.
+ *
+ * If we don't have an expense_id (transaction not yet enriched), fall back
+ * to searching Brex by the raw transaction ID — merchant-name search misses
+ * some rows because Brex's own merchant display doesn't always match ours.
  */
-function brexExpenseUrl(expenseId: string | null) {
+function brexExpenseUrl(expenseId: string | null, brexId: string | null) {
   const base = 'https://dashboard.brex.com/expenses';
-  if (!expenseId) return base;
-  const encoded = encodeURIComponent(btoa(`Expense:${expenseId}`));
-  return `${base}?expenseId=${encoded}&filter=`;
+  if (expenseId) {
+    const encoded = encodeURIComponent(btoa(`Expense:${expenseId}`));
+    return `${base}?expenseId=${encoded}&filter=`;
+  }
+  if (brexId) {
+    return `${base}?filter=SEARCHQUERY:${encodeURIComponent(brexId)}`;
+  }
+  return base;
 }
 
 function formatMoney(n: number) {
@@ -278,7 +287,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                       <td className="px-3 py-2 text-slate-200">
                         {row.source === 'brex' && row.brex_expense_id ? (
                           <a
-                            href={brexExpenseUrl(row.brex_expense_id)}
+                            href={brexExpenseUrl(row.brex_expense_id, row.source_id)}
                             target="_blank"
                             rel="noreferrer"
                             className="hover:text-accent inline-flex items-center gap-1"
