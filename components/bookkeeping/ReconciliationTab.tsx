@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Undo2, Link2 } from 'lucide-react';
+import { RefreshCw, ExternalLink, Building2, Wallet, Check, X, Undo2, Link2, Flag } from 'lucide-react';
 
 type Row = {
   source: 'brex' | 'mercury';
@@ -122,7 +122,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
     };
   }, [rows]);
 
-  const doAction = async (row: Row, action: 'corporate' | 'match' | 'dismiss', payload?: Record<string, string>) => {
+  const doAction = async (row: Row, action: 'corporate' | 'match' | 'dismiss' | 'flag', payload?: Record<string, string>) => {
     const key = `${row.source}:${row.source_id}`;
     setPendingId(key);
     try {
@@ -414,6 +414,17 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                               title={`Mark as corporate: ${corporateCategoryFor(row.vendor_or_merchant)}`}
                             >
                               <Building2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const reason = prompt('Why is this unknown? (optional — helps whoever reviews this)') ?? '';
+                                doAction(row, 'flag', reason ? { reason } : undefined);
+                              }}
+                              disabled={isPending}
+                              className="p-1 text-slate-400 hover:text-amber-400 hover:bg-amber-500/15 rounded"
+                              title="Flag as unknown — escalates for review, drops off the queue with a note"
+                            >
+                              <Flag className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => {

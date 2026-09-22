@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const { source, source_id, action, matched_af_bill_id, reason } = body as {
     source: 'brex' | 'mercury';
     source_id: string;
-    action: 'corporate' | 'match' | 'dismiss' | 'undo';
+    action: 'corporate' | 'match' | 'dismiss' | 'flag' | 'undo';
     matched_af_bill_id?: string;
     reason?: string;
   };
@@ -118,6 +118,20 @@ export async function POST(request: Request) {
       mercuryUpdates.dismissed_at = nowIso;
       mercuryUpdates.dismissed_reason = reason || 'no reason';
       break;
+    case 'flag':
+      // "I don't know what this is — escalate." Distinct from dismiss.
+      // Pushes a FLAGGED memo to Brex so a reviewer can see it in-app.
+      brexUpdates.flagged_at = nowIso;
+      brexUpdates.flagged_reason = reason || 'Unknown — needs review';
+      brexUpdates.flagged_by = actor;
+      brexUpdates.match_status = 'flagged';
+      // The BREX memo push branch below reads corporate_note as its source;
+      // reuse that here so we don't need a second push code path.
+      brexUpdates.corporate_note = `[FLAGGED] ${reason || 'unknown — please review'}`;
+      mercuryUpdates.flagged_at = nowIso;
+      mercuryUpdates.flagged_reason = reason || 'Unknown — needs review';
+      mercuryUpdates.flagged_by = actor;
+      break;
     case 'undo':
       brexUpdates.is_corporate = false;
       brexUpdates.corporate_at = null;
@@ -126,6 +140,9 @@ export async function POST(request: Request) {
       brexUpdates.matched_at = null;
       brexUpdates.matched_by = null;
       brexUpdates.match_status = 'unmatched';
+      brexUpdates.flagged_at = null;
+      brexUpdates.flagged_reason = null;
+      brexUpdates.flagged_by = null;
       mercuryUpdates.is_corporate = false;
       mercuryUpdates.corporate_at = null;
       mercuryUpdates.corporate_note = null;
@@ -134,6 +151,9 @@ export async function POST(request: Request) {
       mercuryUpdates.matched_by = null;
       mercuryUpdates.dismissed_at = null;
       mercuryUpdates.dismissed_reason = null;
+      mercuryUpdates.flagged_at = null;
+      mercuryUpdates.flagged_reason = null;
+      mercuryUpdates.flagged_by = null;
       break;
     default:
       return NextResponse.json({ error: `unknown action: ${action}` }, { status: 400 });
@@ -144,7 +164,7 @@ export async function POST(request: Request) {
     // match), push to Brex first — if the API call fails we don't mutate our
     // DB, so the row stays actionable in the UI.
     let memoToPush = '';
-    if (action === 'corporate' || action === 'dismiss') {
+    if (action === 'corporate' || action === 'dismiss' || action === 'flag') {
       memoToPush = (brexUpdates.corporate_note as string | undefined) ?? '';
     } else if (action === 'match') {
       memoToPush = billedToAfMemo(brexUpdates.matched_bill_id as number);
