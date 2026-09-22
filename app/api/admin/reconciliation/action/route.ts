@@ -32,6 +32,21 @@ async function pushBrexMemo(expenseId: string, memo: string): Promise<string | n
  * dashboard's memo column, and carries the AF link so employees can jump
  * straight to the bill.
  */
+/**
+ * Accept either a full AppFolio payable-invoice URL — what you get by
+ * copying the address bar with the bill open — or a bare bill number.
+ *   https://appreciateinc.appfolio.com/accounting/payable_invoices/26069
+ * Anchored on the payable_invoices segment so a stray number in a query
+ * string can't be mistaken for the bill id. Returns null if neither form
+ * matches, rather than guessing.
+ */
+function parseAfBillId(input: string): string | null {
+  const raw = input.trim();
+  if (/^\d+$/.test(raw)) return raw;
+  const m = raw.match(/payable_invoices\/(\d+)/);
+  return m ? m[1] : null;
+}
+
 function billedToAfMemo(billId: string | number): string {
   const url = `https://appreciateinc.appfolio.com/accounting/payable_invoices/${billId}`;
   return `Billed · Property Expense · AppFolio Bill #${billId} · ${url}`;
@@ -83,9 +98,12 @@ export async function POST(request: Request) {
     case 'match': {
       // Explicit, user-supplied link only. Automatic matching lives in the
       // sweep route, which calls find_af_match across the whole queue.
-      const resolvedBillId = matched_af_bill_id;
+      const resolvedBillId = parseAfBillId(String(matched_af_bill_id ?? ''));
       if (!resolvedBillId) {
-        return NextResponse.json({ error: 'matched_af_bill_id is required' }, { status: 400 });
+        return NextResponse.json({
+          error: 'Paste the AppFolio bill link (…/accounting/payable_invoices/26069) or just the bill number.',
+          bad_bill_id: true,
+        }, { status: 400 });
       }
 
       // Verify the bill actually exists before recording the link — otherwise

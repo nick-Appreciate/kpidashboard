@@ -135,9 +135,13 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Typo'd bill id — keep the input open so they can correct it.
-        if (res.status === 404 && j.bad_bill_id) {
-          setFlashKey({ key, text: `no AF bill #${payload?.matched_af_bill_id}` });
+        // Unparseable link (400) or a bill that doesn't exist (404) — keep
+        // the input open so they can correct it instead of losing the paste.
+        if (j.bad_bill_id) {
+          setFlashKey({
+            key,
+            text: res.status === 404 ? 'no such AF bill' : 'not a valid AF bill link',
+          });
           window.setTimeout(() => setFlashKey(f => (f?.key === key ? null : f)), 3200);
           return;
         }
@@ -437,7 +441,6 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                           <div className="inline-flex items-center gap-1">
                             <input
                               type="text"
-                              inputMode="numeric"
                               value={manualLink.billId}
                               onChange={e => setManualLink({ key, billId: e.target.value })}
                               onKeyDown={e => {
@@ -446,8 +449,9 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                                 }
                                 if (e.key === 'Escape') setManualLink(null);
                               }}
-                              placeholder="AF bill #"
-                              className="dark-input w-24 text-xs px-2 py-1"
+                              placeholder="Paste AppFolio bill link"
+                              title="Paste the bill's AppFolio URL (…/accounting/payable_invoices/26069). A bare bill number works too."
+                              className="dark-input w-64 text-xs px-2 py-1"
                               autoFocus
                             />
                             <button
@@ -472,7 +476,7 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                               onClick={() => setManualLink({ key, billId: '' })}
                               disabled={isPending}
                               className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 rounded disabled:opacity-30"
-                              title="Link to a specific AppFolio bill # — automatic matching runs from Auto-match at the top"
+                              title="Paste the AppFolio bill link to record this match — automatic matching runs from Auto-match at the top"
                             >
                               <Link2 className="w-4 h-4" />
                             </button>
