@@ -47,6 +47,16 @@ const cents = (n: number) => Math.round(n * 100);
 const splitManualIds = (raw: string) =>
   raw.split(',').map(s => s.trim()).filter(Boolean);
 
+// Mirrors the server's rule — a link that misses by under $5 or under 2% of
+// the charge can be forced through after confirmation. The server enforces
+// it; this only decides whether the button is live.
+const TOLERANCE_CENTS = 500;
+const TOLERANCE_PCT = 0.02;
+const withinTolerance = (deltaCents: number, chargeCents: number) => {
+  const d = Math.abs(deltaCents);
+  return d < TOLERANCE_CENTS || d < Math.abs(chargeCents) * TOLERANCE_PCT;
+};
+
 const AF_BASE = 'https://appreciateinc.appfolio.com';
 
 function createBillUrl(_vendorId: string | null) {
@@ -204,17 +214,30 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
    * af_bill_detail and refuses anything that doesn't cover the charge exactly,
    * so the client-side sum is only a preview.
    */
-  const linkBills = async (row: Row, rawIds: string[]) => {
+  const linkBills = async (row: Row, rawIds: string[], force = false) => {
     const key = `${row.source}:${row.source_id}`;
     setLinking(true);
     try {
       const res = await fetch('/api/admin/reconciliation/bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: row.source, source_id: row.source_id, bill_ids: rawIds }),
+        body: JSON.stringify({ source: row.source, source_id: row.source_id, bill_ids: rawIds, force }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // Close but not exact — confirm, then retry as a forced link.
+        if (j.needs_confirm) {
+          const v = Number(j.variance);
+          const ok = window.confirm(
+            `These bills total ${formatMoney(Number(j.bill_total))} but the charge is ` +
+            `${formatMoney(Number(j.charge_amount))} — ${v > 0 ? 'over' : 'short'} by ` +
+            `${formatMoney(Math.abs(v))}.\n\n` +
+            `Link them anyway? The variance is recorded on the match and noted in the Brex memo.`,
+          );
+          if (!ok) return;
+          await linkBills(row, rawIds, true);
+          return;
+        }
         // Keep the row (and any paste) in place so the user can correct it.
         if (j.amount_mismatch || j.bad_bill_id) {
           setFlashKey({
@@ -231,7 +254,12 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
 
       setExpandedKey(null);
       setManualLink(null);
-      setFlashKey({ key, text: `linked ${j.bill_ids.length} bill${j.bill_ids.length > 1 ? 's' : ''} — ${formatMoney(Number(j.bill_total))}` });
+      const v = Number(j.variance ?? 0);
+      setFlashKey({
+        key,
+        text: `linked ${j.bill_ids.length} bill${j.bill_ids.length > 1 ? 's' : ''} — ${formatMoney(Number(j.bill_total))}`
+          + (v !== 0 ? ` (${v > 0 ? '+' : '-'}${formatMoney(Math.abs(v))})` : ''),
+      });
       setRemovingKeys(prev => new Set(prev).add(key));
       window.setTimeout(() => {
         setRows(prev => prev.filter(r => !(r.source === row.source && r.source_id === row.source_id)));
@@ -721,8 +749,12 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                               .filter(b => selectedBills.has(b.bill_id))
                               .reduce((s, b) => s + Number(b.total), 0);
                             const target = Number(row.amount);
-                            const exact = cents(selectedTotal) === cents(target);
+                            const deltaCents = cents(selectedTotal) - cents(target);
+                            const exact = deltaCents === 0;
                             const delta = selectedTotal - target;
+                            const forceable = !exact
+                              && selectedBills.size > 0
+                              && withinTolerance(deltaCents, cents(target));
                             const shown = billFilter.trim()
                               ? bills.filter(b =>
                                   `${b.bill_id} ${b.properties ?? ''} ${b.memo ?? ''} ${b.total}`
@@ -817,20 +849,31 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                                     </span>
                                     <span className="text-slate-500"> / {formatMoney(target)}</span>
                                     {selectedBills.size > 0 && !exact && (
-                                      <span className="text-amber-400">
-                                        {' '}({delta > 0 ? '+' : ''}{formatMoney(delta)} — must match exactly)
+                                      <span className={forceable ? 'text-amber-400' : 'text-red-400'}>
+                                        {' '}({delta > 0 ? '+' : ''}{formatMoney(delta)}
+                                        {forceable ? ' — will ask to confirm' : ' — too far off to link'})
                                       </span>
                                     )}
                                   </div>
                                   <button
                                     onClick={() => linkBills(row, Array.from(selectedBills))}
-                                    disabled={!exact || linking || selectedBills.size === 0}
-                                    className="px-3 py-1.5 text-xs rounded font-medium bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-30 disabled:cursor-not-allowed"
-                                    title={exact ? 'Link these bills to the charge' : 'Selected bills must total the charge exactly'}
+                                    disabled={(!exact && !forceable) || linking || selectedBills.size === 0}
+                                    className={`px-3 py-1.5 text-xs rounded font-medium disabled:opacity-30 disabled:cursor-not-allowed ${
+                                      forceable
+                                        ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+                                        : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                                    }`}
+                                    title={
+                                      exact ? 'Link these bills to the charge'
+                                        : forceable ? `Off by ${formatMoney(Math.abs(delta))} — you'll be asked to confirm`
+                                        : 'Selected bills must total the charge (or be within $5 / 2%)'
+                                    }
                                   >
                                     {linking
                                       ? 'Linking…'
-                                      : `Link ${selectedBills.size || ''} bill${selectedBills.size === 1 ? '' : 's'}`.trim()}
+                                      : forceable
+                                        ? `Link anyway (${delta > 0 ? '+' : ''}${formatMoney(delta)})`
+                                        : `Link ${selectedBills.size || ''} bill${selectedBills.size === 1 ? '' : 's'}`.trim()}
                                   </button>
                                 </div>
                               </div>

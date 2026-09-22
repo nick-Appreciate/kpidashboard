@@ -8,6 +8,18 @@ export const revalidate = 0;
 
 const SINCE = '2026-01-01';
 
+// A link normally has to cover the charge to the cent. These allow the
+// small, legitimate gaps — a utility bill booked before the card convenience
+// fee, a rounding difference — to be forced through after an explicit
+// confirmation, rather than leaving the row stuck on the queue forever.
+const TOLERANCE_CENTS = 500;   // $5
+const TOLERANCE_PCT = 0.02;    // or 2% of the charge, whichever is looser
+
+function withinTolerance(deltaCents: number, chargeCents: number): boolean {
+  const d = Math.abs(deltaCents);
+  return d < TOLERANCE_CENTS || d < Math.abs(chargeCents) * TOLERANCE_PCT;
+}
+
 /**
  * Accept either a full AppFolio payable-invoice URL — what you get by copying
  * the address bar with the bill open — or a bare bill number.
@@ -68,10 +80,12 @@ export async function POST(request: Request) {
   const actor = auth.user?.email || 'unknown';
 
   const body = await request.json();
-  const { source, source_id, bill_ids } = body as {
+  const { source, source_id, bill_ids, force } = body as {
     source?: 'brex' | 'mercury';
     source_id?: string;
     bill_ids?: string[];
+    /** Set after the user confirms a small-variance link. */
+    force?: boolean;
   };
 
   if (!source || !source_id || !Array.isArray(bill_ids) || bill_ids.length === 0) {
@@ -133,20 +147,40 @@ export async function POST(request: Request) {
 
   // Compare in cents so floating point can't make an exact match look off.
   const cents = (n: number) => Math.round(n * 100);
-  if (cents(billTotal) !== cents(chargeAmount!)) {
-    return NextResponse.json({
-      error: `Selected bills total $${billTotal.toFixed(2)} but the charge is $${chargeAmount!.toFixed(2)}. They must match exactly.`,
-      bill_total: billTotal,
-      charge_amount: chargeAmount,
-      amount_mismatch: true,
-    }, { status: 409 });
+  const deltaCents = cents(billTotal) - cents(chargeAmount!);
+  const variance = deltaCents / 100;
+
+  if (deltaCents !== 0) {
+    if (!withinTolerance(deltaCents, cents(chargeAmount!))) {
+      return NextResponse.json({
+        error: `Selected bills total $${billTotal.toFixed(2)} but the charge is $${chargeAmount!.toFixed(2)} — off by $${Math.abs(variance).toFixed(2)}. That's beyond the tolerance for a forced match.`,
+        bill_total: billTotal,
+        charge_amount: chargeAmount,
+        variance,
+        amount_mismatch: true,
+      }, { status: 409 });
+    }
+    if (!force) {
+      // Inside tolerance but not exact — let the client confirm before we
+      // record a match that doesn't fully cover the charge.
+      return NextResponse.json({
+        error: `Off by $${Math.abs(variance).toFixed(2)}.`,
+        bill_total: billTotal,
+        charge_amount: chargeAmount,
+        variance,
+        needs_confirm: true,
+      }, { status: 409 });
+    }
   }
 
   // Brex memo first — if it fails we leave the row untouched and actionable.
   if (source === 'brex' && brexExpenseId) {
     const shown = ids.slice(0, 4).map(i => `#${i}`).join(', ');
     const extra = ids.length > 4 ? ` +${ids.length - 4} more` : '';
-    const memo = `Billed · Property Expense · AppFolio Bill${ids.length > 1 ? 's' : ''} ${shown}${extra}`
+    const varNote = deltaCents !== 0
+      ? ` · variance ${variance > 0 ? '+' : '-'}$${Math.abs(variance).toFixed(2)}`
+      : '';
+    const memo = `Billed · Property Expense · AppFolio Bill${ids.length > 1 ? 's' : ''} ${shown}${extra}${varNote}`
       + ` · https://appreciateinc.appfolio.com/accounting/payable_invoices/${ids[0]}`;
     const err = await pushBrexMemo(brexExpenseId, memo);
     if (err) return NextResponse.json({ error: `Push to Brex failed — ${err}` }, { status: 502 });
@@ -164,6 +198,7 @@ export async function POST(request: Request) {
       source_id,
       bill_id: id,
       amount: perBill.get(id) ?? null,
+      variance,
       linked_by: actor,
     })));
   if (insErr) {
@@ -196,5 +231,6 @@ export async function POST(request: Request) {
     bill_ids: ids,
     bill_total: billTotal,
     vendor_name: vendorName,
+    variance,
   });
 }
