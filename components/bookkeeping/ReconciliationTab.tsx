@@ -21,13 +21,15 @@ type CategoryFilter = 'all' | 'has_vendor' | 'no_vendor';
 
 const AF_BASE = 'https://appreciateinc.appfolio.com';
 
-function createBillUrl(vendorId: string | null, amount: number, date: string) {
-  // AppFolio "new payable invoice" URL, pre-filled where possible
+function createBillUrl(vendorId: string | null) {
+  // AppFolio's "New Bill" form with vendor pre-selected. Vendor param uses
+  // a v_<vendor_id> prefix. Other fields (amount, date) aren't pre-fillable
+  // via query string in the current AppFolio UI, so we let the bookkeeper
+  // fill them in with the transaction row visible next to them.
+  if (!vendorId) return `${AF_BASE}/accounting/bills/new`;
   const p = new URLSearchParams();
-  if (vendorId) p.set('payable_invoice[contact_info_id]', vendorId);
-  p.set('payable_invoice[total_amount]', String(amount));
-  p.set('payable_invoice[bill_date]', date);
-  return `${AF_BASE}/accounting/payable_invoices/new?${p.toString()}`;
+  p.set('bill_form[prefixed_payee_id]', `v_${vendorId}`);
+  return `${AF_BASE}/accounting/bills/new?${p.toString()}`;
 }
 
 /** Build a Brex dashboard deep-link. Modern Brex uses /expenses/<expense_id>. */
@@ -297,11 +299,11 @@ export default function ReconciliationTab({ since = '2026-01-01' }: { since?: st
                       <td className="px-3 py-2 text-slate-300">
                         {row.suggested_af_vendor ? (
                           <a
-                            href={createBillUrl(row.suggested_af_vendor_id, Number(row.amount), row.posted_date)}
+                            href={createBillUrl(row.suggested_af_vendor_id)}
                             target="_blank"
                             rel="noreferrer"
                             className="text-accent hover:text-accent-strong inline-flex items-center gap-1"
-                            title="Open pre-filled New Bill form in AppFolio"
+                            title="Open New Bill form in AppFolio with this vendor pre-selected"
                           >
                             {row.suggested_af_vendor}
                             <ExternalLink className="w-3 h-3 opacity-60" />
