@@ -537,8 +537,29 @@ async function syncPropertyDirectory(): Promise<SyncResult> {
       amenities: row.amenities,
       owner_ids: row.owner_i_ds || null,
       owners: row.owners || null,
-      property_group_id: row.property_group_id ? Number(row.property_group_id) : null,
+      // AppFolio returns this as a comma-separated list ("4, 7, 8"), so
+      // Number() produced NaN and every multi-group property stored null.
+      property_group_id: row.property_group_id || null,
       portfolio_id: row.portfolio_id ? Number(row.portfolio_id) : null,
+      // The report carries 86 columns; these are the ones we actually use.
+      // property_integration_id is the id AppFolio gives syndication
+      // partners — what Zillow calls the Property Feed Listing ID.
+      property_integration_id: row.property_integration_id || null,
+      portfolio_uuid: row.portfolio_uuid || null,
+      marketing_email_address: row.marketing_email_address || null,
+      visibility: row.visibility || null,
+      listing_type: row.listing_type || null,
+      property_class: row.property_class || null,
+      property_county: row.property_county || null,
+      property_street2: row.property_street2 || null,
+      description: row.description || null,
+      site_manager_name: row.site_manager_name || null,
+      management_start_date: row.management_start_date || null,
+      management_end_date: row.management_end_date || null,
+      management_end_reason: row.management_end_reason || null,
+      premium_leads_status: row.premium_leads_status || null,
+      premium_leads_activation_date: row.premium_leads_activation_date || null,
+      premium_leads_monthly_cap: row.premium_leads_monthly_cap ? parseFloat(row.premium_leads_monthly_cap) : null,
     }));
     
     await supabase.rpc('truncate_af_property_directory');
