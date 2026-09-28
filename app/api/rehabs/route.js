@@ -72,42 +72,54 @@ export async function GET(request) {
 
     // For each vacancy, look up when the CURRENT vacancy cycle started
     // This is important to distinguish between different vacancy cycles for the same unit
+    const VACANT_STATUSES = ['Vacant-Unrented', 'Vacant-Rented'];
+    const OFF_LEASE_STATUSES = ['Vacant-Unrented', 'Vacant-Rented', 'Notice-Unrented', 'Notice-Rented', 'Evict'];
+    const inList = (arr) => `(${arr.map(s => `"${s}"`).join(',')})`;
+
     const vacanciesWithDates = await Promise.all(vacancies.map(async (v) => {
       const sourceType = v.status.startsWith('Vacant') ? 'vacancy' : 
                          v.status === 'Evict' ? 'eviction' : 'notice';
-      
-      // First, find the most recent date where this unit was OCCUPIED (not vacant/notice/evict)
-      // This marks the end of any previous vacancy cycle
-      const { data: lastOccupiedSnapshot } = await supabase
+
+      // What counts as "the current cycle" depends on where the unit is now.
+      // A unit that has actually gone vacant counts from move-out, not from
+      // when notice was given — otherwise the day counter runs while the
+      // tenant is still living there. A unit still on notice or in eviction
+      // counts from when that period began.
+      //
+      // The reset in the sync loop below uses this same definition. If the two
+      // disagree, a unit that crossed notice -> vacant looks like a brand new
+      // vacancy cycle on every request, so its rehab gets archived and
+      // recreated each time, losing the checklist and resetting the counter.
+      const cycleStatuses = sourceType === 'vacancy' ? VACANT_STATUSES : OFF_LEASE_STATUSES;
+
+      // Most recent snapshot that was NOT part of the current cycle — the
+      // boundary the cycle starts after.
+      const { data: lastOutsideCycle } = await supabase
         .from('rent_roll_snapshots')
         .select('snapshot_date')
         .eq('property', v.property)
         .eq('unit', v.unit)
-        .not('status', 'in', '("Vacant-Unrented","Vacant-Rented","Notice-Unrented","Notice-Rented","Evict")')
+        .not('status', 'in', inList(cycleStatuses))
         .order('snapshot_date', { ascending: false })
         .limit(1);
-      
-      const lastOccupiedDate = lastOccupiedSnapshot?.[0]?.snapshot_date;
-      
-      // Now find the first vacant/notice/evict snapshot AFTER the last occupied date
-      // This is the start of the CURRENT vacancy cycle
+
+      const boundaryDate = lastOutsideCycle?.[0]?.snapshot_date;
+
       let vacancyStartQuery = supabase
         .from('rent_roll_snapshots')
         .select('snapshot_date')
         .eq('property', v.property)
         .eq('unit', v.unit)
-        .in('status', ['Vacant-Unrented', 'Vacant-Rented', 'Notice-Unrented', 'Notice-Rented', 'Evict'])
+        .in('status', cycleStatuses)
         .order('snapshot_date', { ascending: true })
         .limit(1);
-      
-      // If we found a last occupied date, only look for vacancies after that
-      if (lastOccupiedDate) {
-        vacancyStartQuery = vacancyStartQuery.gt('snapshot_date', lastOccupiedDate);
+
+      if (boundaryDate) {
+        vacancyStartQuery = vacancyStartQuery.gt('snapshot_date', boundaryDate);
       }
-      
+
       const { data: firstVacantSnapshot } = await vacancyStartQuery;
-      
-      // Use the first vacant snapshot after last occupied, or fall back to today
+
       const vacancyStartDate = firstVacantSnapshot?.[0]?.snapshot_date || latestSnapshotDate;
       
       return {
@@ -270,6 +282,7 @@ export async function GET(request) {
 
     // Archive any old rehabs for units that have a NEW vacancy cycle
     // (same property/unit but different vacancy_start_date)
+    const supersededIds = new Set();
     for (const vacancy of newVacancies) {
       const oldRehabs = rehabs.filter(r => 
         r.property === vacancy.property && 
@@ -285,8 +298,16 @@ export async function GET(request) {
           .from('rehabs')
           .update({ status: 'archived', updated_at: new Date().toISOString() })
           .eq('id', oldRehab.id);
+        supersededIds.add(oldRehab.id);
         console.log(`Archived old rehab for ${oldRehab.property} ${oldRehab.unit} (vacancy_start: ${oldRehab.vacancy_start_date})`);
       }
+    }
+
+    // Drop the superseded records from the in-memory list too. Without this
+    // they stay in `rehabs`, get concatenated with their own replacements
+    // below, and the unit renders twice.
+    if (supersededIds.size > 0) {
+      rehabs = rehabs.filter(r => !supersededIds.has(r.id));
     }
 
     // Auto-create rehab records for new vacancies with "Not Started" status
