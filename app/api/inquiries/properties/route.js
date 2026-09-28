@@ -6,18 +6,19 @@ export async function GET(request) {
   const supabase = auth.supabase;
 
   try {
-    const { data, error } = await supabase
-      .from('leasing_reports')
-      .select('property')
-      .order('property');
-    
+    // DISTINCT happens in the database. Selecting the column and de-duplicating
+    // here capped the scan at PostgREST's 1000-row limit, and because the rows
+    // came back ordered by property that silently dropped the tail of the
+    // alphabet — Oakwood Gardens and Pioneer Apartments never reached the
+    // dropdown, so neither could be filtered on.
+    const { data, error } = await supabase.rpc('leasing_report_filter_options');
+
     if (error) {
       return Response.json({ error: error.message }, { status: 500 });
     }
-    
-    // Get unique properties
-    const properties = [...new Set(data.map(item => item.property))];
-    
+
+    const properties = (Array.isArray(data) ? data[0] : data)?.properties ?? [];
+
     return Response.json(properties, { headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' } });
 
   } catch (error) {

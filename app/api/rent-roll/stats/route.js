@@ -1,4 +1,5 @@
 import { requireAuth } from '../../../../lib/auth';
+import { fetchAllRows } from '../../../../lib/supabase-paging';
 import { NextResponse } from 'next/server';
 import { KC_PROPERTY_MATCHERS } from '../../../../lib/propertyGroups';
 
@@ -321,11 +322,16 @@ export async function GET(request) {
       propertyTrends[prop].sort((a, b) => a.date.localeCompare(b.date));
     });
     
-    // Get list of properties for filter
-    const { data: propertiesList } = await supabase
-      .from('rent_roll_snapshots')
-      .select('property')
-      .eq('snapshot_date', latestDate);
+    // Get list of properties for filter. Paged: one row per unit in the
+    // latest snapshot, so this crosses PostgREST's 1000-row cap once the
+    // portfolio passes 1000 units, and the dropdown would quietly lose
+    // whatever sorts last.
+    const { data: propertiesList } = await fetchAllRows(() =>
+      supabase
+        .from('rent_roll_snapshots')
+        .select('property')
+        .eq('snapshot_date', latestDate)
+    );
     
     const uniqueProperties = [...new Set(propertiesList?.map(p => p.property))].sort();
     
