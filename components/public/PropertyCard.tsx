@@ -10,9 +10,21 @@ function formatRentRange(property: Property): string {
   return `$${property.minRent.toLocaleString()} – $${property.maxRent.toLocaleString()}`;
 }
 
-function UnitRow({ unit, locale }: { unit: Listing; locale: Locale }) {
+function UnitRow({
+  unit,
+  locale,
+  showAddress,
+}: {
+  unit: Listing;
+  locale: Locale;
+  /** True when the property spans more than one street address. */
+  showAddress: boolean;
+}) {
   const t = getDictionary(locale);
   const specs = t.detail.unitSpec(unit.bedrooms, unit.bathrooms, unit.square_feet.toLocaleString());
+  const sublabel = [showAddress ? unit.address : null, formatAvailability(unit.available_on, 'short', locale)]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <Link
       href={getListingPath(locale, unit.id)}
@@ -20,7 +32,7 @@ function UnitRow({ unit, locale }: { unit: Listing; locale: Locale }) {
     >
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-[#0A0A0A] mb-0.5">{specs}</p>
-        <p className="text-[11px] text-[#0A0A0A]/55">{formatAvailability(unit.available_on, 'short', locale)}</p>
+        <p className="text-[11px] text-[#0A0A0A]/55 truncate">{sublabel}</p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
         <p className="font-[var(--font-fraunces)] text-[18px] text-[#0A0A0A] tabular-nums">
@@ -87,19 +99,31 @@ export default function PropertyCard({
           </p>
           <div className="flex items-baseline justify-between gap-3">
             <p className="font-[var(--font-fraunces)] text-[22px] leading-tight text-[#0A0A0A]">
-              {property.address}
+              {property.name}
             </p>
             <p className="text-[14px] text-[#0A0A0A]/75 tabular-nums shrink-0">
               {rentLabel}
               <span className="text-[11px] text-[#0A0A0A]/45 ml-0.5">{t.card.perMonth}</span>
             </p>
           </div>
+          {property.name !== property.address && (
+            <p className="mt-1 text-[12px] text-[#0A0A0A]/55 truncate" title={property.addresses.join(' · ')}>
+              {property.addresses.length > 1
+                ? t.card.addressCount(property.addresses[0], property.addresses.length - 1)
+                : property.addresses[0]}
+            </p>
+          )}
         </div>
       </Link>
 
       <div>
         {property.units.map(unit => (
-          <UnitRow key={unit.id} unit={unit} locale={locale} />
+          <UnitRow
+            key={unit.id}
+            unit={unit}
+            locale={locale}
+            showAddress={property.addresses.length > 1}
+          />
         ))}
       </div>
     </article>

@@ -28,10 +28,21 @@ export interface Listing {
   application_url: string;
   default_photo_url: string | null;
   photos: string[];
+  /**
+   * Resolved via af_listing_unit_public (rentable_uid = af_listings.id).
+   * AppFolio's public scrape exposes only an address, so this is the only
+   * way to know that 2602 Delavan and 2625 Farrow are one community.
+   */
+  property_name: string | null;
+  unit_name: string | null;
 }
 
 export interface Property {
   key: string;
+  /** Property name when we can resolve one, else the first address. */
+  name: string;
+  /** Every distinct street address under this property, in display order. */
+  addresses: string[];
   address: string;
   city: string;
   state: string;
@@ -47,7 +58,13 @@ export interface Property {
 
 // ─── Fetch helpers (anon client + public-select RLS) ─────────────────
 
-function rowToListing(row: any, photos: string[]): Listing {
+type UnitIdentity = { property_name: string | null; unit_name: string | null };
+
+function rowToListing(
+  row: any,
+  photos: string[],
+  identity: UnitIdentity = { property_name: null, unit_name: null },
+): Listing {
   const rent = Number(row.rent ?? 0);
   return {
     id: row.id,
@@ -71,13 +88,45 @@ function rowToListing(row: any, photos: string[]): Listing {
     application_url: row.application_url ?? '',
     default_photo_url: row.default_photo_url ?? null,
     photos,
+    property_name: identity.property_name,
+    unit_name: identity.unit_name,
   };
+}
+
+/**
+ * rentable_uid -> property identity. af_listing_unit_public exists precisely
+ * for this: af_unit_directory itself is authenticated-only, and the public
+ * site runs on the anon key.
+ */
+async function fetchUnitIdentities(): Promise<Map<string, UnitIdentity>> {
+  const { data, error } = await fetchAllRows<{
+    rentable_uid: string;
+    property_name: string | null;
+    unit_name: string | null;
+  }>(() =>
+    supabase.from('af_listing_unit_public').select('rentable_uid, property_name, unit_name'),
+  );
+  const map = new Map<string, UnitIdentity>();
+  if (error) {
+    // Non-fatal: listings still render, they just group by address.
+    console.error('[listings] fetch unit identities failed:', error.message);
+    return map;
+  }
+  for (const r of data || []) {
+    if (r.rentable_uid) {
+      map.set(String(r.rentable_uid), {
+        property_name: r.property_name || null,
+        unit_name: r.unit_name || null,
+      });
+    }
+  }
+  return map;
 }
 
 /** Fetch every active listing + its photos. Server components should use this. */
 export async function fetchActiveListings(): Promise<Listing[]> {
   // Photos routinely exceed 1000 rows once we're past ~65 listings — page both.
-  const [{ data: listingRows, error: le }, { data: photoRows, error: pe }] =
+  const [{ data: listingRows, error: le }, { data: photoRows, error: pe }, identities] =
     await Promise.all([
       fetchAllRows<any>(() =>
         supabase
@@ -92,6 +141,7 @@ export async function fetchActiveListings(): Promise<Listing[]> {
           .select('listing_id, photo_url, position')
           .order('position', { ascending: true }),
       ),
+      fetchUnitIdentities(),
     ]);
 
   if (le) {
@@ -111,7 +161,10 @@ export async function fetchActiveListings(): Promise<Listing[]> {
   }
 
   return (listingRows || []).map(row =>
-    rowToListing(row, photosByListing.get(row.id) || []),
+    rowToListing(row, photosByListing.get(row.id) || [], identities.get(String(row.id)) ?? {
+      property_name: null,
+      unit_name: null,
+    }),
   );
 }
 
@@ -148,7 +201,12 @@ export async function fetchListingById(id: string): Promise<Listing | null> {
 export function groupByProperty(listings: Listing[]): Property[] {
   const byKey = new Map<string, Listing[]>();
   for (const l of listings) {
-    const key = `${l.latitude.toFixed(5)}_${l.longitude.toFixed(5)}`;
+    // Prefer the real property, so a community spread across several street
+    // addresses reads as one place. Coordinates are the fallback for anything
+    // that didn't resolve — they only group units in the same building.
+    const key = l.property_name
+      ? `p:${l.property_name}`
+      : `c:${l.latitude.toFixed(5)}_${l.longitude.toFixed(5)}`;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(l);
   }
@@ -163,8 +221,11 @@ export function groupByProperty(listings: Listing[]): Property[] {
       return a.available_on.localeCompare(b.available_on);
     });
     const rents = sorted.map(u => u.rent).filter(r => r > 0);
+    const addresses = Array.from(new Set(sorted.map(u => u.address).filter(Boolean)));
     properties.push({
       key,
+      name: sorted[0].property_name || sorted[0].address,
+      addresses,
       address: sorted[0].address,
       city: sorted[0].city,
       state: sorted[0].state,

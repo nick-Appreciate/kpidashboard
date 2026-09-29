@@ -58,6 +58,8 @@ interface Dictionary {
   };
   card: {
     unitsAvailable: (n: number) => string;
+    /** A property spanning several buildings: "2602 Delavan Avenue +3 more". */
+    addressCount: (first: string, more: number) => string;
     perMonth: string; // "/mo"
   };
   detail: {
@@ -195,6 +197,7 @@ const en: Dictionary = {
   },
   card: {
     unitsAvailable: (n) => `${n} units available`, // only called for n > 1
+    addressCount: (first, more) => `${first} +${more} more`,
     perMonth: '/mo',
   },
   detail: {
@@ -334,6 +337,7 @@ const es: Dictionary = {
   },
   card: {
     unitsAvailable: (n) => `${n} unidades disponibles`, // n > 1
+    addressCount: (first, more) => `${first} +${more} más`,
     perMonth: '/mes',
   },
   detail: {
