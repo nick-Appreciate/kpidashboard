@@ -1,9 +1,12 @@
 -- Per-rehab stage durations, derived from the status spans recorded by
 -- rehabs_log_status_span (see 20260929_rehab_status_history.sql).
 --
--- Notice and Eviction are deliberately excluded from the three tracked stages:
--- the tenant is still living there, so those days aren't turn time. Rented is
--- terminal. Everything else buckets into waiting / construction / leasing.
+-- Notice and Eviction are deliberately excluded from the three tracked stages
+-- AND from elapsed_days: the tenant is still living there, so no rehab time has
+-- accrued. The turn clock starts when the unit is actually vacant. `in_rehab`
+-- marks those rows so callers drop them from charts and averages instead of
+-- inferring it from the status string. Rented is terminal. Everything else
+-- buckets into waiting / construction / leasing.
 --
 -- Two flags keep the caller honest about what each number is worth:
 --
@@ -39,7 +42,8 @@ returns table (
   elapsed_days       numeric,
   end_basis          text,
   measured           boolean,
-  is_open            boolean
+  is_open            boolean,
+  in_rehab           boolean
 )
 language sql
 stable
@@ -52,7 +56,7 @@ as $$
       h.started_at,
       coalesce(h.ended_at, now()) as ended_at,
       case
-        when h.status in ('Not Started', 'Back Burner', 'Supervisor onboard') then 'waiting'
+        when h.status in ('Not Started', 'Back Burner', 'Supervisor onboard', 'Supervisor Onboard', 'Waiting') then 'waiting'
         when h.status = 'In Progress' then 'construction'
         when h.status = 'Complete'    then 'leasing'
         else 'excluded'
@@ -83,6 +87,8 @@ as $$
       p.first_start, p.last_end,
       not coalesce(p.any_backfilled, true) as measured,
       coalesce(r.status, '') not in ('archived', 'completed') as is_open,
+      -- Tenant still in place => the rehab clock has not started.
+      coalesce(r.rehab_status, '') not in ('Notice', 'Eviction') as in_rehab,
       case
         when coalesce(r.status, '') not in ('archived', 'completed') then 'open'
         when r.completion_date is not null then 'completion_date'
@@ -100,6 +106,9 @@ as $$
     round(coalesce(d.leasing_days, 0), 1),
     round(coalesce(d.waiting_days, 0) + coalesce(d.construction_days, 0) + coalesce(d.leasing_days, 0), 1),
     case
+      -- Pre-vacancy: no rehab time has accrued, so report nothing rather than
+      -- the notice/eviction age.
+      when not d.in_rehab then null
       when d.end_basis = 'unknown' then null
       -- Once a unit has real measured spans, the spans are the truth.
       when d.measured then round(
@@ -116,7 +125,8 @@ as $$
     end,
     d.end_basis,
     d.measured,
-    d.is_open
+    d.is_open,
+    d.in_rehab
   from resolved d;
 $$;
 

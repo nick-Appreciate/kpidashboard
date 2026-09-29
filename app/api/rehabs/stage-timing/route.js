@@ -56,6 +56,11 @@ export async function GET(request) {
 
     if (scope === 'open') rows = rows.filter(r => r.is_open);
 
+    // Notice and Eviction mean the tenant is still in place, so no rehab time
+    // has accrued. They're reported as a count, not plotted or averaged.
+    const preVacancy = rows.filter(r => !r.in_rehab);
+    rows = rows.filter(r => r.in_rehab);
+
     const measured = rows.filter(r => r.measured);
     const withElapsed = rows.filter(r => r.elapsed_days !== null);
 
@@ -71,6 +76,7 @@ export async function GET(request) {
       summary: {
         count: rows.length,
         measured_count: measured.length,
+        pre_vacancy_count: preVacancy.length,
         // Stage averages are only meaningful for units whose spans were
         // actually observed; a backfilled row has no real split.
         avg_waiting: mean(measured.map(r => r.waiting_days)),

@@ -214,6 +214,14 @@ export default function RehabStageTimingChart({ selectedProperty = 'all' }) {
             </div>
           )}
 
+          {(summary.pre_vacancy_count ?? 0) > 0 && (
+            <p className="text-[10px] text-slate-500 mb-2">
+              {summary.pre_vacancy_count} unit{summary.pre_vacancy_count === 1 ? '' : 's'} on notice or
+              in eviction {summary.pre_vacancy_count === 1 ? 'is' : 'are'} excluded — the tenant is still
+              in place, so no rehab time has accrued yet.
+            </p>
+          )}
+
           {inferredCount > 0 && (
             <p className="text-[10px] text-slate-500 mb-2">
               {inferredCount} unit{inferredCount === 1 ? '' : 's'} had no recorded completion date —

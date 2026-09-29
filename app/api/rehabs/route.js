@@ -13,6 +13,25 @@ export async function GET(request) {
     const property = searchParams.get('property');
     const region = searchParams.get('region');
 
+    // The rehab query below is scoped by property/region. The vacancy query has
+    // to be scoped identically or the two lists disagree: every out-of-scope
+    // vacancy then looks like a unit with no rehab row, so the sync tries to
+    // INSERT one and hits idx_rehabs_unique_active_property_unit. That was
+    // logging a duplicate-key error for all 12 Glen Oaks + Hilltop units on
+    // every Farquhar page load, and "Created 0 new rehabs" hid it.
+    const hilltopSold = new Date() >= new Date('2026-04-22T00:00:00');
+    const inScope = (propertyName) => {
+      if (region === 'farquhar') {
+        if (propertyName === 'Glen Oaks') return false;
+        if (hilltopSold && propertyName === 'Hilltop Townhomes') return false;
+        return true;
+      }
+      if (property && property !== 'all' && property !== 'portfolio') {
+        return propertyName === property;
+      }
+      return true;
+    };
+
     // Fetch existing rehabs
     let rehabQuery = supabase
       .from('rehabs')
@@ -66,7 +85,7 @@ export async function GET(request) {
         console.error('Error fetching vacancies:', vacantError);
       }
       if (vacantUnits) {
-        vacancies = vacantUnits;
+        vacancies = vacantUnits.filter(v => inScope(v.property));
       }
     }
 
@@ -337,7 +356,11 @@ export async function GET(request) {
       }
     }
     
-    console.log(`Created ${createdRehabs.length} new rehabs from ${vacanciesWithDates.length} vacancies`);
+    const createFailures = newVacancies.length - createdRehabs.length;
+    console.log(
+      `Created ${createdRehabs.length} new rehabs from ${vacanciesWithDates.length} vacancies`
+      + ` (${newVacancies.length} needed one${createFailures > 0 ? `, ${createFailures} FAILED` : ''})`,
+    );
 
     // Combine existing rehabs with newly created ones
     const allRehabs = [...rehabs, ...createdRehabs];
@@ -469,6 +492,10 @@ export async function PATCH(request) {
     if (!id) {
       return NextResponse.json({ error: 'Rehab ID is required' }, { status: 400 });
     }
+
+    // Logged unconditionally: when a status change "doesn't stick", the first
+    // thing to establish is whether the request arrived at all.
+    console.log(`PATCH rehab ${id} by ${auth.user?.email || 'unknown'}:`, JSON.stringify(updates));
 
     // Fetch current rehab to check for status changes
     const { data: currentRehab } = await supabase
