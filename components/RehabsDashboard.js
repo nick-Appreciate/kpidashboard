@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { LogoLoader } from './Logo';
 import { formatVacancyDays, calculateVacancyDays } from '../lib/vacancyUtils';
 import RehabsChart from './RehabsChart';
+import RehabStageTimingChart from './RehabStageTimingChart';
 import DarkSelect from './DarkSelect';
 
 export default function RehabsDashboard() {
@@ -497,6 +498,11 @@ export default function RehabsDashboard() {
 
       {/* Rehabs Chart */}
       <RehabsChart rehabs={rehabs} selectedProperty={selectedProperty} />
+
+      {/* Per-unit stage timing against the 14-day turn goal. Reads its own
+          endpoint rather than the `rehabs` prop — the durations come from
+          status spans, which aren't on the rehab row. */}
+      <RehabStageTimingChart selectedProperty={selectedProperty} />
 
         </div>{/* end scrollable content area */}
       </div>

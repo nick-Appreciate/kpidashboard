@@ -448,16 +448,6 @@ export async function POST(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    await supabase.from('rehab_status_history').insert({
-      rehab_id: data.id,
-      property: data.property,
-      unit: data.unit,
-      previous_status: null,
-      new_status: data.rehab_status || 'Supervisor onboard',
-      checklist_completed: 0,
-      checklist_total: 0
-    });
-
     return NextResponse.json(data);
 
   } catch (error) {
@@ -516,17 +506,9 @@ export async function PATCH(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (updates.rehab_status && currentRehab && updates.rehab_status !== currentRehab.rehab_status) {
-      await supabase.from('rehab_status_history').insert({
-        rehab_id: id,
-        property: data.property,
-        unit: data.unit,
-        previous_status: currentRehab.rehab_status,
-        new_status: updates.rehab_status,
-        checklist_completed: 0,
-        checklist_total: 0
-      });
-    }
+    // Status spans are recorded by the rehabs_log_status_span trigger, which
+    // also covers the rehab_status changes the GET sync makes. Logging here too
+    // would double-count.
 
     return NextResponse.json(data);
 
