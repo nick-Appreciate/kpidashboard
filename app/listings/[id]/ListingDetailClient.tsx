@@ -7,10 +7,10 @@ import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
 import PhotoLightbox from '../../../components/public/PhotoLightbox';
 import PreQualModal from '../../../components/public/PreQualModal';
+import PhoneLink from '../../../components/public/PhoneLink';
 import {
   TENANT_PORTAL_URL,
   LEASING_PHONE,
-  LEASING_PHONE_TEL,
   getFullAddress,
   formatAvailability,
   type Listing,
@@ -118,15 +118,15 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
             >
               {t.detail.applyNow}
             </button>
-            <a
-              href={LEASING_PHONE_TEL}
+            <PhoneLink
+              locale={locale}
               className="flex items-center justify-center gap-2 w-full mt-2.5 px-4 py-3.5 rounded-full border border-[#0A0A0A]/15 text-[14px] font-medium text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-white transition-colors"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 5.5c0-1 .8-1.8 1.8-1.8h2.1c.8 0 1.5.5 1.7 1.3l.9 3a1.8 1.8 0 0 1-.5 1.8l-1.2 1.2a12 12 0 0 0 5.7 5.7l1.2-1.2a1.8 1.8 0 0 1 1.8-.5l3 .9c.8.2 1.3.9 1.3 1.7v2.1c0 1-.8 1.8-1.8 1.8h-.7C10.1 21.3 2.7 13.9 2.5 6.2v-.7Z" />
               </svg>
               {LEASING_PHONE}
-            </a>
+            </PhoneLink>
             <p className="mt-1.5 text-center text-[12px] text-[#0A0A0A]/50">
               {t.detail.callAbout}
             </p>

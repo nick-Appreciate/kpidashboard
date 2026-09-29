@@ -95,6 +95,12 @@ interface Dictionary {
     copyright: (year: number) => string;
     locations: string;
   };
+  phone: {
+    callUs: (phone: string) => string;
+    clickToCopy: string;
+    copied: string;
+    pressToCopy: (combo: string) => string;
+  };
   lightbox: {
     closeGallery: string;
     galleryLabel: string;
@@ -234,6 +240,12 @@ const en: Dictionary = {
     maintenance: 'Maintenance Request ↗',
     copyright: (year) => `© ${year} Appreciate, Inc. All rights reserved.`,
     locations: 'Kansas City · Columbia · Independence',
+  },
+  phone: {
+    callUs: (phone) => `Call us at ${phone}`,
+    clickToCopy: 'Click to copy · tap to call on mobile',
+    copied: 'Copied!',
+    pressToCopy: (combo) => `Press ${combo} to copy`,
   },
   lightbox: {
     closeGallery: 'Close gallery',
@@ -375,6 +387,12 @@ const es: Dictionary = {
     maintenance: 'Solicitud de mantenimiento ↗',
     copyright: (year) => `© ${year} Appreciate, Inc. Todos los derechos reservados.`,
     locations: 'Kansas City · Columbia · Independence',
+  },
+  phone: {
+    callUs: (phone) => `Llámanos al ${phone}`,
+    clickToCopy: 'Haz clic para copiar · toca para llamar en el móvil',
+    copied: '¡Copiado!',
+    pressToCopy: (combo) => `Pulsa ${combo} para copiar`,
   },
   lightbox: {
     closeGallery: 'Cerrar galería',

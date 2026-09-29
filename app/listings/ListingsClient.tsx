@@ -6,11 +6,11 @@ import dynamic from 'next/dynamic';
 import PublicNav from '../../components/public/PublicNav';
 import PublicFooter from '../../components/public/PublicFooter';
 import PropertyCard from '../../components/public/PropertyCard';
+import PhoneLink from '../../components/public/PhoneLink';
 import {
   groupByProperty,
   TENANT_PORTAL_URL,
   LEASING_PHONE,
-  LEASING_PHONE_TEL,
   type Listing,
   type Property,
 } from '../../lib/listings';
@@ -116,12 +116,12 @@ export default function ListingsClient({ listings, locale }: Props) {
               >
                 {t.hero.ctaPortal}
               </a>
-              <a
-                href={LEASING_PHONE_TEL}
+              <PhoneLink
+                locale={locale}
                 className="inline-flex items-center justify-center px-6 py-3.5 rounded-full border border-[#0A0A0A]/15 text-[#0A0A0A] text-[14px] font-medium hover:bg-[#0A0A0A] hover:text-white transition-colors"
               >
                 {t.hero.ctaCall(LEASING_PHONE)}
-              </a>
+              </PhoneLink>
             </div>
           </div>
           <div className="md:col-span-5 md:pl-4">

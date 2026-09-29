@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { TENANT_PORTAL_URL, LEASING_PHONE, LEASING_PHONE_TEL } from '../../lib/listings';
+import { TENANT_PORTAL_URL, LEASING_PHONE } from '../../lib/listings';
+import PhoneLink from './PhoneLink';
 import { getDictionary, getListingPath, type Locale } from '../../lib/i18n';
 import LanguageSwitcher from './LanguageSwitcher';
 
@@ -23,16 +24,16 @@ export default function PublicNav({ locale }: { locale: Locale }) {
 
         <div className="hidden md:flex items-center gap-2">
           <LanguageSwitcher locale={locale} />
-          <a
-            href={LEASING_PHONE_TEL}
-            aria-label={t.call(LEASING_PHONE)}
+          <PhoneLink
+            locale={locale}
+            ariaLabel={t.call(LEASING_PHONE)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-medium rounded-full text-[#0A0A0A] hover:bg-black/[0.06] transition-colors"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 5.5c0-1 .8-1.8 1.8-1.8h2.1c.8 0 1.5.5 1.7 1.3l.9 3a1.8 1.8 0 0 1-.5 1.8l-1.2 1.2a12 12 0 0 0 5.7 5.7l1.2-1.2a1.8 1.8 0 0 1 1.8-.5l3 .9c.8.2 1.3.9 1.3 1.7v2.1c0 1-.8 1.8-1.8 1.8h-.7C10.1 21.3 2.7 13.9 2.5 6.2v-.7Z" />
             </svg>
             {LEASING_PHONE}
-          </a>
+          </PhoneLink>
           <a
             href={TENANT_PORTAL_URL}
             target="_blank"
@@ -65,12 +66,12 @@ export default function PublicNav({ locale }: { locale: Locale }) {
       {open && (
         <div className="md:hidden border-t border-black/5 px-6 py-5 flex flex-col gap-3 bg-[#FAFAF7]">
           <LanguageSwitcher locale={locale} />
-          <a
-            href={LEASING_PHONE_TEL}
+          <PhoneLink
+            locale={locale}
             className="inline-flex items-center justify-center px-4 py-2.5 text-[13px] font-medium rounded-full border border-[#0A0A0A]/15 text-[#0A0A0A] w-fit"
           >
             {t.call(LEASING_PHONE)}
-          </a>
+          </PhoneLink>
           <a
             href={TENANT_PORTAL_URL}
             target="_blank"
