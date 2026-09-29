@@ -108,8 +108,11 @@ export default function PhoneLink({
       className={className}
     >
       {/* Its own node so the fallback selects the number and nothing else —
-          several call sites wrap the number in an icon and a "Call" prefix. */}
-      <span ref={labelRef}>
+          several call sites wrap the number in an icon and a "Call" prefix.
+          display:contents keeps it from generating a box, so the icon and the
+          text stay direct flex items of the anchor and the call sites' own
+          `inline-flex items-center gap-*` still lines them up. */}
+      <span ref={labelRef} style={{ display: 'contents' }}>
         {state === 'copied' ? t.copied : state === 'select' ? LEASING_PHONE : children}
       </span>
       <span aria-live="polite" className="sr-only">
