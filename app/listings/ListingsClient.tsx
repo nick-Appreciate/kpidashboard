@@ -9,6 +9,8 @@ import PropertyCard from '../../components/public/PropertyCard';
 import {
   groupByProperty,
   TENANT_PORTAL_URL,
+  LEASING_PHONE,
+  LEASING_PHONE_TEL,
   type Listing,
   type Property,
 } from '../../lib/listings';
@@ -113,6 +115,12 @@ export default function ListingsClient({ listings, locale }: Props) {
                 className="inline-flex items-center justify-center px-6 py-3.5 rounded-full border border-[#0A0A0A]/15 text-[#0A0A0A] text-[14px] font-medium hover:bg-[#0A0A0A] hover:text-white transition-colors"
               >
                 {t.hero.ctaPortal}
+              </a>
+              <a
+                href={LEASING_PHONE_TEL}
+                className="inline-flex items-center justify-center px-6 py-3.5 rounded-full border border-[#0A0A0A]/15 text-[#0A0A0A] text-[14px] font-medium hover:bg-[#0A0A0A] hover:text-white transition-colors"
+              >
+                {t.hero.ctaCall(LEASING_PHONE)}
               </a>
             </div>
           </div>

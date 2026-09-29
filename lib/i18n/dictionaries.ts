@@ -15,6 +15,7 @@ interface Dictionary {
     tenantPortal: string;
     admin: string;
     toggleMenu: string;
+    call: (phone: string) => string;
   };
   hero: {
     tagline: string;
@@ -23,6 +24,7 @@ interface Dictionary {
     headingPost: string;
     ctaSeeListings: string;
     ctaPortal: string;
+    ctaCall: (phone: string) => string;
   };
   filters: {
     bedrooms: string;
@@ -66,6 +68,7 @@ interface Dictionary {
     appFee: string;
     petPolicy: string;
     applyNow: string;
+    callAbout: string;
     portalTenant: string;
     otherUnitsAt: (addr: string) => string;
     unitSpec: (bd: number, ba: number, sqft: string) => string;
@@ -79,6 +82,7 @@ interface Dictionary {
   footer: {
     brand: string;
     tagline: string;
+    callLeasing: string;
     colProspective: string;
     availableRentals: string;
     applyOnline: string;
@@ -148,6 +152,7 @@ const en: Dictionary = {
     tenantPortal: 'Tenant Portal',
     admin: 'Admin',
     toggleMenu: 'Toggle menu',
+    call: (phone) => `Call us at ${phone}`,
   },
   hero: {
     tagline: 'Kansas City · Columbia · Independence',
@@ -156,6 +161,7 @@ const en: Dictionary = {
     headingPost: '.',
     ctaSeeListings: 'See listings ↓',
     ctaPortal: 'Tenant Portal ↗',
+    ctaCall: (phone) => `Call ${phone}`,
   },
   filters: {
     bedrooms: 'Bedrooms',
@@ -200,6 +206,7 @@ const en: Dictionary = {
     appFee: 'Application fee',
     petPolicy: 'Pet policy',
     applyNow: 'Apply now ↗',
+    callAbout: 'Call about this unit',
     portalTenant: 'Already a tenant? Portal ↗',
     otherUnitsAt: (addr) => `Other units at ${addr}`,
     unitSpec: (bd, ba, sqft) => `${bd} bd · ${ba} ba · ${sqft} sqft`,
@@ -214,6 +221,7 @@ const en: Dictionary = {
     brand: 'Appreciate Property Management',
     tagline:
       'Property management serving the Kansas City and mid-Missouri rental markets. Thoughtful homes, straightforward leases.',
+    callLeasing: 'Leasing Office',
     colProspective: 'Prospective Tenants',
     availableRentals: 'Available Rentals',
     applyOnline: 'Apply Online ↗',
@@ -283,6 +291,7 @@ const es: Dictionary = {
     tenantPortal: 'Portal del inquilino',
     admin: 'Administrador',
     toggleMenu: 'Abrir menú',
+    call: (phone) => `Llámanos al ${phone}`,
   },
   hero: {
     tagline: 'Kansas City · Columbia · Independence',
@@ -291,6 +300,7 @@ const es: Dictionary = {
     headingPost: '.',
     ctaSeeListings: 'Ver propiedades ↓',
     ctaPortal: 'Portal del inquilino ↗',
+    ctaCall: (phone) => `Llama al ${phone}`,
   },
   filters: {
     bedrooms: 'Habitaciones',
@@ -335,6 +345,7 @@ const es: Dictionary = {
     appFee: 'Costo de aplicación',
     petPolicy: 'Política de mascotas',
     applyNow: 'Aplicar ahora ↗',
+    callAbout: 'Llama sobre esta unidad',
     portalTenant: '¿Ya eres inquilino? Portal ↗',
     otherUnitsAt: (addr) => `Otras unidades en ${addr}`,
     unitSpec: (bd, ba, sqft) =>
@@ -350,6 +361,7 @@ const es: Dictionary = {
     brand: 'Appreciate Property Management',
     tagline:
       'Administración de propiedades en Kansas City y el centro de Missouri. Hogares bien cuidados, contratos sencillos.',
+    callLeasing: 'Oficina de arrendamiento',
     colProspective: 'Futuros inquilinos',
     availableRentals: 'Propiedades disponibles',
     applyOnline: 'Aplicar en línea ↗',

@@ -231,3 +231,9 @@ export function formatAvailability(
 }
 
 export const TENANT_PORTAL_URL = 'https://appreciateinc.appfolio.com/connect';
+
+// Leasing line shown as a call-to-action across the public site. Kept here
+// so the number lives in exactly one place — the display form and the tel:
+// form have to stay in sync, and they won't if they're inlined per component.
+export const LEASING_PHONE = '(816) 765-0427';
+export const LEASING_PHONE_TEL = 'tel:+18167650427';

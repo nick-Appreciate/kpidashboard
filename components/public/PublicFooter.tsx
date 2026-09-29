@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { TENANT_PORTAL_URL } from '../../lib/listings';
+import { TENANT_PORTAL_URL, LEASING_PHONE, LEASING_PHONE_TEL } from '../../lib/listings';
 import { getDictionary, getListingPath, type Locale } from '../../lib/i18n';
 
 export default function PublicFooter({ locale }: { locale: Locale }) {
@@ -18,6 +18,15 @@ export default function PublicFooter({ locale }: { locale: Locale }) {
           <p className="text-[13px] text-[#0A0A0A]/60 max-w-sm leading-relaxed">
             {t.tagline}
           </p>
+          <p className="mt-5 text-[12px] uppercase tracking-wider text-[#0A0A0A]/50">
+            {t.callLeasing}
+          </p>
+          <a
+            href={LEASING_PHONE_TEL}
+            className="font-[var(--font-fraunces)] text-[22px] text-[#0A0A0A] hover:text-[#06b6d4] transition-colors"
+          >
+            {LEASING_PHONE}
+          </a>
         </div>
         <div>
           <p className="text-[12px] uppercase tracking-wider text-[#0A0A0A]/50 mb-3">{t.colProspective}</p>
