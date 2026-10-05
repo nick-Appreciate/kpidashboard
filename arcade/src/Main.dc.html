@@ -1002,9 +1002,10 @@ class Component extends DCLogic {
     const UNITS = this.unitsData();
     const STATUS = W.STATUS;
     const codeOf = (prop, u) => (s.unitSt[prop + '|' + u]) || (STATUS[prop] || {})[u] || 'O';
-    // Occupied for scoring: a tenant on notice still lives there (the notice
-    // counts in Renewals); only vacant units and evictions count against it.
-    const occupiedAt = (prop, u) => { const c = codeOf(prop, u); return c === 'O' || (c === 'N' && ((UNITS[prop] || {})[u] || {}).s !== 'Evict'); };
+    // Occupied, matching the dashboard and AppFolio: current, notice and
+    // eviction tenants all still live there. Notices are scored in Renewals,
+    // evictions as a separate deduction.
+    const occupiedAt = (prop, u) => { const c = codeOf(prop, u); return c === 'O' || c === 'N'; };
     const darkInfo = {};
     all.forEach((p) => p.dark.forEach((d) => { darkInfo[p.name + '|' + d.unit] = d; }));
     const CODE = {
@@ -1053,7 +1054,7 @@ class Component extends DCLogic {
       woPerUnitZero: 2.5,                 // 2.5 open work orders per unit = 0
       agedPerUnitZero: 1.0, urgentPenalty: 10,
       leadZero: 0.4, leadFull: 0.95, missPenalty: 3,
-      evictExtra: 0,                      // eviction = vacant for occupancy; no extra penalty
+      evictUnits: 1,                      // each open eviction is deducted like this many vacant units of occupancy
     };
     const WEIGHTS = {
       pm: [['occ', 'Occupancy', 0.35], ['vac', 'Vacancy speed', 0.25], ['ren', 'Renewals', 0.30], ['col', 'Collections', 0.10]],
@@ -1066,13 +1067,14 @@ class Component extends DCLogic {
       const p = byName[propName], n = unitList.length;
       const recs = unitList.map((u) => ({ u, rec: (UNITS[propName] || {})[u] || {}, code: codeAt(u) }));
       const comp = {};
+      let evict = 0;
       if (pm) {
-        // A unit in eviction counts as vacant here. Its downtime timer (vacancy
-        // speed) only starts once the tenant is out and the unit enters rehab.
-        const occ = recs.filter((x) => x.code === 'O' || (x.code === 'N' && x.rec.s !== 'Evict')).length;
-        const evict = recs.filter((x) => x.code === 'N' && x.rec.s === 'Evict' && !RS['notice:' + propName + '|' + x.u]).length;
-        const occEff = Math.max(0, occ - evict * CAL.evictExtra);
-        comp.occ = { score: clampR((((occEff / n) * 100 - CAL.occZero) / (CAL.occFull - CAL.occZero)) * 100), detail: occ + ' of ' + n + ' occupied (' + Math.round((occ / n) * 100) + '%)' + (evict ? ' · ' + evict + ' in eviction (counted vacant)' : '') + ' · 70% scores 0, 91% scores 100' };
+        // Occupancy matches the dashboard (notice and eviction tenants count as
+        // occupied). Evictions are deducted from the total separately below; the
+        // downtime clock only starts once the tenant is out.
+        const occ = recs.filter((x) => x.code === 'O' || x.code === 'N').length;
+        evict = recs.filter((x) => x.code === 'N' && x.rec.s === 'Evict' && !RS['notice:' + propName + '|' + x.u]).length;
+        comp.occ = { score: clampR((((occ / n) * 100 - CAL.occZero) / (CAL.occFull - CAL.occZero)) * 100), detail: occ + ' of ' + n + ' occupied (' + Math.round((occ / n) * 1000) / 10 + '%) · 70% scores 0, 91% scores 100' };
         const vac = recs.filter((x) => x.code === 'S' || x.code === 'B' || x.code === 'R').map((x) => (darkInfo[propName + '|' + x.u] || { days: 0 }).days);
         comp.vac = vac.length
           ? { score: clampR(vac.reduce((t, d) => t + clampR(100 - Math.max(0, d - CAL.vacGoal) * CAL.vacPerDay), 0) / vac.length), detail: vac.length + ' vacant · average ' + Math.round(vac.reduce((t, d) => t + d, 0) / vac.length) + ' days (goal 14)' }
@@ -1109,11 +1111,14 @@ class Component extends DCLogic {
       }
       const parts = WEIGHTS[s.role].filter(([id]) => comp[id]).map(([id, label, w]) => ({ id, label, w, ...comp[id] }));
       const wsum = parts.reduce((t, x) => t + x.w, 0);
-      const raw = parts.reduce((t, x) => t + x.score * x.w, 0) / wsum;
+      // Eviction deduction: what the same units would have cost Occupancy as vacancies.
+      const occW = (WEIGHTS.pm.find((x) => x[0] === 'occ') || [0, 0, 0])[2];
+      const penalty = evict * CAL.evictUnits * ((100 / n) / (CAL.occFull - CAL.occZero)) * 100 * (occW / wsum);
+      const raw = Math.max(0, parts.reduce((t, x) => t + x.score * x.w, 0) / wsum - penalty);
       parts.forEach((x) => { x.score = Math.round(x.score); });
       const total = Math.round(raw);
       const drag = parts.slice().sort((a, b) => (100 - b.score) * b.w - (100 - a.score) * a.w)[0];
-      return { total, raw, parts, drag, stake: (100 - total) * n, n };
+      return { total, raw, parts, drag, stake: (100 - total) * n, n, evict, penalty };
     };
     const propScore = {}, bldgScore = {};
     allData.forEach((p) => { propScore[p.name] = scoreOf(p.name, unitsOfPropAll(p.name), true); });
@@ -1180,7 +1185,7 @@ class Component extends DCLogic {
       if (i.kind === 'wo') return [btn('LOG FOLLOW-UP', log(i.id, 'Followed up', 5), i.log === 'Followed up'), btn('RESOLVED', resolve(i.id, 15, 'WORK ORDER CLOSED'))];
       if (i.kind === 'due') return [btn('LOG CONTACT', log(i.id, 'Contact logged', 10), i.log === 'Contact logged'), btn('PAID', resolve(i.id, 25, 'BALANCE CLEARED'))];
       if (i.kind === 'lease') return [btn('OFFER SENT', log(i.id, 'Offer sent', 40), i.log === 'Offer sent'), btn('RENEWED', resolve(i.id, 100, 'RENEWED'))];
-      if (i.kind === 'notice') return [btn('PRE-LEASED', resolve(i.id, 300, 'PRE-LEASED'))];
+      if (i.kind === 'notice') return ((UNITS[i.prop] || {})[i.unit] || {}).s === 'Evict' ? [btn('EVICTION RESOLVED', resolve(i.id, 100, 'EVICTION RESOLVED'))] : [btn('PRE-LEASED', resolve(i.id, 300, 'PRE-LEASED'))];
       const cur = codeOf(i.prop, i.unit);
       return [['S', 'NOT STARTED'], ['B', 'BUILDING'], ['R', 'READY'], ['O', 'LEASED']].map(([c, l]) => btn(l, setStage(i.prop, i.unit, c), cur === c));
     };
@@ -1283,14 +1288,14 @@ class Component extends DCLogic {
     const rec = (i) => (UNITS[i.prop] || {})[i.unit] || {};
     const unitRow = (i, sub, value, valueColor) => row({ key: i.id, color: i.color, label: where(i) + (rec(i).t ? ' · ' + rec(i).t.replace(/\s+/g, ' ') : ''), sub, value, valueColor: valueColor || i.color, go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) });
     const noticeI = issues.filter((i) => i.kind === 'notice');
-    const evictRows = noticeI.filter((i) => rec(i).s === 'Evict').map((i) => unitRow(i, 'Eviction in progress · counted vacant', 'EVICT'));
+    const evictRows = noticeI.filter((i) => rec(i).s === 'Evict').map((i) => unitRow(i, 'Eviction in progress · deducted from the score until resolved', 'EVICT'));
     const noticeRows = noticeI.filter((i) => rec(i).s !== 'Evict').map((i) => unitRow(i, 'On notice · counts in renewals until pre-leased', 'NOTICE'));
     const vacantRows = level === 'bldg' ? scopeUnits.filter((x) => codeOf(x.prop, x.u) !== 'O' && codeOf(x.prop, x.u) !== 'N').map((x) => row({ key: 'v' + x.u, color: '#ff4fa8', label: 'Unit ' + x.u, sub: 'Vacant', value: '', go: goUnit(x.prop, x.u) })) : [];
     const dueRows = dueI.slice().sort((a, b) => b.amount - a.amount).map((i) => unitRow(i, 'Past due on ' + fmtDate(DQ.latest), money(i.amount)));
     const agedRows = woI.filter((i) => i.age > 14 || i.urgent).sort((a, b) => (b.urgent - a.urgent) || (b.age - a.age))
       .map((i) => row({ key: 'a' + i.id, color: i.color, label: where(i) + ' · ' + i.title, sub: i.meta, value: i.age + 'd', valueColor: i.color, go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) }));
     const COMP_ROWS = {
-      occ: () => ({ rows: occRows.concat(vacantRows, evictRows), note: level === 'all' ? 'Lowest first, then units in eviction.' : '' }),
+      occ: () => ({ rows: occRows.concat(vacantRows), note: level === 'all' ? 'Lowest first. Counts notice and eviction tenants as occupied, like the dashboard.' : '' }),
       vac: () => ({ rows: darkRows, chips: chipsOf('downFilter', [['all', 'ALL', darkI.length], ['ready', 'READY', readyN], ['build', 'BUILDING', darkI.filter((i) => i.title === 'In rehab').length], ['stalled', 'NOT STARTED', stalledN]]) }),
       ren: () => ({ rows: noticeRows.concat(leaseRows), note: 'Notices first, then leases ending within 90 days (the score counts ≤ 60).' }),
       col: () => ({ rows: dueRows, note: 'Largest balance first.' }),
@@ -1305,6 +1310,14 @@ class Component extends DCLogic {
       return { ...sec, hasBadge: true, badge: grade(c.score) + ' ' + c.score, badgeColor: scoreColor(c.score),
         hasGroup: i === 0, group: 'SCORECARD · TAP A COMPONENT' };
     });
+    // Evictions: a deduction from the total, shown after the components.
+    if (pm && !U) {
+      const pen = scopeScore ? scopeScore.penalty : all.reduce((t, p) => t + propScore[p.name].penalty * propScore[p.name].n, 0) / totalUnits;
+      const ev = scopeScore ? scopeScore.evict : all.reduce((t, p) => t + propScore[p.name].evict, 0);
+      const sec = section('c_evi', 'EVICTIONS', ev ? '#ff4fa8' : '#36e2ec', ev ? ev + ' open · deducted from total' : 'none open', evictRows,
+        { note: 'Each open eviction is deducted as if the unit were vacant (' + CAL.evictUnits + ' unit). Occupancy itself still counts it as occupied, like the dashboard.', emptyText: 'No open evictions.' });
+      compSecs.push({ ...sec, hasBadge: true, badge: pen ? '−' + (pen >= 1 ? pen.toFixed(1) : pen.toFixed(2)) : '0', badgeColor: pen ? '#ff4fa8' : '#36e2ec' });
+    }
 
     // ---- To-do: every open item, ranked by how much finishing it lifts the score in view ----
     const scopeRaw = scopeScore ? scopeScore.raw : portRaw;
@@ -1314,13 +1327,14 @@ class Component extends DCLogic {
       const after = scoreOf(i.prop, unitsOfPropAll(i.prop), true, ov), base = propScore[i.prop];
       return { d: P ? after.raw - base.raw : ((after.raw - base.raw) * base.n) / totalUnits, base, after };
     };
-    const ACT = { dark: 'Lease it', notice: 'Pre-lease it', lease: 'Get the renewal signed', due: 'Collect it', wo: 'Close it' };
+    const ACT = { dark: 'Lease it', notice: 'Pre-lease it', evict: 'Resolve the eviction', lease: 'Get the renewal signed', due: 'Collect it', wo: 'Close it' };
     const todo = issues.map((i) => ({ i, ...lift(i) })).filter((x) => x.d > 0.005).sort((a, b) => b.d - a.d);
     const todoRows = todo.map(({ i, d, base, after }) => {
       const moved = after.parts.map((x) => ({ x, by: x.score - ((base.parts.find((y) => y.id === x.id) || {}).score || 0) })).sort((a, b) => b.by - a.by)[0];
-      const via = moved && moved.by > 0 ? moved.x.label.toLowerCase() + ' +' + moved.by : 'score';
+      const isEvict = i.kind === 'notice' && rec(i).s === 'Evict';
+      const via = isEvict ? 'eviction deduction' : moved && moved.by > 0 ? moved.x.label.toLowerCase() + ' +' + moved.by : 'score';
       return row({ key: 't' + i.id, color: d >= 1 ? '#36e2ec' : d >= 0.2 ? '#ffd23f' : '#4b4380', label: where(i) + ' · ' + i.title,
-        sub: ACT[i.kind] + ' · ' + via + (i.kind === 'wo' && !i.assignee ? ' · unassigned' : ''),
+        sub: ACT[isEvict ? 'evict' : i.kind] + ' · ' + via + (i.kind === 'wo' && !i.assignee ? ' · unassigned' : ''),
         value: '+' + (d >= 1 ? d.toFixed(1) : d.toFixed(2)), valueColor: d >= 1 ? '#36e2ec' : '#ffd23f', go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) });
     });
     const todoSec = section('todo', 'TO-DO', '#36e2ec', todo.length + ' items · biggest first', todoRows,
