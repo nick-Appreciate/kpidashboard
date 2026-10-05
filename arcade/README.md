@@ -2,8 +2,15 @@
 
 A gamified view of the portfolio for the Property Manager and Virtual Admin
 roles: every property drawn building by building on a map, a scorecard per
-role, a to-do list ranked by score impact, and a property leaderboard. It is
-published as a claude.ai design-canvas artifact, not served by the Next app.
+role, a to-do list ranked by score impact, and a property leaderboard.
+
+It runs in two places from the same source, `src/Main.dc.html`:
+
+- **appreciate.io/arcade** — behind the dashboard login, not in the sidebar
+  (direct link only). `app/arcade/page.js` renders the page with
+  `components/arcade/DcPage.js`, a small runtime for the canvas format, and
+  `/api/arcade` fills in live tenant data for the signed-in user.
+- **The claude.ai artifact** — built into `dist/` and published by hand.
 
 ## Layout
 
@@ -19,21 +26,26 @@ published as a claude.ai design-canvas artifact, not served by the Next app.
 `src/Main.dc.html` ships with an empty `unitsData()`. Tenant names, phones,
 balances and work orders are filled in only at build time.
 
-## Refresh and build
+## Tenant data
+
+`lib/arcade/units.js` builds the per-unit data (tenants, phones, leases,
+balances, work orders) from Supabase. `/api/arcade` calls it live; for the
+artifact, `scripts/refresh-data.mjs` writes the same thing to
+`data/units.app.json`.
+
+## Build the artifact
 
 From the repo root (needs `.env.local` with the Supabase service-role key):
 
 ```bash
-node arcade/scripts/fetch-units.js && node arcade/scripts/build-units.js
-node arcade/scripts/fetch-dq.js && node arcade/scripts/merge-units.js
-node arcade/scripts/build.mjs
+node arcade/scripts/refresh-data.mjs && node arcade/scripts/build.mjs
 ```
 
 `build.mjs` first runs `sync-property-groups.mjs`, which copies
 `lib/propertyGroups.js` into `src/Main.dc.html` verbatim and rebuilds the
-portfolio dropdown from `PRESET_PROPERTY_OPTIONS`. The arcade can't import
-from the repo at runtime, so this is how it stays on the dashboard's rules.
-Commit the resulting `src/` diff when that file changes.
+portfolio dropdown from `PRESET_PROPERTY_OPTIONS`. The page can't import from
+the repo at runtime, so this is how it stays on the dashboard's rules. Commit
+the resulting `src/` diff: the /arcade route serves `src/` as committed.
 
 Then publish `dist/` as the artifact root (files under `project/`).
 

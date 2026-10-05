@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // /api/arcade reads the arcade page source from disk at request time.
+    outputFileTracingIncludes: { '/api/arcade': ['./arcade/src/Main.dc.html'] },
+  },
   async redirects() {
     return [
       {

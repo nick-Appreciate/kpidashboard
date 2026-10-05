@@ -4,8 +4,7 @@
 // 2. Copies src/ to dist/project/, filling unitsData() with data/units.app.json.
 // Tenant names, phones and balances live only in data/ and dist/, which are
 // gitignored: the repo is public. Refresh the data first with
-//   node arcade/scripts/fetch-units.js && node arcade/scripts/build-units.js
-//   node arcade/scripts/fetch-dq.js && node arcade/scripts/merge-units.js
+//   node arcade/scripts/refresh-data.mjs
 import fs from 'node:fs';
 import { syncPropertyGroups } from './sync-property-groups.mjs';
 
@@ -13,7 +12,7 @@ const at = (p) => new URL('../' + p, import.meta.url);
 const PLACEHOLDER = 'return {} /* @units: filled in by scripts/build.mjs from data/units.app.json */;';
 
 await syncPropertyGroups();
-if (!fs.existsSync(at('data/units.app.json'))) throw new Error('data/units.app.json is missing; run the data refresh in this file\'s header first');
+if (!fs.existsSync(at('data/units.app.json'))) throw new Error('data/units.app.json is missing; run node arcade/scripts/refresh-data.mjs first');
 const units = fs.readFileSync(at('data/units.app.json'), 'utf8');
 fs.mkdirSync(at('dist/project'), { recursive: true });
 for (const f of fs.readdirSync(at('src'))) {
