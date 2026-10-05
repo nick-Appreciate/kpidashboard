@@ -1,0 +1,54 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Architecture.dc.html": {
+      "h": 1000,
+      "title": "How it plugs into the data",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Portfolio City — real buildings, drill to any unit",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Rules.dc.html": {
+      "h": 1080,
+      "title": "Scoring rules + anti-gaming",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-05T18:07:14Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "row1": {
+      "kind": "title1",
+      "maxW": 4480,
+      "text": "APPRECIATE ARCADE — the business, played",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Rules.dc.html",
+    "Architecture.dc.html"
+  ],
+  "pages": [],
+  "title": "Appreciate Arcade"
+}

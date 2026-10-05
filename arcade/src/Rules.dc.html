@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scoring rules</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0820}
+.px{font-family:'Press Start 2P',monospace}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1080px; box-sizing: border-box; background: #0b0820; color: #ecebff; font-family: 'Space Mono', monospace; padding: 48px 56px; display: flex; flex-direction: column; gap: 28px">
+  <div>
+    <div class="px" style="font-size: 22px; color: #ffd23f">THE RULEBOOK</div>
+    <div style="font-size: 15px; color: #c9c6ea; margin-top: 12px">Every point comes from a change in a table you already sync. Nobody presses a button to earn XP.</div>
+  </div>
+
+  <div style="display: flex; gap: 28px; flex: 1; min-height: 0">
+    <div style="flex: 1.55; display: flex; flex-direction: column; gap: 20px; min-width: 0">
+      <div style="background: #15102c; border: 2px solid #36e2ec; border-radius: 10px; padding: 18px">
+        <div class="px" style="font-size: 10px; color: #36e2ec">OPERATOR · PROPERTY MANAGER</div>
+        <div style="display: grid; grid-template-columns: 1.7fr 1.5fr 0.75fr 0.85fr; gap: 8px 14px; margin-top: 14px; font-size: 13px">
+          <div style="color: #a6a2cc; font-size: 11px">EVENT</div><div style="color: #a6a2cc; font-size: 11px">DETECTED FROM</div><div style="color: #a6a2cc; font-size: 11px">POINTS</div><div style="color: #a6a2cc; font-size: 11px">SCORED TO</div>
+          <sc-for list="{{pm}}" as="r" hint-placeholder-count="6">
+            <div>{{r.event}}</div><div style="color: #c9c6ea">{{r.src}}</div><div style="color: {{r.ptsColor}}; font-weight: 700">{{r.pts}}</div><div style="color: {{r.whoColor}}">{{r.who}}</div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background: #15102c; border: 2px solid #ff4fa8; border-radius: 10px; padding: 18px">
+        <div class="px" style="font-size: 10px; color: #ff4fa8">DISPATCHER · VIRTUAL ADMIN</div>
+        <div style="display: grid; grid-template-columns: 1.7fr 1.5fr 0.75fr 0.85fr; gap: 8px 14px; margin-top: 14px; font-size: 13px">
+          <div style="color: #a6a2cc; font-size: 11px">EVENT</div><div style="color: #a6a2cc; font-size: 11px">DETECTED FROM</div><div style="color: #a6a2cc; font-size: 11px">POINTS</div><div style="color: #a6a2cc; font-size: 11px">SCORED TO</div>
+          <sc-for list="{{va}}" as="r" hint-placeholder-count="7">
+            <div>{{r.event}}</div><div style="color: #c9c6ea">{{r.src}}</div><div style="color: {{r.ptsColor}}; font-weight: 700">{{r.pts}}</div><div style="color: {{r.whoColor}}">{{r.who}}</div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: #a6a2cc">Point values are a starting draft — tune them after two weeks of real play. <span style="color: #ffd23f">Co-op</span> = the whole team earns it until the data records who did the work.</div>
+    </div>
+
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 20px; min-width: 0">
+      <div style="background: #15102c; border: 2px solid #ffd23f; border-radius: 10px; padding: 18px">
+        <div class="px" style="font-size: 10px; color: #ffd23f">HOUSE RULES</div>
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 14px">
+          <sc-for list="{{rules}}" as="r" hint-placeholder-count="7">
+            <div style="display: flex; gap: 12px">
+              <div class="px" style="font-size: 10px; color: #ffd23f; flex: none; width: 22px">{{r.n}}</div>
+              <div>
+                <div style="font-size: 14px; font-weight: 700">{{r.title}}</div>
+                <div style="font-size: 12px; color: #c9c6ea; margin-top: 3px; line-height: 1.45">{{r.body}}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background: #15102c; border: 2px dashed #ff4fa8; border-radius: 10px; padding: 18px">
+        <div class="px" style="font-size: 10px; color: #ff4fa8">ATTRIBUTION GAPS</div>
+        <div style="font-size: 12px; color: #c9c6ea; margin-top: 10px; line-height: 1.5">These tables don't record who did the work, so their points stay co-op until fixed:</div>
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px; font-size: 12px">
+          <div><b>rehab_status_history</b> — no changed_by</div>
+          <div><b>leasing_reports</b> — no responding agent</div>
+          <div><b>renewal_summary</b> — no owner on the renewal</div>
+          <div><b>af_delinquency</b> — balances, not who collected</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const coop = '#ffd23f', solo = '#36e2ec', good = '#ecebff', bad = '#ff4fa8';
+    const pm = [
+      { event: 'Vacant unit leased', src: 'rent_roll_snapshots', pts: '+500', who: 'Co-op' },
+      { event: '…inside the 14-day turn', src: 'rehab spans + rent roll', pts: '+250', who: 'Co-op' },
+      { event: 'Rehab stage advanced', src: 'rehab_status_history', pts: '+50', who: 'Co-op' },
+      { event: 'Finished unit still vacant, per day', src: 'rehab spans + rent roll', pts: '−5', who: 'Co-op' },
+      { event: 'Offer sent ≥ 60d before lease end', src: 'renewal_summary.renewal_sent_date', pts: '+40', who: 'Co-op' },
+      { event: 'Renewal countersigned', src: 'renewal_summary', pts: '+100', who: 'Co-op' },
+      { event: 'Tenant on notice relet before move-out', src: 'rent_roll_snapshots', pts: '+300', who: 'Co-op' },
+    ].map((r) => ({ ...r, ptsColor: r.pts.startsWith('−') ? bad : good, whoColor: r.who === 'Co-op' ? coop : solo }));
+    const va = [
+      { event: 'Work order closed', src: 'af_work_orders', pts: '+15', who: 'Player [VERIFY]' },
+      { event: '…closed within 3 days of opening', src: 'af_work_orders.created_at', pts: '+10', who: 'Player [VERIFY]' },
+      { event: 'Open work order passes 14 days', src: 'af_work_orders', pts: '−10', who: 'Player [VERIFY]' },
+      { event: 'Same work order reopened ≤ 14d', src: 'af_work_orders [VERIFY]', pts: '−30', who: 'Player [VERIFY]' },
+      { event: 'Lead answered ≤ 5 min', src: 'leasing_reports.first_response_at', pts: '+50', who: 'Co-op' },
+      { event: 'Lead answered 5–60 min', src: 'leasing_reports', pts: '+20', who: 'Co-op' },
+      { event: 'Lead answered > 1 hour', src: 'leasing_reports', pts: '0 · combo breaks', who: 'Co-op' },
+      { event: 'Lead never answered', src: 'leasing_reports', pts: '−25', who: 'Co-op' },
+    ].map((r) => ({ ...r, ptsColor: r.pts.startsWith('−') ? bad : good, whoColor: r.who === 'Co-op' ? coop : solo }));
+    const rules = [
+      { n: '1', title: 'Outcomes, never clicks', body: 'Points fire when source data changes. There is no button that earns XP.' },
+      { n: '2', title: 'Bands where the data is coarse', body: 'Leads are polled every 5 minutes, so "≤ 5 min" is perfect. Rewarding seconds would reward the poll schedule.' },
+      { n: '3', title: 'Every reward has a counterweight', body: 'Closed-then-reopened work orders, no-shows and voided matches take points back.' },
+      { n: '4', title: 'Rates, not volume', body: 'Answer rate scores; call count does not. Busywork can\'t climb the board.' },
+      { n: '5', title: 'Co-op before competition', body: 'The shared goal is portfolio occupancy. Solo scores only where a person is in the data.' },
+      { n: '6', title: 'No manual points', body: 'Admin adjustments are allowed, logged and shown on the board with the reason.' },
+      { n: '7', title: 'Weekly seasons, personal bests', body: 'Boards reset weekly so a new hire is never buried under months of someone else\'s lead.' },
+    ];
+    return { pm, va, rules };
+  }
+}
+</script>
+</body>
+</html>

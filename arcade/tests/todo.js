@@ -1,0 +1,13 @@
+const src=require('fs').readFileSync(process.argv[2] || require('path').join(__dirname, '../dist/project/Main.dc.html'),'utf8');
+const js=src.split('data-dc-script')[1].split('>').slice(1).join('>').split('</script>')[0];
+global.DCLogic=class{constructor(p){this.props=p||{};}setState(u){this.state={...this.state,...(typeof u==='function'?u(this.state):u)};}};global.setTimeout=()=>0;global.clearTimeout=()=>{};
+const C=eval(js+';Component');const c=new C({});
+const show=(lab)=>{const v=c.renderVals();const sec=v.panel.sections;console.log('\n['+lab+'] score',v.panel.score);
+sec.filter(x=>x.hasBadge).forEach(x=>console.log('  ',x.title,x.badge,x.badgeColor,x.group));
+const t=sec.find(x=>x.key==='todo');t.rows.slice(0,8).forEach(r=>console.log('   ',r.value,r.label,'|',r.sub));return v;};
+c.state={...c.state,role:'pm'};let v=show('PM all');
+console.log('tape:',v.ticker.slice(0,14).map(t=>t.tag+' '+t.text).join(' | '));
+v.panel.sections[0].toggle();v=c.renderVals();console.log('occ open:',v.panel.sections[0].isOpen,v.panel.sections[0].rows.length,v.panel.sections[0].note);
+c.state={...c.state,picked:'Oakwood Gardens'};show('PM Oakwood');
+c.state={...c.state,role:'va',picked:null};show('VA all');
+c.state={...c.state,role:'pm',picked:'Hilltop Townhomes'};const b=Object.keys(c.renderVals().panel).length;

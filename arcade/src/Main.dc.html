@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Appreciate Arcade — Portfolio City</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0820}
+a{color:#36e2ec}a:hover{color:#ffd23f}
+.px{font-family:'Press Start 2P',monospace}
+.bld{background:none;border:0;padding:0;margin:0;position:absolute;display:block;line-height:0;pointer-events:none}
+.bld:focus-visible{outline:2px dashed #ffd23f;outline-offset:4px}
+.bld svg{transition:transform .15s ease, filter .15s ease;overflow:visible}
+.bld svg path{pointer-events:visiblePainted;cursor:pointer}
+.bld:hover svg{transform:translateY(-4px)}
+.bld.sel svg{filter:drop-shadow(0 0 14px #36e2ec)}
+.hudbtn{font-family:'Press Start 2P',monospace;font-size:9px;min-height:44px;min-width:44px;padding:0 12px;border-radius:8px;border:2px solid #2c2457;background:#0b0820;color:#ecebff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.hudbtn:hover{border-color:#36e2ec}
+.hudbtn:focus-visible{outline:2px dashed #ffd23f;outline-offset:2px}
+.on{background:#ffd23f;color:#0b0820;border-color:#ffd23f}
+.on:hover{border-color:#ffd23f}
+.dock{width:52px;height:52px;padding:0;flex-direction:column;gap:4px;font-size:6px}
+.row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:6px;background:#0b0820;border:1px solid #241d4a;cursor:pointer;min-height:44px}
+.row:hover{border-color:#36e2ec}
+.row:focus-visible{outline:2px dashed #ffd23f;outline-offset:2px}
+.chip{font-family:'Press Start 2P',monospace;font-size:8px;padding:0 10px;min-height:36px;border-radius:6px;border:2px solid #2c2457;background:#0b0820;color:#c9c6ea;cursor:pointer}
+.chip.on{background:#36e2ec;border-color:#36e2ec;color:#0b0820}
+.pane{scrollbar-width:thin;scrollbar-color:#3b2f86 #0b0820}
+.blink{animation:blink 1.1s steps(2,end) infinite}
+@keyframes blink{50%{opacity:.25}}
+.bob{animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-5px)}}
+.beam{animation:beam 1.8s ease-in-out infinite}
+@keyframes beam{50%{opacity:.55}}
+.ticker{display:flex;gap:56px;white-space:nowrap;animation:tick 40s linear infinite}
+@keyframes tick{to{transform:translateX(-50%)}}
+.stage{transition:transform .25s ease}
+.scan{pointer-events:none;position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);mix-blend-mode:multiply}
+.crumb{font-family:'Press Start 2P',monospace;font-size:8px;line-height:1.6;background:none;border:0;padding:6px 6px;min-height:40px;cursor:pointer;text-align:left}
+.crumb[aria-current="false"]{text-decoration:underline}
+.crumb:focus-visible{outline:2px dashed #ffd23f}
+.tile{all:unset;box-sizing:border-box;display:block;padding:6px 8px;border-radius:6px;border:2px solid;min-height:48px;cursor:pointer;font-family:'Space Mono',monospace}
+.tile:focus-visible{outline:2px dashed #ffd23f;outline-offset:2px}
+.pop{animation:pop .5s ease-out}
+@keyframes pop{0%{transform:translate(-50%,-8px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}
+.sechead{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;padding:10px;min-height:44px;cursor:pointer}
+.sechead:focus-visible{outline:2px dashed #ffd23f;outline-offset:-2px}
+.parcel{background:none;border:0;padding:0;margin:0;position:absolute;display:block;line-height:0;pointer-events:none}
+.parcel svg path{pointer-events:visiblePainted;cursor:pointer}
+.parcel:focus-visible{outline:2px dashed #ffd23f;outline-offset:2px}
+@media (max-width: 900px){.mainrow{flex-direction:column}.sidebar{width:auto !important;height:50vh;border-left:0 !important;border-top:2px solid #2c2457}.lb{width:240px}.lb ol{max-height:130px;overflow-y:auto}}
+.pfsel{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;min-height:44px;padding:0 34px 0 12px;border-radius:8px;border:2px solid #ffd23f;background:#0b0820 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23ffd23f' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 12px center;color:#ecebff;cursor:pointer;appearance:none;-webkit-appearance:none;max-width:220px}
+.pfsel:focus-visible{outline:2px solid #36e2ec;outline-offset:2px}
+.pfsel option,.pfsel optgroup{background:#15102c;color:#ecebff}
+.lb{position:absolute;left:12px;top:12px;width:300px;max-width:calc(100% - 24px);background:rgba(11,8,32,.94);border:2px solid #ffd23f;border-radius:8px;box-shadow:0 0 0 2px #0b0820,0 0 18px rgba(255,210,63,.25);z-index:5}
+.lbhead{display:flex;align-items:center;gap:8px;width:100%;background:#1b1438;border:0;border-bottom:2px solid #2c2457;border-radius:6px 6px 0 0;padding:9px 10px;cursor:pointer;font:inherit}
+.lbrow{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:0;border-radius:4px;padding:5px 6px;cursor:pointer;font:inherit;color:inherit}
+.lbrow:hover,.lbrow:focus-visible{background:#1b1438}
+.lbrow.on{background:#2c2457;outline:1px solid #ffd23f}
+@media (prefers-reduced-motion: reduce){.blink,.bob,.beam,.ticker,.stage{animation:none;transition:none}}
+</style>
+</helmet>
+<div style="position: relative; height: 100vh; min-height: 640px; display: flex; flex-direction: column; background: #0b0820; color: #ecebff; font-family: 'Space Mono', monospace; overflow: hidden">
+
+  <header style="flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 8px 14px; background: #15102c; border-bottom: 2px solid #2c2457">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <div style="width: 38px; height: 38px; border-radius: 8px; background: #ffd23f; display: flex; align-items: center; justify-content: center">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0b0820" stroke-width="2.2" stroke-linecap="square" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11"></path><path d="M9 20v-6h6v6"></path></svg>
+      </div>
+      <div>
+        <div class="px" style="font-size: 11px; color: #ffd23f">APPRECIATE ARCADE</div>
+        <div class="px" style="font-size: 7px; color: {{roleColor}}; margin-top: 6px">P1 · {{roleName}} · LVL {{lvl}} · {{xp}} XP</div>
+      </div>
+    </div>
+    <label style="display: flex; align-items: center; gap: 8px; margin-left: auto">
+      <span class="px" style="font-size: 7px; color: #a6a2cc">SHOWING</span>
+      <select class="pfsel" aria-label="Filter by portfolio" value="{{pf}}" onChange="{{setPf}}">
+        <option value="portfolio">Portfolio</option>
+        <option value="farquhar">Farquhar</option>
+        <optgroup label="Regions"><option value="region_kansas_city">Kansas City (region)</option><option value="region_columbia">Columbia (region)</option></optgroup>
+        <optgroup label="Properties"><option value="1511 Sylvan Lane">1511 Sylvan Lane</option><option value="3909 North Oakland Gravel Road">3909 North Oakland Gravel Road</option><option value="407 Pecan Street">407 Pecan Street</option><option value="801-803 Washington Avenue">801-803 Washington Avenue</option><option value="811 South Fairview Road">811 South Fairview Road</option><option value="Glen Oaks">Glen Oaks</option><option value="Hilltop Townhomes">Hilltop Townhomes</option><option value="Ide Lofts">Ide Lofts</option><option value="Maple Manor Apartments">Maple Manor Apartments</option><option value="Normandy Apartments">Normandy Apartments</option><option value="Oakwood Gardens">Oakwood Gardens</option><option value="Pioneer Apartments">Pioneer Apartments</option></optgroup>
+      </select>
+    </label>
+    <div role="group" aria-label="Player class" style="display: flex; gap: 6px">
+      <button type="button" class="{{pmBtn}}" onClick="{{setPm}}" aria-pressed="{{pmPressed}}">PROPERTY MGR</button>
+      <button type="button" class="{{vaBtn}}" onClick="{{setVa}}" aria-pressed="{{vaPressed}}">VIRTUAL ADMIN</button>
+    </div>
+  </header>
+
+  <div class="mainrow" style="flex: 1; min-height: 0; display: flex">
+    <div style="position: relative; flex: 1; min-width: 0; min-height: 0">
+      <div class="pane" style="position: absolute; inset: 0; overflow: auto; display: flex; background: #0b0820">
+        <div style="margin: auto; flex: none; position: relative; width: {{stageW}}px; height: {{stageH}}px">
+        <div class="stage" style="position: absolute; left: 0; top: 0; width: {{worldW}}px; height: {{worldH}}px; transform: scale({{zoom}}); transform-origin: 0 0">
+          <svg width="{{worldW}}" height="{{worldH}}" viewBox="0 0 {{worldW}} {{worldH}}" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+            <path d="{{w.hwyPath}}" stroke="#0f0a24" stroke-width="22" stroke-linecap="round" fill="none"></path>
+            <path d="{{w.hwyPath}}" stroke="#ffd23f" stroke-width="2" stroke-dasharray="12 12" fill="none"></path>
+            <path d="{{w.islandSide}}" fill="#120c2b"></path>
+            <path d="{{w.islandTop}}" fill="#1a1238" stroke="#3a2f78" stroke-width="2"></path>
+            <path d="{{w.gridPath}}" stroke="#221a49" stroke-width="1" fill="none"></path>
+            <path d="{{w.lotPath}}" fill="#211946" stroke="#4a3f8c" stroke-width="1.5" stroke-dasharray="6 5"></path>
+            <path d="{{w.roadL}}" stroke="#0d0920" stroke-width="{{w.roadLW}}" stroke-linecap="round" fill="none"></path>
+            <path d="{{w.roadM}}" stroke="#0d0920" stroke-width="{{w.roadMW}}" stroke-linecap="round" fill="none"></path>
+            <path d="{{w.roadS}}" stroke="#140e2e" stroke-width="{{w.roadSW}}" stroke-linecap="round" fill="none"></path>
+            <path d="{{w.statePath}}" stroke="#ff4fa8" stroke-width="2" stroke-dasharray="4 6" fill="none" opacity=".75"></path>
+          </svg>
+          <sc-for list="{{labels}}" as="l" hint-placeholder-count="4">
+            <div style="position: absolute; left: {{l.left}}px; top: {{l.top}}px; transform: {{l.transform}}; pointer-events: none; white-space: nowrap">
+              <div class="px" style="font-size: {{l.size}}px; color: {{l.color}}">{{l.text}}</div>
+              <div style="font-size: 11px; color: #a6a2cc; margin-top: 6px">{{l.sub}}</div>
+            </div>
+          </sc-for>
+          <sc-for list="{{parcels}}" as="pc" hint-placeholder-count="12">
+            <button type="button" class="parcel" onClick="{{pc.pick}}" aria-label="{{pc.aria}}" title="{{pc.name}}" style="left: {{pc.left}}px; top: {{pc.top}}px; width: {{pc.w}}px; height: {{pc.h}}px">
+              <svg width="{{pc.w}}" height="{{pc.h}}" viewBox="0 0 {{pc.w}} {{pc.h}}" aria-hidden="true"><path d="{{pc.d}}" fill="{{pc.fill}}" stroke="{{pc.stroke}}" stroke-width="2" stroke-dasharray="5 4"></path></svg>
+            </button>
+          </sc-for>
+          <sc-for list="{{objects}}" as="o" hint-placeholder-count="40">
+            <sc-if value="{{o.isTree}}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; left: {{o.left}}px; top: {{o.top}}px; pointer-events: none">
+                <svg width="28" height="40" viewBox="0 0 28 40" aria-hidden="true" style="overflow: visible"><ellipse cx="18" cy="36" rx="11" ry="4" fill="rgba(0,0,0,.35)"></ellipse><rect x="12" y="26" width="4" height="10" fill="#4a2f2a"></rect><polygon points="14,2 26,22 14,30 2,22" fill="#2f9f78"></polygon><polygon points="14,2 26,22 14,30" fill="#237a5c"></polygon></svg>
+              </div>
+            </sc-if>
+            <sc-if value="{{o.isB}}" hint-placeholder-val="{{ true }}">
+              <button type="button" class="{{o.btnClass}}" onClick="{{o.pick}}" aria-label="{{o.aria}}" title="{{o.title}}" style="left: {{o.left}}px; top: {{o.top}}px; width: {{o.w}}px; height: {{o.h}}px; opacity: {{o.opacity}}">
+                <svg width="{{o.w}}" height="{{o.h}}" viewBox="0 0 {{o.w}} {{o.h}}" aria-hidden="true">
+                  <path d="{{o.shadow}}" fill="rgba(0,0,0,.35)"></path>
+                  <path d="{{o.wallD}}" fill="{{o.fD}}"></path>
+                  <path d="{{o.wallM}}" fill="{{o.fM}}"></path>
+                  <path d="{{o.wallL}}" fill="{{o.fL}}"></path>
+                  <path d="{{o.roof}}" fill="{{o.fRoof}}" stroke="{{o.roofStroke}}" stroke-width="{{o.roofSW}}" stroke-linejoin="round"></path>
+                  <path d="{{o.wO}}" fill="{{o.cO}}"></path>
+                  <path d="{{o.wN}}" fill="{{o.cN}}"></path>
+                  <path d="{{o.wR}}" fill="{{o.cR}}"></path>
+                  <path d="{{o.wS}}" fill="#120e26" stroke="#5a5290" stroke-width=".5"></path>
+                  <path class="{{o.buildCls}}" d="{{o.wB}}" fill="{{o.cB}}"></path>
+                </svg>
+              </button>
+            </sc-if>
+          </sc-for>
+          <sc-for list="{{marks}}" as="m" hint-placeholder-count="10">
+            <sc-if value="{{m.isBeam}}" hint-placeholder-val="{{ false }}">
+              <div class="beam" style="position: absolute; left: {{m.left}}px; top: {{m.top}}px; width: 8px; height: {{m.h}}px; background: {{m.bg}}; border-radius: 2px; pointer-events: none"></div>
+            </sc-if>
+            <sc-if value="{{m.isBadge}}" hint-placeholder-val="{{ false }}">
+              <div class="bob" style="position: absolute; left: {{m.left}}px; top: {{m.top}}px; pointer-events: none; background: {{m.bg}}; color: #0b0820; border: 2px solid #0b0820; border-radius: 4px; padding: 3px 6px; font-family: 'Press Start 2P', monospace; font-size: 8px; white-space: nowrap">{{m.text}}</div>
+            </sc-if>
+            <sc-if value="{{m.isVan}}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; left: {{m.left}}px; top: {{m.top}}px; pointer-events: none">
+                <svg width="30" height="20" viewBox="0 0 30 20" aria-hidden="true"><rect x="1" y="4" width="18" height="11" fill="#36e2ec" stroke="#0b0820" stroke-width="1.5"></rect><rect x="19" y="8" width="9" height="7" fill="#36e2ec" stroke="#0b0820" stroke-width="1.5"></rect><rect x="21" y="9.5" width="4" height="3" fill="#0b0820"></rect><circle cx="7" cy="16" r="2.6" fill="#0b0820"></circle><circle cx="23" cy="16" r="2.6" fill="#0b0820"></circle></svg>
+              </div>
+            </sc-if>
+          </sc-for>
+          <sc-for list="{{plates}}" as="n" hint-placeholder-count="12">
+            <div style="position: absolute; left: {{n.left}}px; top: {{n.top}}px; transform: translateX(-50%); pointer-events: none; opacity: {{n.opacity}}; background: #0b0820; border: 1px solid {{n.border}}; border-radius: 3px; padding: 2px 6px; font-size: 10px; line-height: 14px; font-weight: 700; color: {{n.fg}}; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.6)">{{n.short}}</div>
+          </sc-for>
+        </div>
+        </div>
+      </div>
+
+      <div aria-label="Camera" role="group" style="position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; align-items: center">
+      <button type="button" class="hudbtn" onClick="{{rotL}}" aria-label="Rotate left"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M4 4v6h6"></path><path d="M20 20a9 9 0 0 0-15.5-10"></path></svg></button>
+      <button type="button" class="hudbtn" onClick="{{rotR}}" aria-label="Rotate right"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 4v6h-6"></path><path d="M4 20a9 9 0 0 1 15.5-10"></path></svg></button>
+      <button type="button" class="hudbtn" onClick="{{zoomOut}}" aria-label="Zoom out"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+      <button type="button" class="hudbtn" onClick="{{zoomIn}}" aria-label="Zoom in"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button>
+      <div title="North" style="width: 44px; height: 44px; border-radius: 50%; background: #0b0820; border: 2px solid #2c2457; display: flex; align-items: center; justify-content: center">
+        <svg width="26" height="26" viewBox="0 0 24 24" aria-label="North arrow" role="img" style="transform: rotate({{compassDeg}}deg); transition: transform .25s ease"><polygon points="12,2 17,14 12,11 7,14" fill="#ff4fa8"></polygon><polygon points="12,22 7,14 12,17 17,14" fill="#4b4380"></polygon></svg>
+      </div>
+      <div class="px" style="font-size: 8px; color: #a6a2cc; padding-left: 4px">{{zoomLabel}}</div>
+    </div>
+
+      <div style="position: absolute; left: 12px; bottom: 68px; display: flex; flex-wrap: wrap; gap: 10px; max-width: calc(100% - 24px); background: rgba(21,16,44,.92); border: 2px solid #2c2457; border-radius: 8px; padding: 8px 10px; font-size: 11px; color: #c9c6ea">
+        <sc-for list="{{legend}}" as="g" hint-placeholder-count="5">
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 11px; height: 11px; background: {{g.color}}; border: 1px solid #4b4380; display: inline-block; box-sizing: border-box"></span>{{g.label}}</span>
+        </sc-for>
+      </div>
+
+      <section class="lb" aria-label="Property leaderboard">
+        <button type="button" class="lbhead" onClick="{{leaderboard.toggle}}" aria-expanded="{{leaderboard.expanded}}">
+          <span class="px blink" style="font-size: 9px; color: #ffd23f">★</span>
+          <span class="px" style="flex: 1; text-align: left; font-size: 9px; color: #ffd23f; line-height: 1.4">{{leaderboard.title}}</span>
+          <span aria-hidden="true" class="px" style="font-size: 10px; color: #ffd23f">{{leaderboard.caret}}</span>
+        </button>
+        <sc-if value="{{leaderboard.open}}" hint-placeholder-val="{{ true }}">
+          <ol style="list-style: none; margin: 0; padding: 4px 6px 8px">
+            <sc-for list="{{leaderboard.rows}}" as="r" hint-placeholder-count="12">
+              <li><button type="button" class="{{r.cls}}" onClick="{{r.go}}" aria-current="{{r.cur}}">
+                <span class="px" style="font-size: 9px; color: {{r.medal}}; width: 22px">{{r.rank}}</span>
+                <span class="px" style="flex: 1; min-width: 0; font-size: 8px; color: #ecebff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left">{{r.name}}</span>
+                <span style="font-size: 10px; color: #a6a2cc; width: 30px; text-align: right">{{r.units}}</span>
+                <span class="px" style="font-size: 9px; color: {{r.color}}; width: 58px; text-align: right">{{r.score}}</span>
+              </button></li>
+            </sc-for>
+          </ol>
+        </sc-if>
+      </section>
+
+      <sc-if value="{{toastOn}}" hint-placeholder-val="{{ false }}">
+        <div class="pop px" role="status" style="position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: #ffd23f; color: #0b0820; border: 2px solid #0b0820; border-radius: 6px; padding: 10px 14px; font-size: 10px; white-space: nowrap">{{toastText}}</div>
+      </sc-if>
+    </div>
+
+    <aside class="sidebar" aria-label="Details for the current selection" style="flex: none; width: 440px; display: flex; flex-direction: column; min-height: 0; background: #15102c; border-left: 2px solid #2c2457">
+      <div style="flex: none; padding: 8px 12px 12px; border-bottom: 2px solid #2c2457">
+        <nav aria-label="Breadcrumb" style="display: flex; flex-wrap: wrap; align-items: center">
+          <sc-for list="{{panel.crumbs}}" as="c" hint-placeholder-count="2">
+            <sc-if value="{{c.sep}}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color: #6b6590; padding: 0 2px">›</span></sc-if>
+            <button type="button" class="crumb" onClick="{{c.go}}" aria-current="{{c.cur}}" style="color: {{c.color}}">{{c.label}}</button>
+          </sc-for>
+        </nav>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px">
+          <div style="font-size: 16px; font-weight: 700; min-width: 0">{{panel.title}}</div>
+          <sc-if value="{{panel.hasScore}}" hint-placeholder-val="{{ true }}">
+            <div title="Scorecard, 0–100" style="flex: none; display: flex; align-items: baseline; gap: 4px; border: 2px solid {{panel.scoreColor}}; border-radius: 8px; padding: 2px 8px"><span class="px" style="font-size: 7px; color: #a6a2cc">SCORE</span><span style="font-size: 20px; font-weight: 700; color: {{panel.scoreColor}}">{{panel.score}}</span></div>
+          </sc-if>
+        </div>
+        <div style="font-size: 11px; color: #a6a2cc; margin-top: 2px">{{panel.sub}}</div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px">
+          <sc-for list="{{panel.stats}}" as="k" hint-placeholder-count="4">
+            <div style="background: #0b0820; border: 1px solid #2c2457; border-radius: 6px; padding: 6px 8px"><div style="font-size: 9px; color: #a6a2cc; line-height: 1.3">{{k.label}}</div><div style="font-size: 17px; font-weight: 700; color: {{k.color}}">{{k.value}}</div></div>
+          </sc-for>
+        </div>
+      </div>
+      <div class="pane" style="flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+        <sc-if value="{{panel.isUnit}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px">
+            <span style="font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 4px; background: {{panel.unit.statusBg}}; color: {{panel.unit.statusFg}}; border: 1px solid #4b4380">{{panel.unit.statusLabel}}</span>
+            <span style="font-size: 11px; color: #a6a2cc">Rent roll: {{panel.unit.rr}}</span>
+          </div>
+          <div style="background: #0b0820; border-radius: 8px; padding: 10px 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; font-size: 12px">
+            <div style="grid-column: span 2"><div style="font-size: 10px; color: #a6a2cc">Tenant</div><div style="font-size: 14px; font-weight: 700">{{panel.unit.tenant}}</div></div>
+            <div><div style="font-size: 10px; color: #a6a2cc">Phone</div>
+              <sc-if value="{{panel.unit.hasPhone}}" hint-placeholder-val="{{ true }}"><a href="{{panel.unit.tel}}" style="font-weight: 700">{{panel.unit.phone}}</a></sc-if>
+              <sc-if value="{{panel.unit.noPhone}}" hint-placeholder-val="{{ false }}"><span style="color: #a6a2cc">—</span></sc-if>
+            </div>
+            <div><div style="font-size: 10px; color: #a6a2cc">Moved in</div><div>{{panel.unit.moveIn}}</div></div>
+            <div><div style="font-size: 10px; color: #a6a2cc">Lease ends (≤ 90d)</div><div>{{panel.unit.leaseEnd}}</div></div>
+          </div>
+          <div class="px" style="font-size: 8px; color: #ff4fa8">OPEN ISSUES · {{panel.unit.count}}</div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{panel.unit.issues}}" as="i" hint-placeholder-count="3">
+              <div style="background: #0b0820; border: 2px solid {{i.border}}; border-radius: 8px; padding: 10px 12px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; align-items: flex-start"><span style="font-size: 13px; font-weight: 700">{{i.title}}</span><span class="px" style="font-size: 6px; color: {{i.color}}; white-space: nowrap; line-height: 1.8">{{i.kindLabel}}</span></div>
+                <div style="font-size: 11px; color: #a6a2cc; margin-top: 3px">{{i.meta}}</div>
+                <sc-if value="{{i.hasDetail}}" hint-placeholder-val="{{ false }}"><div style="font-size: 12px; color: #c9c6ea; margin-top: 6px; line-height: 1.45">{{i.detail}}</div></sc-if>
+                <sc-if value="{{i.hasLog}}" hint-placeholder-val="{{ false }}"><div style="font-size: 11px; color: #36e2ec; margin-top: 6px">Logged: {{i.log}}</div></sc-if>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px">
+                  <sc-for list="{{i.actions}}" as="a" hint-placeholder-count="2"><button type="button" class="{{a.cls}}" onClick="{{a.fn}}" aria-pressed="{{a.pressed}}">{{a.label}}</button></sc-for>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{panel.unit.noIssues}}" hint-placeholder-val="{{ false }}"><div style="font-size: 12px; color: #a6a2cc">No open issues on this unit.</div></sc-if>
+          </div>
+          <div style="font-size: 10px; color: #a6a2cc; line-height: 1.5">Rehab stage writes through the dashboard's rehabs API. Follow-ups, contacts and offers are logged in the dashboard. Work orders and balances clear on their own when AppFolio closes them — nothing here edits AppFolio.</div>
+        </sc-if>
+
+        <sc-if value="{{panel.isProp}}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="px" style="font-size: 7px; color: #ffd23f; margin-bottom: 6px">BUILDINGS · TAP TO OPEN</div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <sc-for list="{{panel.blds}}" as="b" hint-placeholder-count="3">
+                <button type="button" class="row" onClick="{{b.go}}" style="flex-direction: column; align-items: stretch; gap: 6px">
+                  <span style="display: flex; justify-content: space-between; gap: 8px"><span style="font-size: 13px; font-weight: 700">{{b.addr}}</span><span style="font-size: 11px; color: #a6a2cc; white-space: nowrap">{{b.n}} units</span></span>
+                  <span style="display: flex; flex-wrap: wrap; gap: 2px"><sc-for list="{{b.strip}}" as="q" hint-placeholder-count="8"><span style="width: 10px; height: 10px; background: {{q.c}}; border: 1px solid #4b4380; display: inline-block"></span></sc-for></span>
+                  <span style="font-size: 11px; color: #c9c6ea">{{b.summary}}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{panel.isBldg}}" hint-placeholder-val="{{ false }}">
+          <sc-if value="{{panel.bldg.hasAlert}}" hint-placeholder-val="{{ false }}">
+            <div style="background: rgba(255,79,168,.08); border: 2px solid #ff4fa8; border-radius: 8px; padding: 10px 12px">
+              <div class="px" style="font-size: 7px; color: #ff4fa8">BUILDING-LEVEL PATTERN</div>
+              <div style="font-size: 13px; font-weight: 700; margin-top: 6px">{{panel.bldg.alertTitle}}</div>
+              <div style="font-size: 12px; color: #c9c6ea; margin-top: 4px; line-height: 1.45">{{panel.bldg.alertNote}}</div>
+              <sc-if value="{{panel.bldg.alertLogged}}" hint-placeholder-val="{{ false }}"><div style="font-size: 11px; color: #36e2ec; margin-top: 6px">Logged: {{panel.bldg.alertLog}}</div></sc-if>
+              <button type="button" class="chip" onClick="{{panel.bldg.alertAct}}" style="margin-top: 8px">OPEN BUILDING INSPECTION</button>
+            </div>
+          </sc-if>
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{panel.bldg.floors}}" as="f" hint-placeholder-count="2">
+              <div>
+                <div class="px" style="font-size: 7px; color: #a6a2cc">{{f.label}}</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; margin-top: 6px">
+                  <sc-for list="{{f.units}}" as="t" hint-placeholder-count="4">
+                    <button type="button" class="tile" onClick="{{t.go}}" aria-label="{{t.aria}}" style="background: {{t.bg}}; color: {{t.fg}}; border-color: {{t.border}}">
+                      <span style="display: block; font-weight: 700; font-size: 12px">{{t.u}}</span>
+                      <span style="display: block; font-size: 10px; margin-top: 2px">{{t.sub}}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{panel.notUnit}}" hint-placeholder-val="{{ true }}">
+          <sc-for list="{{panel.sections}}" as="sec" hint-placeholder-count="4">
+            <sc-if value="{{sec.hasGroup}}" hint-placeholder-val="{{ false }}"><div class="px" style="font-size: 7px; color: #a6a2cc; margin: 2px 2px -4px">{{sec.group}}</div></sc-if>
+            <div style="background: #0b0820; border: 2px solid {{sec.border}}; border-radius: 8px">
+              <button type="button" class="sechead" onClick="{{sec.toggle}}" aria-expanded="{{sec.expanded}}">
+                <span class="px" style="font-size: 8px; color: {{sec.color}}; white-space: nowrap">{{sec.title}}</span>
+                <span style="flex: 1; min-width: 0; text-align: right; font-size: 12px; color: #c9c6ea">{{sec.summary}}</span>
+                <sc-if value="{{sec.hasBadge}}" hint-placeholder-val="{{ false }}"><span style="flex: none; font-size: 13px; font-weight: 700; color: {{sec.badgeColor}}">{{sec.badge}}</span></sc-if>
+                <span aria-hidden="true" class="px" style="font-size: 10px; color: {{sec.color}}; width: 14px; text-align: center">{{sec.caret}}</span>
+              </button>
+              <sc-if value="{{sec.isOpen}}" hint-placeholder-val="{{ false }}">
+                <div style="padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px">
+                  <sc-if value="{{sec.hasChips}}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px">
+                      <sc-for list="{{sec.chips}}" as="c" hint-placeholder-count="3"><button type="button" class="{{c.cls}}" onClick="{{c.pick}}" aria-pressed="{{c.pressed}}">{{c.label}}</button></sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{sec.hasBands}}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; height: 12px; border-radius: 3px; overflow: hidden; border: 1px solid #2c2457"><sc-for list="{{sec.bands}}" as="b" hint-placeholder-count="4"><div style="width: {{b.pct}}%; background: {{b.color}}"></div></sc-for></div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: #c9c6ea"><sc-for list="{{sec.bands}}" as="b" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 5px"><span style="width: 10px; height: 10px; background: {{b.color}}; display: inline-block"></span>{{b.name}} {{b.n}}</span></sc-for></div>
+                  </sc-if>
+                  <sc-if value="{{sec.hasNote}}" hint-placeholder-val="{{ false }}"><div style="font-size: 11px; color: #a6a2cc; line-height: 1.45">{{sec.note}}</div></sc-if>
+                  <sc-for list="{{sec.rows}}" as="r" hint-placeholder-count="5">
+                    <button type="button" class="row" onClick="{{r.go}}">
+                      <span style="width: 5px; align-self: stretch; border-radius: 2px; background: {{r.color}}"></span>
+                      <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 12px; line-height: 1.35">{{r.label}}</span><span style="display: block; font-size: 10px; color: #a6a2cc; margin-top: 2px">{{r.sub}}</span>
+                        <sc-if value="{{r.hasBar}}" hint-placeholder-val="{{ false }}"><span style="display: block; height: 5px; background: #1b1438; border-radius: 2px; margin-top: 5px; overflow: hidden"><span style="display: block; width: {{r.pct}}%; height: 100%; background: {{r.barColor}}"></span></span></sc-if>
+                      </span>
+                      <span style="font-size: 12px; font-weight: 700; color: {{r.valueColor}}; white-space: nowrap; text-align: right">{{r.value}}</span>
+                    </button>
+                  </sc-for>
+                  <sc-if value="{{sec.hasMore}}" hint-placeholder-val="{{ false }}"><div style="font-size: 11px; color: #a6a2cc">+{{sec.more}} more — select a property or building to narrow.</div></sc-if>
+                  <sc-if value="{{sec.empty}}" hint-placeholder-val="{{ false }}"><div style="font-size: 12px; color: #a6a2cc">{{sec.emptyText}}</div></sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </sc-if>
+      </div>
+    </aside>
+  </div>
+
+  <div style="flex: none; display: flex; align-items: center; background: #15102c; border-top: 2px solid #2c2457; overflow: hidden">
+    <div class="px" style="flex: none; font-size: 8px; color: #0b0820; background: {{roleColor}}; padding: 10px 12px">LIVE</div>
+    <div style="overflow: hidden; flex: 1; min-width: 0; padding: 8px 0">
+      <div class="ticker" style="font-size: 12px; color: #c9c6ea">
+        <sc-for list="{{ticker}}" as="t" hint-placeholder-count="6"><span><span style="color: {{t.color}}">{{t.tag}}</span> {{t.text}}</span></sc-for>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{scanlines}}" hint-placeholder-val="{{ true }}">
+    <div class="scan"></div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scanlines":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      role: 'pm', ang: 0, zi: 1,
+      picked: null, pickedB: null, pickedU: null,
+      pf: 'portfolio', downFilter: 'all', woSort: 'aged', issueKind: 'all', focusBy: 'prop', lbOpen: true, open: {},
+      unitSt: {}, resolved: {}, logs: {}, xp: 0, toast: '',
+    };
+  }
+
+  data() {
+    const D = (unit, days, rs) => ({ unit, days, rs });
+    const Z = { ok: 0, dnr: 0, pending: 0, e60: 0, e90: 0 };
+    const W0 = { open: 0, aged: 0, urgent: 0, med: null, new30: 0 };
+    const L0 = { n: 0, perfect: 0, good: 0, late: 0, missed: 0 };
+    // Coordinates: AppFolio listing geocodes, averaged per property. 3909 N
+    // Oakland Gravel has never been listed, so it is placed from OpenStreetMap,
+    // which resolves the road but not the house number.
+    return [
+      { name: 'Hilltop Townhomes', short: 'HILLTOP', district: 'kc', address: '2420 Delavan Avenue, Kansas City, KS 66104', lat: 39.14388, lng: -94.65841,
+        managed: true, units: 51, occ: 44, notice: 0, evict: 0,
+        renew: { ok: 34, dnr: 24, pending: 9, e60: 5, e90: 7 }, wo: { open: 68, aged: 58, urgent: 2, med: 25, new30: 83 },
+        lead: { n: 50, perfect: 47, good: 1, late: 1, missed: 1 },
+        dark: [D('2625F', 343, 'Not Started'), D('2637F', 273, 'Not Started'), D('2602D', 188, 'Not Started'), D('2613D', 179, 'In Progress'), D('2607D', 51, 'In Progress'), D('2605F', 45, 'Not Started'), D('2610D', 31, 'Not Started')] },
+      { name: 'Oakwood Gardens', short: 'OAKWOOD', district: 'kc', address: '3309 Wood Avenue, Kansas City, KS 66102', lat: 39.12323, lng: -94.66705,
+        units: 50, occ: 44, notice: 2, evict: 0,
+        renew: { ok: 31, dnr: 17, pending: 16, e60: 0, e90: 2 }, wo: { open: 5, aged: 1, urgent: 0, med: 7, new30: 12 },
+        lead: { n: 26, perfect: 21, good: 2, late: 1, missed: 2 },
+        dark: [D('51', 117, 'Complete'), D('23', 91, 'Complete'), D('17', 37, 'Complete'), D('31', 9, 'Complete')] },
+      { name: 'Maple Manor Apartments', short: 'MAPLE MANOR', district: 'kc', address: '1409 W Maple Ave, Independence, MO 64050', lat: 39.09190, lng: -94.43352,
+        units: 40, occ: 34, notice: 1, evict: 0,
+        renew: { ok: 28, dnr: 3, pending: 8, e60: 1, e90: 6 }, wo: { open: 5, aged: 3, urgent: 0, med: 20, new30: 20 },
+        lead: { n: 36, perfect: 33, good: 0, late: 2, missed: 1 },
+        dark: [D('1415L', 336, 'Rented'), D('1413B', 322, 'Complete'), D('1415H', 273, 'Complete'), D('1409D', 218, 'Complete'), D('1413H', 133, 'Complete')] },
+      { name: 'Glen Oaks', short: 'GLEN OAKS', district: 'kc', address: '3050 N 58th St, Kansas City, KS 66104', lat: 39.14257, lng: -94.71414,
+        managed: true, units: 36, occ: 31, notice: 1, evict: 0,
+        renew: { ok: 21, dnr: 15, pending: 16, e60: 3, e90: 6 }, wo: { open: 3, aged: 0, urgent: 0, med: 6, new30: 16 },
+        lead: { n: 30, perfect: 26, good: 2, late: 1, missed: 1 },
+        dark: [D('7', 182, 'Complete'), D('32', 130, 'Complete'), D('29', 72, 'Complete'), D('3', 5, 'Not Started')] },
+      { name: 'Normandy Apartments', short: 'NORMANDY', district: 'kc', address: '1900 N 77th Street, Kansas City, KS 66112', lat: 39.12708, lng: -94.75799,
+        units: 22, occ: 20, notice: 1, evict: 0,
+        renew: { ok: 14, dnr: 19, pending: 7, e60: 2, e90: 2 }, wo: { open: 7, aged: 2, urgent: 0, med: 10, new30: 13 },
+        lead: { n: 8, perfect: 8, good: 0, late: 0, missed: 0 },
+        dark: [D('1904-7', 103, 'Back Burner')] },
+      { name: 'Ide Lofts', short: 'IDE LOFTS', district: 'kc', address: '920 Broadway Boulevard, Kansas City, MO 64105', lat: 39.10295, lng: -94.58845,
+        units: 15, occ: 12, notice: 0, evict: 0,
+        renew: { ok: 4, dnr: 0, pending: 1, e60: 0, e90: 0 }, wo: { open: 6, aged: 2, urgent: 0, med: 5, new30: 7 },
+        lead: { n: 14, perfect: 14, good: 0, late: 0, missed: 0 },
+        dark: [D('103', 75, 'In Progress'), D('203', 66, 'Complete'), D('101', 3, 'Not Started')] },
+      { name: 'Pioneer Apartments', short: 'PIONEER', district: 'como', address: '2404-2408 Whitegate Drive, Columbia, MO 65202', lat: 38.96748, lng: -92.30209,
+        units: 30, occ: 28, notice: 0, evict: 1,
+        renew: { ok: 26, dnr: 7, pending: 2, e60: 1, e90: 1 }, wo: { open: 2, aged: 0, urgent: 0, med: 5, new30: 3 },
+        lead: { n: 14, perfect: 10, good: 0, late: 0, missed: 4 },
+        dark: [D('29', 154, 'Back Burner')] },
+      { name: '3909 North Oakland Gravel Road', short: '3909 N OAKLAND', district: 'como', address: '3909 N Oakland Gravel Road, Columbia, MO 65202', lat: 38.99800, lng: -92.30240, approx: true,
+        units: 6, occ: 4, notice: 0, evict: 0,
+        renew: { ok: 5, dnr: 3, pending: 0, e60: 0, e90: 0 }, wo: { ...W0, new30: 1 }, lead: L0,
+        dark: [D('2', 881, 'In Progress'), D('1', 461, 'In Progress')] },
+      { name: '407 Pecan Street', short: '407 PECAN', district: 'como', address: '407 Pecan Street, Columbia, MO 65201', lat: 38.96017, lng: -92.33211,
+        units: 5, occ: 5, notice: 0, evict: 0,
+        renew: { ...Z, ok: 3, dnr: 1 }, wo: { open: 1, aged: 0, urgent: 0, med: 5, new30: 4 },
+        lead: { n: 17, perfect: 16, good: 0, late: 0, missed: 1 }, dark: [] },
+      { name: '1511 Sylvan Lane', short: '1511 SYLVAN', district: 'como', address: '1511 Sylvan Lane, Columbia, MO 65202', lat: 38.96781, lng: -92.30148,
+        units: 4, occ: 4, notice: 0, evict: 0,
+        renew: { ...Z, ok: 2 }, wo: { ...W0, new30: 3 }, lead: L0, dark: [] },
+      { name: '811 South Fairview Road', short: '811 FAIRVIEW', district: 'como', address: '811 S Fairview Road, Columbia, MO 65203', lat: 38.94597, lng: -92.38118,
+        units: 2, occ: 2, notice: 0, evict: 0,
+        renew: { ...Z, ok: 1, dnr: 3 }, wo: { ...W0, new30: 1 }, lead: L0, dark: [] },
+      { name: '801-803 Washington Avenue', short: '801 WASHINGTON', district: 'como', address: '801-803 Washington Avenue, Columbia, MO 65201', lat: 38.96014, lng: -92.33179,
+        units: 2, occ: 2, notice: 0, evict: 0,
+        renew: { ...Z, dnr: 1, e90: 1 }, wo: W0, lead: L0, dark: [] },
+    ];
+  }
+
+  stageOf(rs) {
+    if (rs === 'Complete' || rs === 'Rented') return 'ready';
+    if (rs === 'In Progress') return 'build';
+    return 'stalled';
+  }
+
+  chip(rs) {
+    if (rs === 'Complete') return { chipBg: '#1f8f96', chipFg: '#0b0820', rs: 'Ready' };
+    if (rs === 'Rented') return { chipBg: '#ffd23f', chipFg: '#0b0820', rs: 'Leased, not moved in' };
+    if (rs === 'In Progress') return { chipBg: '#36e2ec', chipFg: '#0b0820', rs: 'Building' };
+    if (rs === 'Back Burner') return { chipBg: '#4a4470', chipFg: '#ecebff', rs: 'Back burner' };
+    return { chipBg: '#3a3270', chipFg: '#ecebff', rs: 'Not started' };
+  }
+
+  rateOf(r) {
+    const d = r.ok + r.dnr;
+    return d === 0 ? null : Math.round((r.ok / d) * 100);
+  }
+
+  rateColor(rate) {
+    if (rate === null) return '#a6a2cc';
+    return rate >= 75 ? '#36e2ec' : rate >= 55 ? '#ffd23f' : '#ff4fa8';
+  }
+
+  median(nums) {
+    if (!nums.length) return '—';
+    const s = [...nums].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  }
+
+  sitesData() {
+    // Footprints: OpenStreetMap (traced from aerial imagery), except Hilltop,
+    // which OSM has not mapped: its six rows were traced from Esri World
+    // Imagery. Units are assigned to buildings by their AppFolio street
+    // address. Local coordinates are metres: x east, y south.
+    return [{"id":"hilltop","props":["Hilltop Townhomes"],"lat":39.143924,"lng":-94.658437,"lot":[-65,-72,63,71],"buildings":[{"prop":"Hilltop Townhomes","addr":"2621–2637 Farrow Ave","floors":2,"base":0,"mode":"town","units":["2621F","2623F","2625F","2627F","2629F","2631F","2633F","2635F","2637F"],"poly":[[-41.8,-49.6],[-0.6,-49.6],[-0.6,-37.6],[-41.8,-37.6]]},{"prop":"Hilltop Townhomes","addr":"2601–2615 Farrow Ave","floors":2,"base":0,"mode":"town","units":["2601F","2603F","2605F","2607F","2609F","2611F","2613F","2615F"],"poly":[[3.6,-49.6],[40.4,-49.6],[40.4,-37.6],[3.6,-37.6]]},{"prop":"Hilltop Townhomes","addr":"2620–2636 Delavan Ave","floors":2,"base":0,"mode":"town","units":["2620D","2622D","2624D","2626D","2628D","2630D","2632D","2634D","2636D"],"poly":[[-42.3,-4],[-1.1,-4],[-1.1,8],[-42.3,8]]},{"prop":"Hilltop Townhomes","addr":"2600–2614 Delavan Ave","floors":2,"base":0,"mode":"town","units":["2600D","2602D","2604D","2606D","2608D","2610D","2612D","2614D"],"poly":[[2.2,-4],[39.7,-4],[39.7,8],[2.2,8]]},{"prop":"Hilltop Townhomes","addr":"2621–2637 Delavan Ave","floors":2,"base":0,"mode":"town","units":["2621D","2623D","2625D","2627D","2629D","2631D","2633D","2635D","2637D"],"poly":[[-42.5,35.1],[-1.1,35.1],[-1.1,48.1],[-42.5,48.1]]},{"prop":"Hilltop Townhomes","addr":"2601–2615 Delavan Ave","floors":2,"base":0,"mode":"town","units":["2601D","2603D","2605D","2607D","2609D","2611D","2613D","2615D"],"poly":[[2.9,35.1],[40.8,35.1],[40.8,48.1],[2.9,48.1]]}],"roads":[{"w":8,"n":"Farrow Avenue","a":[-61.3,-67],"b":[-51.5,-63.5]},{"w":8,"n":"Farrow Avenue","a":[-51.5,-63.5],"b":[43.2,-63.1]},{"w":8,"n":"Farrow Avenue","a":[43.2,-63.1],"b":[63,-62.8]},{"w":8,"n":"Delavan Avenue","a":[63,30.1],"b":[43.6,29.8]},{"w":8,"n":"Delavan Avenue","a":[43.6,29.8],"b":[32.1,25.4]},{"w":8,"n":"Delavan Avenue","a":[32.1,25.4],"b":[20.6,22.9]},{"w":8,"n":"Delavan Avenue","a":[20.6,22.9],"b":[-1.1,22.3]},{"w":8,"n":"Delavan Avenue","a":[-1.1,22.3],"b":[-59.6,21.7]},{"w":8,"n":"North 26th Street","a":[46.8,57.9],"b":[46.2,35.4]},{"w":8,"n":"North 26th Street","a":[46.2,35.4],"b":[43.6,29.8]},{"w":8,"n":"North 26 Street","a":[43.6,29.8],"b":[43.4,-20]},{"w":8,"n":"North 26 Street","a":[43.4,-20],"b":[43.3,-47.5]},{"w":8,"n":"North 26 Street","a":[43.3,-47.5],"b":[43.2,-63.1]},{"w":8,"n":"North 27th Street","a":[-59,71],"b":[-59.6,21.7]},{"w":8,"n":"North 27th Street","a":[-59.6,21.7],"b":[-60.8,-53.2]},{"w":8,"n":"North 27th Street","a":[-60.8,-53.2],"b":[-61.3,-67]},{"w":8,"n":"Farrow Avenue","a":[-65,-67.1],"b":[-61.3,-67]},{"w":8,"n":"North 27th Street","a":[-61.3,-67],"b":[-61.2,-72]},{"w":5,"n":"","a":[43.4,-20],"b":[-36.4,-20.2]}]},{"id":"oakwood","props":["Oakwood Gardens"],"lat":39.123272,"lng":-94.666858,"lot":[-75,-72,67,46],"buildings":[{"prop":"Oakwood Gardens","addr":"3301 Wood Ave","floors":3,"base":0,"mode":"apt","units":["1","2","3","4","5","6","7","8","9","10","11"],"poly":[[-9.1,23.9],[22,23.5],[21.8,11.5],[-9.2,11.9]]},{"prop":"Oakwood Gardens","addr":"3303 Wood Ave","floors":3,"base":0,"mode":"apt","units":["12","14","15","16","17","18","19","20","21","22","23","24","25","26"],"poly":[[30.2,23.8],[44.1,23.7],[43.8,-11.1],[31.7,-11],[32,13],[30,13]]},{"prop":"Oakwood Gardens","addr":"3305 Wood Ave","floors":3,"base":0,"mode":"apt","units":["27","28","29","30","31","32","33","34","35","36","37"],"poly":[[2.3,-19.1],[2.2,-49.8],[-9.7,-49.8],[-9.5,-19]]},{"prop":"Oakwood Gardens","addr":"3307 Wood Ave","floors":3,"base":0,"mode":"apt","units":["38","39","40","41","42","43","44","45","46","47","48","49","50","51"],"poly":[[-52,11.6],[-17.3,10.8],[-17.5,-1.3],[-41.7,-0.8],[-41.8,-2.6],[-52.3,-2.3]]}],"roads":[{"w":5,"n":"","a":[-48.7,-72],"b":[-49.1,-35.4]},{"w":5,"n":"","a":[-49.1,-35.4],"b":[-49.2,-14.4]},{"w":5,"n":"","a":[-49.2,-14.4],"b":[-21.9,-14.4]},{"w":5,"n":"","a":[-21.9,-14.4],"b":[-8.4,-14.3]},{"w":5,"n":"","a":[-8.4,-14.3],"b":[19.3,-14]},{"w":5,"n":"","a":[19.3,-14],"b":[19.5,0.5]},{"w":5,"n":"","a":[19.5,0.5],"b":[-8.4,0.7]},{"w":5,"n":"","a":[-8.4,0.7],"b":[-8.4,-14.3]},{"w":5,"n":"","a":[-75,-16.2],"b":[-69.2,-16.2]},{"w":5,"n":"","a":[-69.2,-16.2],"b":[-66.9,-20.3]},{"w":5,"n":"","a":[-66.9,-20.3],"b":[-65.1,-31.1]},{"w":5,"n":"","a":[-65.1,-31.1],"b":[-65.4,-72]},{"w":5,"n":"","a":[-49.1,-35.4],"b":[-22,-35.5]},{"w":5,"n":"","a":[-22,-35.5],"b":[-21.9,-14.4]}]},{"id":"maple","props":["Maple Manor Apartments"],"lat":39.091986,"lng":-94.433546,"lot":[-58,-90,43,74],"buildings":[{"prop":"Maple Manor Apartments","addr":"1409 W Maple Ave","floors":2,"base":0,"mode":"apt","units":["1409A","1409B","1409C","1409D","1409E","1409F","1409G","1409H"],"poly":[[1.7,-67.3],[20.3,-66.6],[19.4,-49.8],[1.2,-50.2]]},{"prop":"Maple Manor Apartments","addr":"1411 W Maple Ave","floors":2,"base":0,"mode":"apt","units":["1411A","1411B","1411C","1411D","1411E","1411F","1411G","1411H"],"poly":[[-1.7,-34.8],[20.8,-34],[20.3,-17.1],[-2.3,-17.8]]},{"prop":"Maple Manor Apartments","addr":"1413 W Maple Ave","floors":3,"base":0,"mode":"apt","units":["1413A","1413B","1413C","1413D","1413E","1413F","1413G","1413H","1413I","1413J","1413K","1413L"],"poly":[[-4.4,34],[15.8,34.5],[15.3,51.6],[-4.8,51.1]]},{"prop":"Maple Manor Apartments","addr":"1415 W Maple Ave","floors":3,"base":0,"mode":"apt","units":["1415A","1415B","1415C","1415D","1415E","1415F","1415G","1415H","1415I","1415J","1415K","1415L"],"poly":[[-35.2,32.8],[-15.1,33.3],[-15.6,50.4],[-35.7,49.8]]}],"roads":[{"w":8,"n":"West Maple Avenue","a":[43,-84.4],"b":[25.5,-85.2]},{"w":8,"n":"West Maple Avenue","a":[25.5,-85.2],"b":[-3.6,-86.5]},{"w":8,"n":"West Maple Avenue","a":[-3.6,-86.5],"b":[-4.5,-86.6]},{"w":8,"n":"West Maple Avenue","a":[-4.5,-86.6],"b":[-58,-89.1]},{"w":5,"n":"","a":[20.7,74],"b":[22.5,16]},{"w":5,"n":"","a":[22.5,16],"b":[23.1,-2.9]},{"w":5,"n":"","a":[23.1,-2.9],"b":[25.3,-77.1]},{"w":5,"n":"","a":[25.3,-77.1],"b":[25.5,-85.2]},{"w":5,"n":"","a":[22.5,16],"b":[-8,15.4]},{"w":5,"n":"","a":[-8,15.4],"b":[-35.6,14.8]},{"w":5,"n":"","a":[23.1,-2.9],"b":[-3,-2.4]},{"w":5,"n":"","a":[-3,-2.4],"b":[-5.4,-1.9]},{"w":5,"n":"","a":[-5.4,-1.9],"b":[-6.9,-0.5]},{"w":5,"n":"","a":[-6.9,-0.5],"b":[-7.3,1.6]},{"w":5,"n":"","a":[-7.3,1.6],"b":[-8,15.4]},{"w":5,"n":"","a":[-4.5,-86.6],"b":[-4.8,-78.5]},{"w":5,"n":"","a":[-4.8,-78.5],"b":[-4.9,-73]},{"w":5,"n":"","a":[-6.2,-25.7],"b":[-6.9,-0.5]},{"w":5,"n":"","a":[-4.9,-73],"b":[-6.2,-25.7]}]},{"id":"glenoaks","props":["Glen Oaks"],"lat":39.14256,"lng":-94.71407,"lot":[-63,-62,51,43],"buildings":[{"prop":"Glen Oaks","addr":"3050 N 58th St","floors":3,"base":0,"mode":"apt","units":["13","14","15","16","17","18","19","20","21","22","23","24"],"poly":[[27.8,19.6],[24.6,19.6],[24.6,21],[22.1,20.9],[22.1,19.6],[17,19.5],[16.9,21],[14.4,20.9],[14.4,19.6],[11,19.5],[11,21],[8.3,21],[8.3,19.5],[3.2,19.4],[3.2,20.8],[0.7,20.7],[0.7,19.4],[-2.6,19.4],[-2.5,9.6],[27.9,10.1]]},{"prop":"Glen Oaks","addr":"3052 N 58th St","floors":3,"base":0,"mode":"apt","units":["25","26","27","28","29","30","31","32","33","34","35","36"],"poly":[[-10.6,19.3],[-13.7,19.3],[-13.8,20.6],[-16.3,20.6],[-16.2,19.3],[-21.4,19.2],[-21.4,20.7],[-24,20.6],[-24,19.3],[-27.4,19.2],[-27.4,20.7],[-30.1,20.6],[-30.1,19.2],[-35.2,19.1],[-35.2,20.4],[-37.7,20.4],[-37.7,19.1],[-41,19.1],[-40.9,9.2],[-10.4,9.8]]},{"prop":"Glen Oaks","addr":"3054 N 58th St","floors":3,"base":0,"mode":"apt","units":["1","2","3","4","5","6","7","8","9","10","11","12"],"poly":[[25.1,-38.2],[28.4,-38.2],[28.3,-28.6],[-2.4,-28.8],[-2.3,-38.5],[1.1,-38.5],[1.2,-39.7],[3.7,-39.7],[3.7,-38.5],[8.8,-38.5],[8.8,-39.7],[11.4,-39.7],[11.4,-38.4],[14.8,-38.4],[14.8,-39.6],[17.3,-39.6],[17.3,-38.2],[22.5,-38.2],[22.5,-39.4],[25.2,-39.4]]}],"roads":[{"w":8,"n":"North 58th Street","a":[44,43],"b":[44.6,-9.2]},{"w":8,"n":"North 58th Street","a":[44.6,-9.2],"b":[44.7,-18.4]},{"w":8,"n":"North 58th Street","a":[44.7,-18.4],"b":[45.1,-57.6]},{"w":5,"n":"","a":[-8.7,-16.7],"b":[18.9,-17.1]},{"w":5,"n":"","a":[18.9,-17.1],"b":[23.5,-9.2]},{"w":5,"n":"","a":[23.5,-9.2],"b":[19.1,0.5]},{"w":5,"n":"","a":[19.1,0.5],"b":[-8.5,-0.2]},{"w":5,"n":"","a":[-8.5,-0.2],"b":[-13.3,-3.6]},{"w":5,"n":"","a":[-8.9,-38.1],"b":[-9.1,-21.9]},{"w":5,"n":"","a":[-9.1,-21.9],"b":[-8.7,-16.7]},{"w":5,"n":"","a":[-8.7,-16.7],"b":[-8.5,-13.4]},{"w":5,"n":"","a":[-8.5,-13.4],"b":[-13.3,-3.6]},{"w":5,"n":"","a":[-13.3,-3.6],"b":[-25.1,-0.2]},{"w":5,"n":"","a":[-25.1,-0.2],"b":[-29.5,0.1]},{"w":5,"n":"","a":[-29.5,0.1],"b":[-37.2,0.8]},{"w":5,"n":"","a":[-37.2,0.8],"b":[-37.4,-19.4]},{"w":5,"n":"","a":[44.6,-9.2],"b":[23.5,-9.2]},{"w":5,"n":"","a":[-51.5,-58.9],"b":[-51.8,-22.2]},{"w":5,"n":"","a":[-51.8,-22.2],"b":[-52.9,43]},{"w":5,"n":"","a":[-57.2,-59],"b":[-57.4,-62]},{"w":5,"n":"","a":[44.7,-18.4],"b":[51,-18.4]},{"w":11,"n":"Leavenworth Road","a":[-63,-59.1],"b":[-57.2,-59]},{"w":11,"n":"Leavenworth Road","a":[-57.2,-59],"b":[-51.5,-58.9]},{"w":11,"n":"Leavenworth Road","a":[-51.5,-58.9],"b":[-50.3,-58.9]},{"w":11,"n":"Leavenworth Road","a":[-50.3,-58.9],"b":[45.1,-57.6]},{"w":11,"n":"Leavenworth Road","a":[45.1,-57.6],"b":[51,-57.6]}]},{"id":"normandy","props":["Normandy Apartments"],"lat":39.127152,"lng":-94.757973,"lot":[-33,-45,44,51],"buildings":[{"prop":"Normandy Apartments","addr":"1900 & 1904 N 77th St","floors":3,"base":0,"mode":"apt","units":["1900-1","1900-2","1900-3","1900-4","1900-5","1900-6","1904-7","1904-8","1904-9","1904-10","1904-11"],"poly":[[-10.5,-1.9],[-0.5,-2],[-0.2,28.9],[-10.2,29]]},{"prop":"Normandy Apartments","addr":"1906 & 1908 N 77th St","floors":3,"base":0,"mode":"apt","units":["1906-6","1906-7","1906-8","1906-9","1906-10","1906-11","1908-1","1908-2","1908-3","1908-4","1908-5"],"poly":[[-11,-12.7],[18.7,-4.1],[21.7,-14.3],[-8,-23]]}],"roads":[{"w":8,"n":"North 77th Street","a":[10.7,46],"b":[18.2,51]},{"w":11,"n":"North 77th Street","a":[44,-13.7],"b":[43.1,-11.2]},{"w":11,"n":"North 77th Street","a":[43.1,-11.2],"b":[34.4,7.5]},{"w":11,"n":"North 77th Street","a":[34.4,7.5],"b":[32.2,11.5]},{"w":11,"n":"North 78th Street","a":[10.7,46],"b":[6.6,51]},{"w":11,"n":"North 77th Street","a":[32.2,11.5],"b":[23.8,26.1]},{"w":11,"n":"North 77th Street","a":[23.8,26.1],"b":[10.7,46]},{"w":11,"n":"North 77th Street","a":[24.4,51],"b":[39.3,28.9]},{"w":11,"n":"North 77th Street","a":[39.3,28.9],"b":[44,20.2]},{"w":5,"n":"","a":[-1.4,37.7],"b":[13.2,16.6]},{"w":5,"n":"","a":[13.2,16.6],"b":[16.8,5.7]},{"w":5,"n":"","a":[-12,37],"b":[-1.4,37.7]},{"w":5,"n":"","a":[-1.4,37.7],"b":[5,42.1]},{"w":5,"n":"","a":[5,42.1],"b":[10.7,46]}]},{"id":"ide","props":["Ide Lofts"],"lat":39.102976,"lng":-94.588649,"lot":[-37,-29,42,32],"buildings":[{"prop":"Ide Lofts","addr":"920 Broadway Blvd","floors":3,"base":4,"mode":"apt","units":["101","102","103","104","105","201","202","203","204","205","301","302","303","304","305"],"poly":[[-14.1,-6.5],[-14.7,8.1],[18.6,9.6],[19.1,-4.9],[-8.9,-6.3]]}],"roads":[{"w":11,"n":"Broadway Boulevard","a":[30.2,32],"b":[30.4,27.6]},{"w":11,"n":"Broadway Boulevard","a":[30.4,27.6],"b":[31.1,10.8]},{"w":11,"n":"Broadway Boulevard","a":[31.1,10.8],"b":[31.8,-6.8]},{"w":11,"n":"Broadway Boulevard","a":[31.8,-6.8],"b":[32.6,-29]},{"w":5,"n":"","a":[-16.8,-29],"b":[-19.2,32]},{"w":5,"n":"","a":[31.8,-6.8],"b":[41.9,-6.3]},{"w":5,"n":"","a":[30.4,27.6],"b":[40.6,28.1]},{"w":5,"n":"","a":[40.6,28.1],"b":[42,28.1]},{"w":5,"n":"","a":[42,11.4],"b":[41.2,11.4]},{"w":5,"n":"","a":[41.2,11.4],"b":[31.1,10.8]},{"w":5,"n":"","a":[-28.9,-29],"b":[-29.7,11.5]}]},{"id":"whitegate","props":["Pioneer Apartments","1511 Sylvan Lane"],"lat":38.967564,"lng":-92.301948,"lot":[-55,-54,62,55],"buildings":[{"prop":"Pioneer Apartments","addr":"2404 Whitegate Dr","floors":2,"base":0,"mode":"apt","units":["11","12","13","14","15","16","17","18","19","20"],"poly":[[-19.6,-31.5],[18.2,-31.5],[18.2,-18.7],[-19.6,-18.7]]},{"prop":"Pioneer Apartments","addr":"2406 Whitegate Dr","floors":2,"base":0,"mode":"apt","units":["21","22","23","24","25","26","27","28","29","30"],"poly":[[-32.4,-7.5],[-20.1,-7.5],[-20.1,32.4],[-32.4,32.4]]},{"prop":"Pioneer Apartments","addr":"2408 Whitegate Dr","floors":2,"base":0,"mode":"apt","units":["1","2","3","4","5","6","7","8","9","10"],"poly":[[-12.7,-7.1],[-1.1,-7.1],[-1.1,32.4],[-12.7,32.4]]},{"prop":"1511 Sylvan Lane","addr":"1511 Sylvan Ln","floors":2,"base":0,"mode":"apt","units":["A","B","C","D"],"poly":[[28.6,-8.7],[39.1,-8.7],[39.1,8.7],[28.6,8.7]]}],"roads":[{"w":8,"n":"Whitegate Drive","a":[4.6,-54],"b":[62,-53.3]},{"w":5,"n":"","a":[-29.6,-54],"b":[-29.7,-49.6]},{"w":5,"n":"","a":[-29.7,-49.6],"b":[-29.9,-41]},{"w":5,"n":"","a":[-29.9,-41],"b":[-30.3,-16.2]},{"w":5,"n":"","a":[-30.3,-16.2],"b":[-30.4,-14.4]},{"w":5,"n":"","a":[-30.4,-14.4],"b":[-31.3,-8.3]},{"w":5,"n":"","a":[-31.3,-8.3],"b":[-32.2,-2.3]},{"w":5,"n":"","a":[-32.2,-2.3],"b":[-33,34.3]},{"w":5,"n":"","a":[-33,34.3],"b":[-32.6,40.5]},{"w":5,"n":"","a":[-32.6,40.5],"b":[-31.3,43.1]},{"w":5,"n":"","a":[-31.3,43.1],"b":[-29.2,44.5]},{"w":5,"n":"","a":[-29.2,44.5],"b":[-21.8,45.2]},{"w":5,"n":"","a":[-21.8,45.2],"b":[-3.2,45.7]},{"w":5,"n":"","a":[18.7,-41.1],"b":[-24.6,-40.8]},{"w":5,"n":"","a":[-24.6,-40.8],"b":[-24.6,-16.3]},{"w":5,"n":"","a":[-24.6,-16.3],"b":[-3.8,-15.6]},{"w":5,"n":"","a":[-24.6,-40.8],"b":[-29.9,-41]},{"w":5,"n":"","a":[-24.6,-16.3],"b":[-30.3,-16.2]}]},{"id":"oakland","props":["3909 North Oakland Gravel Road"],"lat":38.989561,"lng":-92.302685,"lot":[-27,-31,27,31],"buildings":[{"prop":"3909 North Oakland Gravel Road","addr":"3909 N Oakland Gravel Rd","floors":3,"base":0,"mode":"apt","units":["1","2","101","102","201","202"],"poly":[[4.9,-8.3],[-4.5,-8.6],[-4.9,8.3],[4.5,8.6]]}],"roads":[{"w":8,"n":"Sears Court","a":[-27,22.3],"b":[-19.8,23]},{"w":8,"n":"Sears Court","a":[-19.8,23],"b":[24.7,27.3]},{"w":10,"n":"Oakland Gravel Road","a":[24.6,31],"b":[24.7,27.3]},{"w":10,"n":"Oakland Gravel Road","a":[24.7,27.3],"b":[25.9,-17.7]},{"w":10,"n":"Oakland Gravel Road","a":[25.9,-17.7],"b":[26.3,-25.3]},{"w":10,"n":"Oakland Gravel Road","a":[26.3,-25.3],"b":[26.5,-31]},{"w":5,"n":"","a":[26.3,-25.3],"b":[-14.8,-25.4]},{"w":5,"n":"","a":[-14.8,-25.4],"b":[-14.9,-31]},{"w":5,"n":"","a":[25.9,-17.7],"b":[-11.1,-17.1]},{"w":5,"n":"","a":[-11.1,-17.1],"b":[-17,-14.3]},{"w":5,"n":"","a":[-17,-14.3],"b":[-18.7,-10.6]},{"w":5,"n":"","a":[-18.7,-10.6],"b":[-19.8,23]}]},{"id":"downtown","props":["407 Pecan Street","801-803 Washington Avenue"],"lat":38.960146,"lng":-92.331905,"lot":[-46,-31,41,31],"buildings":[{"prop":"407 Pecan Street","addr":"407 Pecan St","floors":3,"base":0,"mode":"apt","units":["1","101","102","201","202"],"poly":[[-10.6,3.7],[-8.9,-6.2],[-21.9,-8.4],[-23.5,1.6]]},{"prop":"801-803 Washington Avenue","addr":"801–803 Washington Ave","floors":2,"base":0,"mode":"apt","units":["801","803"],"poly":[[18,8.1],[18.5,-5.7],[3.7,-6.3],[3.4,2.6],[10.8,2.8],[10.6,7.8]]}],"roads":[{"w":8,"n":"Washington Avenue","a":[29.4,31],"b":[29.7,21.9]},{"w":8,"n":"Washington Avenue","a":[29.7,21.9],"b":[30.9,-0.6]},{"w":8,"n":"Washington Avenue","a":[30.9,-0.6],"b":[32.4,-31]},{"w":8,"n":"Pecan Street","a":[-46,10.3],"b":[23.4,20.9]},{"w":8,"n":"Pecan Street","a":[23.4,20.9],"b":[29.7,21.9]},{"w":5,"n":"","a":[41,0.6],"b":[37.7,0.2]},{"w":5,"n":"","a":[37.7,0.2],"b":[30.9,-0.6]}]},{"id":"fairview","props":["811 South Fairview Road"],"lat":38.945975,"lng":-92.38116,"lot":[-29,-32,26,34],"buildings":[{"prop":"811 South Fairview Road","addr":"811 S Fairview Rd","floors":2,"base":0,"mode":"apt","units":["A","B"],"poly":[[-6.3,-9.5],[-7,10.9],[3.3,11.3],[3.8,-1.7],[2.9,-1.8],[3.2,-9.2]]}],"roads":[{"w":5,"n":"","a":[23.1,-22.6],"b":[26,-22.4]},{"w":5,"n":"","a":[21.9,20.6],"b":[26,20.8]},{"w":10,"n":"South Fairview Road","a":[23.1,-32],"b":[23.1,-22.6]},{"w":10,"n":"South Fairview Road","a":[23.1,-22.6],"b":[21.9,20.6]},{"w":10,"n":"South Fairview Road","a":[21.9,20.6],"b":[21.7,26.8]},{"w":10,"n":"South Fairview Road","a":[21.7,26.8],"b":[21.5,34]}]}];
+  }
+
+  unitStatus() {
+    // O occupied · N notice/eviction · B in rehab · R rehab done, unleased · S not started
+    const raw = {"1511 Sylvan Lane":"A:O,B:O,C:O,D:O","3909 North Oakland Gravel Road":"1:B,101:O,102:O,2:B,201:O,202:O","407 Pecan Street":"1:O,101:O,102:O,201:O,202:O","801-803 Washington Avenue":"801:O,803:O","811 South Fairview Road":"A:O,B:O","Glen Oaks":"1:O,10:O,11:O,12:O,13:O,14:O,15:O,16:O,17:O,18:N,19:O,2:O,20:O,21:O,22:O,23:O,24:O,25:O,26:O,27:O,28:O,29:R,3:S,30:O,31:O,32:R,33:O,34:O,35:O,36:O,4:O,5:O,6:O,7:R,8:O,9:O","Hilltop Townhomes":"2600D:O,2601D:O,2601F:O,2602D:S,2603D:O,2603F:O,2604D:O,2605D:O,2605F:S,2606D:O,2607D:B,2607F:O,2608D:O,2609D:O,2609F:O,2610D:S,2611D:O,2611F:O,2612D:O,2613D:B,2613F:O,2614D:O,2615D:O,2615F:O,2620D:O,2621D:O,2621F:O,2622D:O,2623D:O,2623F:O,2624D:O,2625D:O,2625F:S,2626D:O,2627D:O,2627F:O,2628D:O,2629D:O,2629F:O,2630D:O,2631D:O,2631F:O,2632D:O,2633D:O,2633F:O,2634D:O,2635D:O,2635F:O,2636D:O,2637D:O,2637F:S","Ide Lofts":"101:S,102:O,103:B,104:O,105:O,201:O,202:O,203:R,204:O,205:O,301:O,302:O,303:O,304:O,305:O","Maple Manor Apartments":"1409A:O,1409B:O,1409C:O,1409D:R,1409E:O,1409F:N,1409G:O,1409H:O,1411A:O,1411B:O,1411C:O,1411D:O,1411E:O,1411F:O,1411G:O,1411H:O,1413A:O,1413B:R,1413C:O,1413D:O,1413E:O,1413F:O,1413G:O,1413H:R,1413I:O,1413J:O,1413K:O,1413L:O,1415A:O,1415B:O,1415C:O,1415D:O,1415E:O,1415F:O,1415G:O,1415H:R,1415I:O,1415J:O,1415K:O,1415L:R","Normandy Apartments":"1900-1:O,1900-2:N,1900-3:O,1900-4:O,1900-5:O,1900-6:O,1904-10:O,1904-11:O,1904-7:S,1904-8:O,1904-9:O,1906-10:O,1906-11:O,1906-6:O,1906-7:O,1906-8:O,1906-9:O,1908-1:O,1908-2:O,1908-3:O,1908-4:O,1908-5:O","Oakwood Gardens":"1:O,10:O,11:O,12:O,14:O,15:O,16:O,17:R,18:O,19:O,2:O,20:O,21:O,22:O,23:R,24:O,25:O,26:O,27:N,28:O,29:O,3:O,30:O,31:R,32:O,33:O,34:O,35:O,36:O,37:O,38:O,39:O,4:O,40:O,41:O,42:O,43:O,44:O,45:N,46:O,47:O,48:O,49:O,5:O,50:O,51:R,6:O,7:O,8:O,9:O","Pioneer Apartments":"1:O,10:O,11:O,12:O,13:O,14:O,15:O,16:O,17:O,18:O,19:O,2:O,20:O,21:O,22:O,23:O,24:O,25:O,26:O,27:O,28:O,29:S,3:O,30:O,4:N,5:O,6:O,7:O,8:O,9:O"};
+    const out = {};
+    Object.keys(raw).forEach((prop) => {
+      out[prop] = {};
+      raw[prop].split(',').forEach((pair) => { const i = pair.lastIndexOf(':'); out[prop][pair.slice(0, i)] = pair.slice(i + 1); });
+    });
+    return out;
+  }
+
+  // Everything in the world, for the current camera angle and scope.
+  world(all, s, inScopeName) {
+    const SITES = this.sitesData();
+    const STATUS = this.unitStatus();
+    const K = 2, V = 0.6, KZ = K * 1.2, FLOOR = 3, PAD = 70, TOPPAD = 170, SLAB = 18;
+    const MI_LNG = 53.9, MI_LAT = 69.0;
+    // Distances between properties are compressed (log), order and bearing kept.
+    const COMP = (mi) => 260 * Math.log(1 + Math.max(mi, 0));
+    const byName = {};
+    all.forEach((p) => { byName[p.name] = p; });
+
+    const placed = SITES.map((site) => {
+      const L = site.lot;
+      return { site, city: byName[site.props[0]].district, lcx: (L[0] + L[2]) / 2, lcy: (L[1] + L[3]) / 2, r: Math.max(L[2] - L[0], L[3] - L[1]) / 2 + 12 };
+    });
+    ['kc', 'como'].forEach((city) => {
+      const ss = placed.filter((q) => q.city === city);
+      const minLng = Math.min(...ss.map((q) => q.site.lng));
+      const maxLat = Math.max(...ss.map((q) => q.site.lat));
+      ss.forEach((q) => {
+        q.x = COMP((q.site.lng - minLng) * MI_LNG); q.y = COMP((maxLat - q.site.lat) * MI_LAT);
+        q.cx0 = q.x + q.lcx; q.cy0 = q.y + q.lcy;
+      });
+      for (let it = 0; it < 160; it++) {
+        for (let i = 0; i < ss.length; i++) for (let j = i + 1; j < ss.length; j++) {
+          const a = ss[i], b = ss[j];
+          const need = a.r + b.r;
+          let te = b.cx0 - a.cx0, ts = b.cy0 - a.cy0, tl = Math.hypot(te, ts);
+          if (tl < 1e-9) { te = 1; ts = 0; tl = 1; }
+          const ue = te / tl, us = ts / tl;
+          const along = (b.x + b.lcx - a.x - a.lcx) * ue + (b.y + b.lcy - a.y - a.lcy) * us;
+          if (along >= need) continue;
+          const push = (need - along) / 2;
+          a.x -= ue * push; a.y -= us * push; b.x += ue * push; b.y += us * push;
+        }
+      }
+    });
+    const lotRect = (q) => [q.x + q.site.lot[0], q.y + q.site.lot[1], q.x + q.site.lot[2], q.y + q.site.lot[3]];
+    const island = (city, m) => {
+      const rs = placed.filter((q) => q.city === city).map(lotRect);
+      return [Math.min(...rs.map((r) => r[0])) - m, Math.min(...rs.map((r) => r[1])) - m, Math.max(...rs.map((r) => r[2])) + m, Math.max(...rs.map((r) => r[3])) + m];
+    };
+    const kcI = island('kc', 50);
+    let coI = island('como', 50);
+    // Columbia sits east of Kansas City, tops aligned; the gap is symbolic (I-70, ~125 mi).
+    const dx = kcI[2] + 150 - coI[0], dy = kcI[1] - coI[1];
+    placed.filter((q) => q.city === 'como').forEach((q) => { q.x += dx; q.y += dy; });
+    coI = [coI[0] + dx, coI[1] + dy, coI[2] + dx, coI[3] + dy];
+
+    const th = (s.ang * Math.PI) / 4, cs = Math.cos(th), sn = Math.sin(th);
+    const wx = (Math.min(kcI[0], coI[0]) + Math.max(kcI[2], coI[2])) / 2;
+    const wy = (Math.min(kcI[1], coI[1]) + Math.max(kcI[3], coI[3])) / 2;
+    const rot = (x, y) => [wx + (x - wx) * cs - (y - wy) * sn, wy + (x - wx) * sn + (y - wy) * cs];
+    const corners = (r) => [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]];
+    const raw = (x, y) => { const v = rot(x, y); return [v[0] * K, v[1] * K * V]; };
+    const allC = corners(kcI).concat(corners(coI)).map((c) => raw(c[0], c[1]));
+    const minX = Math.min(...allC.map((c) => c[0])), maxX = Math.max(...allC.map((c) => c[0]));
+    const minY = Math.min(...allC.map((c) => c[1])), maxY = Math.max(...allC.map((c) => c[1]));
+    const OX = -minX + PAD, OY = -minY + TOPPAD;
+    const S = (x, y) => { const v = raw(x, y); return [v[0] + OX, v[1] + OY]; };
+    const f1 = (n) => Math.round(n * 10) / 10;
+    const pathOf = (pts) => 'M' + pts.map((p) => f1(p[0]) + ' ' + f1(p[1])).join(' L') + ' Z ';
+    const line = (a, b) => 'M' + f1(a[0]) + ' ' + f1(a[1]) + ' L' + f1(b[0]) + ' ' + f1(b[1]) + ' ';
+
+    // Islands, with a visible slab edge on whichever sides face the camera.
+    let islandTop = '', islandSide = '', gridPath = '';
+    const NORMALS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    [kcI, coI].forEach((I) => {
+      const c = corners(I).map((p) => S(p[0], p[1]));
+      islandTop += pathOf(c);
+      for (let i = 0; i < 4; i++) {
+        const n = NORMALS[i];
+        if (n[0] * sn + n[1] * cs > 0.01) {
+          const a = c[i], b = c[(i + 1) % 4];
+          islandSide += pathOf([a, b, [b[0], b[1] + SLAB], [a[0], a[1] + SLAB]]);
+        }
+      }
+      for (let x = I[0] + 40; x < I[2]; x += 40) gridPath += line(S(x, I[1]), S(x, I[3]));
+      for (let y = I[1] + 40; y < I[3]; y += 40) gridPath += line(S(I[0], y), S(I[2], y));
+    });
+
+    // Lots and their real streets.
+    let lotPath = '', roadL = '', roadM = '', roadS = '';
+    placed.forEach((q) => {
+      lotPath += pathOf(corners(lotRect(q)).map((p) => S(p[0], p[1])));
+      q.site.roads.forEach((r) => {
+        const seg = line(S(q.x + r.a[0], q.y + r.a[1]), S(q.x + r.b[0], q.y + r.b[1]));
+        if (r.w >= 10) roadL += seg; else if (r.w >= 7) roadM += seg; else roadS += seg;
+      });
+    });
+
+    // Kansas / Missouri line between the last Kansas lot and the first Missouri one.
+    const KS = ['hilltop', 'oakwood', 'glenoaks', 'normandy'];
+    const ksMax = Math.max(...placed.filter((q) => KS.indexOf(q.site.id) > -1).map((q) => lotRect(q)[2]));
+    const moMin = Math.min(...placed.filter((q) => q.city === 'kc' && KS.indexOf(q.site.id) === -1).map((q) => lotRect(q)[0]));
+    const stateX = (ksMax + moMin) / 2;
+    const statePath = line(S(stateX, kcI[1]), S(stateX, kcI[3]));
+    const hwyY = (Math.max(kcI[1], coI[1]) + Math.min(kcI[3], coI[3])) / 2;
+    const hwyPath = line(S(kcI[2], hwyY), S(coI[0], hwyY));
+
+    // Buildings: real footprints extruded by floor count; every unit is a window.
+    const pm = s.role === 'pm';
+    const COL = { O: '#ffd23f', N: '#ff4fa8', B: '#36e2ec', R: '#1f8f96', S: '#120e26' };
+    const dimC = '#2e2756';
+    const ov = s.unitSt || {};
+    // Oblique view from the south-east: height shifts each roof up and a little
+    // left, so both the south and east faces of every building are visible.
+    const OBX = -0.45;
+    const top = (p, h) => [p[0] + OBX * h, p[1] - h];
+
+    // Pass 1 — geometry and silhouette of every building at this camera angle.
+    const geo = [];
+    placed.forEach((q) => {
+      q.site.buildings.forEach((b, bi) => {
+        const P = b.poly.map((p) => [q.x + p[0], q.y + p[1]]);
+        const n = P.length;
+        const cxm = P.reduce((t, p) => t + p[0], 0) / n, cym = P.reduce((t, p) => t + p[1], 0) / n;
+        const hz = (b.base + b.floors * FLOOR) * KZ;
+        const G = P.map((p) => S(p[0], p[1]));
+        const walls = [];
+        for (let i = 0; i < n; i++) {
+          const a = P[i], c = P[(i + 1) % n];
+          let nx = c[1] - a[1], ny = -(c[0] - a[0]);
+          const len = Math.hypot(nx, ny);
+          if (len < 0.3) continue;
+          nx /= len; ny /= len;
+          if (nx * ((a[0] + c[0]) / 2 - cxm) + ny * ((a[1] + c[1]) / 2 - cym) < 0) { nx = -nx; ny = -ny; }
+          const nyr = nx * sn + ny * cs, nxr = nx * cs - ny * sn;
+          const facing = nyr * V - nxr * OBX;
+          if (facing <= 0.02) continue;
+          walls.push({ ga: G[i], gb: G[(i + 1) % n], len, nyr, nxr, facing, mid: (G[i][1] + G[(i + 1) % n][1]) / 2 });
+        }
+        walls.sort((u, v) => u.mid - v.mid);
+        const xs = G.map((g) => g[0]), ys = G.map((g) => g[1]);
+        const sil = walls.map((w) => [w.ga, w.gb, top(w.gb, hz), top(w.ga, hz)]).concat([G.map((g) => top(g, hz))]);
+        geo.push({ q, b, bi, key: q.site.id + ':' + bi, P, G, walls, hz, xs, ys, sil, cxm, cym,
+          x0: Math.min(...xs) + OBX * hz, x1: Math.max(...xs), y0: Math.min(...ys) - hz, y1: Math.max(...ys), depth: Math.max(...ys) });
+      });
+    });
+    geo.sort((u, v) => u.depth - v.depth);
+    const inPoly = (pt, poly) => { let r = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) r = !r; } return r; };
+    // Is this screen point covered by any building painted after building i?
+    const hidden = (i, pt) => {
+      for (let j = i + 1; j < geo.length; j++) {
+        const g = geo[j];
+        if (pt[0] < g.x0 || pt[0] > g.x1 || pt[1] < g.y0 || pt[1] > g.y1) continue;
+        if (g.sil.some((poly) => inPoly(pt, poly))) return true;
+      }
+      return false;
+    };
+
+    // Pass 2 — windows only where they can be seen. Each camera-facing wall is
+    // split into candidate columns; a window goes in a column/floor only if no
+    // building in front covers it. Units with no visible spot get a roof marker,
+    // so every unit is always on screen.
+    const objects = [];
+    const propAnchors = {};
+    let unplaced = 0;
+    geo.forEach((g, gi) => {
+      const b = g.b, F = b.floors, units = b.units, key = g.key;
+      const st = STATUS[b.prop] || {};
+      const codeOf = (u) => ov[b.prop + '|' + u] || st[u] || 'O';
+      const bx0 = g.x0 - 3, bx1 = g.x1 + 3 + g.hz * 0.6;
+      const by0 = g.y0 - 3, by1 = g.y1 + 3 + g.hz * 0.2;
+      const L = (p) => [p[0] - bx0, p[1] - by0];
+      let wallD = '', wallM = '', wallL = '';
+      g.walls.forEach((w) => {
+        const quad = pathOf([L(w.ga), L(w.gb), L(top(w.gb, g.hz)), L(top(w.ga, g.hz))]);
+        if (w.nxr > 0.35) wallL += quad; else if (w.nxr < -0.35) wallD += quad; else wallM += quad;
+      });
+      const roof = pathOf(g.G.map((p) => L(top(p, g.hz))));
+      const shadow = pathOf(g.G.map((p) => L([p[0] + g.hz * 0.6, p[1] + g.hz * 0.2])));
+
+      const win = { O: '', N: '', B: '', R: '', S: '' };
+      const at = (w, u, z) => { const gx = w.ga[0] + (w.gb[0] - w.ga[0]) * u, gy = w.ga[1] + (w.gb[1] - w.ga[1]) * u; return top([gx, gy], z * KZ); };
+      const faces = g.walls.filter((w) => w.facing > 0.1);
+      const zc = (f) => b.base + f * FLOOR + 1.55;
+      const drawWin = (cl, f, code) => {
+        const zb = b.base + f * FLOOR + 0.8, zt = zb + 1.5;
+        win[code] += pathOf([L(at(cl.w, cl.u - cl.hw, zb)), L(at(cl.w, cl.u + cl.hw, zb)), L(at(cl.w, cl.u + cl.hw, zt)), L(at(cl.w, cl.u - cl.hw, zt))]);
+      };
+      const spread = (k, n) => (n <= 1 ? [Math.floor(k / 2)] : Array.from({ length: n }, (_, i) => Math.round((i * (k - 1)) / (n - 1))));
+      // Candidate columns get denser until every unit has a visible spot.
+      let best = null;
+      for (const spacing of [2.4, 1.8, 1.4, 1.1, 0.9]) {
+        const cols = [];
+        faces.forEach((w) => {
+          const nc = Math.max(1, Math.floor(w.len / spacing));
+          for (let k = 0; k < nc; k++) cols.push({ w, u: (k + 0.5) / nc, hw: Math.min(0.32 / nc, 0.75 / w.len) });
+        });
+        cols.sort((p1, p2) => at(p1.w, p1.u, 0)[0] - at(p2.w, p2.u, 0)[0]);
+        const vis = cols.map((cl) => { const fl = []; for (let f = 0; f < F; f++) fl.push(!hidden(gi, at(cl.w, cl.u, zc(f)))); return fl; });
+        const cells = [];
+        if (b.mode === 'town') cols.forEach((cl, ci) => { if (vis[ci][F - 1]) cells.push({ cl, ci }); });
+        else for (let f = 0; f < F; f++) cols.forEach((cl, ci) => { if (vis[ci][f]) cells.push({ cl, f, ci }); });
+        best = { cols, vis, cells };
+        if (cells.length >= units.length) break;
+      }
+      const { vis, cells } = best;
+      const idx = cells.length >= units.length ? spread(cells.length, units.length) : cells.map((_, i) => i);
+      units.forEach((u, i) => {
+        const c = cells[idx[i]];
+        if (!c) { unplaced += 1; return; }
+        if (b.mode === 'town') { for (let f = 0; f < F; f++) if (vis[c.ci][f]) drawWin(c.cl, f, codeOf(u)); }
+        else drawWin(c.cl, c.f, codeOf(u));
+      });
+
+      const owned = !byName[b.prop].managed;
+      const selected = s.picked === b.prop;
+      const inScope = inScopeName(b.prop);
+      const hasBuild = units.some((u) => codeOf(u) === 'B');
+      objects.push({
+        key, isB: true, isTree: false,
+        left: Math.round(bx0), top: Math.round(by0), w: Math.ceil(bx1 - bx0), h: Math.ceil(by1 - by0),
+        shadow, wallD, wallM, wallL, roof,
+        fD: owned ? '#251d5c' : '#3d3a5c', fM: owned ? '#2f2675' : '#4c4870', fL: owned ? '#43378f' : '#625e88',
+        fRoof: owned ? '#6150c2' : '#8d89ad',
+        roofStroke: selected ? '#36e2ec' : owned ? '#8574ea' : '#b3afd2', roofSW: selected ? 2 : 1,
+        wO: win.O, wN: win.N, wB: win.B, wR: win.R, wS: win.S,
+        cO: pm ? COL.O : dimC, cN: pm ? COL.N : dimC, cB: pm ? COL.B : dimC, cR: pm ? COL.R : dimC,
+        buildCls: pm ? 'blink' : '',
+        btnClass: s.pickedB === key ? 'bld sel' : 'bld',
+        opacity: inScope ? 1 : 0.3,
+        aria: b.prop + ', ' + b.addr + ', ' + units.length + ' units',
+        title: b.addr + ' · ' + units.length + ' units',
+        pick: () => this.setState({ picked: b.prop, pickedB: key, pickedU: null, ...(inScope ? {} : { pf: 'portfolio' }) }),
+        depth: g.depth,
+      });
+      const a = propAnchors[b.prop] || (propAnchors[b.prop] = { xs: [], groundMax: -1e9, topY: 1e9, topX: 0, crews: [] });
+      a.xs.push((g.x0 + g.x1) / 2);
+      a.groundMax = Math.max(a.groundMax, g.y1);
+      if (g.y0 < a.topY) { a.topY = g.y0; a.topX = (g.x0 + g.x1) / 2; }
+      if (hasBuild) a.crews.push([g.x1 - 6, g.y1 - 4]);
+    });
+
+    // Trees on open ground, clear of every lot.
+    const trees = [];
+    [[kcI, 'kc', 46], [coI, 'como', 34]].forEach(([I, city, want], ci) => {
+      const lots = placed.filter((q) => q.city === city).map(lotRect);
+      let made = 0;
+      for (let i = 0; i < 400 && made < want; i++) {
+        const fr = (k) => { const v = Math.sin(k * 12.9898 + ci * 78.233) * 43758.5453; return v - Math.floor(v); };
+        const x = I[0] + 12 + fr(i * 2 + 1) * (I[2] - I[0] - 24), y = I[1] + 12 + fr(i * 2 + 2) * (I[3] - I[1] - 24);
+        if (lots.some((r) => x > r[0] - 8 && x < r[2] + 8 && y > r[1] - 8 && y < r[3] + 8)) continue;
+        if (city === 'kc' && Math.abs(x - stateX) < 10) continue;
+        const p = S(x, y);
+        trees.push({ key: 't' + city + i, isTree: true, isB: false, left: Math.round(p[0] - 14), top: Math.round(p[1] - 34), depth: p[1] });
+        made++;
+      }
+    });
+
+    const labelAt = (I) => { const c = corners(I).map((p) => S(p[0], p[1])); return [Math.min(...c.map((v) => v[0])), Math.max(...c.map((v) => v[1]))]; };
+    const kcL = labelAt(kcI), coL = labelAt(coI);
+    const sl0 = S(stateX, kcI[1] + 8);
+    const hm = S((kcI[2] + coI[0]) / 2, hwyY);
+    const labels = [
+      { text: 'KANSAS CITY', sub: 'buildings true to scale · distances between properties compressed', left: Math.round(kcL[0] + 14), top: Math.round(kcL[1] + SLAB + 10), size: 12, color: '#ffd23f', transform: 'none' },
+      { text: 'COLUMBIA, MO', sub: 'buildings true to scale · distances between properties compressed', left: Math.round(coL[0] + 14), top: Math.round(coL[1] + SLAB + 10), size: 12, color: '#ffd23f', transform: 'none' },
+      { text: 'KS | MO', sub: '', left: Math.round(sl0[0]), top: Math.round(sl0[1] - 26), size: 8, color: '#ff4fa8', transform: 'translateX(-50%)' },
+      { text: 'I-70', sub: '~125 mi · not to scale', left: Math.round(hm[0]), top: Math.round(hm[1] + 18), size: 9, color: '#ffd23f', transform: 'translateX(-50%)' },
+    ];
+
+    // Each property's own ground: its buildings plus a margin. Clicking it
+    // selects the whole property; clicking a building selects that building.
+    const parcels = [];
+    const propPlan = {};
+    placed.forEach((q) => q.site.buildings.forEach((b) => {
+      const r = propPlan[b.prop] || (propPlan[b.prop] = [Infinity, Infinity, -Infinity, -Infinity]);
+      b.poly.forEach((p) => { const x = q.x + p[0], y = q.y + p[1]; r[0] = Math.min(r[0], x); r[1] = Math.min(r[1], y); r[2] = Math.max(r[2], x); r[3] = Math.max(r[3], y); });
+    }));
+    Object.keys(propPlan).forEach((name) => {
+      const r = propPlan[name], m = 10;
+      const c = corners([r[0] - m, r[1] - m, r[2] + m, r[3] + m]).map((p) => S(p[0], p[1]));
+      const x0 = Math.min(...c.map((v) => v[0])) - 2, y0 = Math.min(...c.map((v) => v[1])) - 2;
+      const x1 = Math.max(...c.map((v) => v[0])) + 2, y1 = Math.max(...c.map((v) => v[1])) + 2;
+      parcels.push({ key: name, name, aria: name + ' — select the whole property', left: Math.round(x0), top: Math.round(y0), w: Math.ceil(x1 - x0), h: Math.ceil(y1 - y0),
+        d: pathOf(c.map((v) => [v[0] - x0, v[1] - y0])) });
+    });
+
+    return {
+      objects: objects.concat(trees).sort((u, v) => u.depth - v.depth),
+      propAnchors, labels, parcels,
+      paths: { islandTop, islandSide, gridPath, lotPath, roadL, roadM, roadS, statePath, hwyPath, roadLW: 22, roadMW: 15, roadSW: 8 },
+      worldW: Math.round(maxX - minX + PAD * 2), worldH: Math.round(maxY - minY + TOPPAD + PAD + SLAB),
+      sites: SITES, STATUS, COL, unplaced,
+    };
+  }
+
+  unitsData() {
+    // Per unit: t tenant · ph phone · s rent-roll status · mi move-in · le/dl/rn lease end,
+    // days left, renewal status (only when ≤ 90 days or lapsed) · due past due ·
+    // wo open work orders [number, issue, status, priority, age, vendor, description].
+    return {} /* @units: filled in by scripts/build.mjs from data/units.app.json */;
+  }
+
+  flash(text) {
+    this.setState({ toast: text });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ toast: '' }), 1600);
+  }
+
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  // <property-groups> GENERATED from lib/propertyGroups.js by sync-property-groups.mjs.
+  // Do not edit here; change the dashboard file and re-run the sync.
+  propertyGroups() {
+    // Shared property-grouping definitions used by every dashboard with a
+    // property selector. The dropdown options + the resolver that turns a
+    // selection (property name / region / farquhar / portfolio) into the
+    // concrete list of property names live here, so all consumers stay in sync.
+
+    // Substring matchers for the Kansas City named complexes. Case-insensitive
+    // fuzzy match because rent_roll/snapshots sometimes carry different name
+    // conventions than af_property_directory.
+    //
+    // SINGLE SOURCE OF TRUTH. When onboarding a new property to KC, add it here
+    // only — every dashboard/API is supposed to import from this file. If you
+    // find a file with its own private KC list, refactor it to import from here
+    // (see `filterRecordsByRegion` and `matchesKansasCity` below).
+    const KC_PROPERTY_MATCHERS = [
+      'hilltop',
+      'oakwood',
+      'glen oaks',
+      'normandy',
+      'maple manor',
+      'ide lofts',
+    ];
+
+    // Properties physically rolled up under Pioneer Apartments in DoorLoop
+    // (address-level records that AppFolio represents as a single complex).
+    const PIONEER_DOORLOOP_ALIASES = ['2404 Whitegate Drive', '2406 Whitegate Drive', '2414 Whitegate Drive'];
+
+    // "Farquhar" portfolio = the properties owned by the Farquhar group.
+    // Glen Oaks was never part of it. Hilltop Townhomes was sold to another
+    // group on 2026-04-22 — we still manage Hilltop, so it appears in every
+    // other filter, but it's no longer part of Farquhar after that date.
+    const FARQUHAR_EXCLUDED_ALWAYS = ['Glen Oaks'];
+    const FARQUHAR_PROPERTY_CUTOFFS = {
+      'Hilltop Townhomes': '2026-04-22',
+    };
+
+    /**
+     * Has a Farquhar-cutoff property's cutoff date passed (relative to today)?
+     * Used by simple "current snapshot" filters (rent-roll, collections, etc.)
+     * that don't want to do per-period reasoning.
+     */
+    function isPastCutoffToday(propertyName, today = new Date()) {
+      const cutoff = FARQUHAR_PROPERTY_CUTOFFS[propertyName];
+      if (!cutoff) return false;
+      return today >= new Date(cutoff + 'T00:00:00');
+    }
+
+    /**
+     * The set of properties currently in the Farquhar portfolio (today).
+     * Drops always-excluded properties + any cutoff property whose cutoff has passed.
+     */
+    function farquharPropertiesToday(availableProperties = [], today = new Date()) {
+      return availableProperties.filter(p => {
+        if (FARQUHAR_EXCLUDED_ALWAYS.includes(p)) return false;
+        if (isPastCutoffToday(p, today)) return false;
+        return true;
+      });
+    }
+
+    /**
+     * Resolve a property selection (the value coming out of the dropdown) into
+     * the concrete list of property names that should be queried, OR `null` to
+     * mean "no filter / all properties".
+     *
+     * For Farquhar, returns ALL Farquhar properties (even those past their
+     * cutoff) — the cutoff is applied per-period in get_churn_metrics via
+     * `cutoff_dates`. Use farquharPropertiesToday() instead when you want a
+     * "current snapshot" filter.
+     */
+    function resolvePropertySelection(selection, availableProperties = []) {
+      if (!selection || selection === 'portfolio' || selection === 'all') return null;
+
+      if (selection === 'region_kansas_city') {
+        return availableProperties.filter(p =>
+          KC_PROPERTY_MATCHERS.some(kc => p.toLowerCase().includes(kc))
+        );
+      }
+      if (selection === 'region_columbia') {
+        return availableProperties.filter(p =>
+          !KC_PROPERTY_MATCHERS.some(kc => p.toLowerCase().includes(kc))
+        );
+      }
+      if (selection === 'farquhar') {
+        return availableProperties.filter(p => !FARQUHAR_EXCLUDED_ALWAYS.includes(p));
+      }
+
+      // Specific property: include the name itself plus any DoorLoop-side
+      // address aliases that roll up into it.
+      const list = [selection];
+      if (selection === 'Pioneer Apartments') list.push(...PIONEER_DOORLOOP_ALIASES);
+      return list;
+    }
+
+    /**
+     * Per-property cutoff dates to pass to get_churn_metrics(cutoff_dates) when
+     * the user selected Farquhar — null otherwise.
+     */
+    function cutoffDatesFor(selection) {
+      if (selection === 'farquhar') return FARQUHAR_PROPERTY_CUTOFFS;
+      return null;
+    }
+
+    /**
+     * The standard preset options to render in a property dropdown, in display
+     * order. Components that already have a "All Properties" option should
+     * insert these after it.
+     */
+    const PRESET_PROPERTY_OPTIONS = [
+      { value: 'farquhar',           label: 'Farquhar' },
+      { value: 'region_kansas_city', label: 'Kansas City (region)' },
+      { value: 'region_columbia',    label: 'Columbia (region)' },
+    ];
+
+    // -----------------------------------------------------------------------
+    // Region-membership helpers used by API routes and client components to
+    // filter arbitrary record lists by region without re-implementing the
+    // (property|unit) fuzzy match and the Farquhar cutoff dance.
+    // -----------------------------------------------------------------------
+
+    const FARQUHAR_HILLTOP_CUTOFF = new Date('2026-04-22T00:00:00');
+
+    /**
+     * Case-insensitive KC substring match against a property name, unit label,
+     * or any string that might contain either. Accepts `null`/`undefined` and
+     * returns false for those, so callers don't have to null-check.
+     */
+    function matchesKansasCity(propOrUnit) {
+      if (!propOrUnit) return false;
+      const s = String(propOrUnit).toLowerCase();
+      return KC_PROPERTY_MATCHERS.some(kc => s.includes(kc));
+    }
+
+    /**
+     * Should a record with these (property, unit) values be considered part of
+     * the Farquhar portfolio at the given moment? Glen Oaks was never part of
+     * Farquhar; Hilltop is excluded after 2026-04-22.
+     */
+    function matchesFarquhar(propOrUnit, unit = '', today = new Date()) {
+      const prop = String(propOrUnit || '').toLowerCase();
+      const u    = String(unit         || '').toLowerCase();
+      const isGlenOaks = prop.includes('glen oaks') || u.includes('glen oaks');
+      if (isGlenOaks) return false;
+      const isHilltop = prop.includes('hilltop') || u.includes('hilltop');
+      if (isHilltop && today >= FARQUHAR_HILLTOP_CUTOFF) return false;
+      return true;
+    }
+
+    /**
+     * Filter an arbitrary record list by region. Each record is expected to
+     * have at least one of `property` / `unit`; both are consulted for region
+     * membership (unit-level records like rental_applications carry the
+     * property name in the unit label).
+     *
+     * @param records  array of records with `property` and/or `unit` fields
+     * @param region   'region_kansas_city' | 'region_columbia' | 'farquhar'
+     *                 or any falsy value (returns records unchanged)
+     * @param opts     { today?: Date, includeUnknown?: boolean }
+     *                 includeUnknown (default true) keeps records with neither
+     *                 property nor unit set (older imports without either)
+     */
+    function filterRecordsByRegion(records, region, opts = {}) {
+      if (!region) return records;
+      const today          = opts.today ?? new Date();
+      const includeUnknown = opts.includeUnknown ?? true;
+      return records.filter(r => {
+        const prop = String(r?.property || '').toLowerCase();
+        const unit = String(r?.unit     || '').toLowerCase();
+        if (!prop && !unit) return includeUnknown;
+        const matchesKC = matchesKansasCity(prop) || matchesKansasCity(unit);
+        if (region === 'region_kansas_city') return matchesKC;
+        if (region === 'region_columbia')    return !matchesKC;
+        if (region === 'farquhar')           return matchesFarquhar(prop, unit, today);
+        return true;
+      });
+    }
+    return { FARQUHAR_EXCLUDED_ALWAYS, FARQUHAR_PROPERTY_CUTOFFS, KC_PROPERTY_MATCHERS, PIONEER_DOORLOOP_ALIASES, PRESET_PROPERTY_OPTIONS, cutoffDatesFor, farquharPropertiesToday, filterRecordsByRegion, matchesFarquhar, matchesKansasCity, resolvePropertySelection };
+  }
+  // </property-groups>
+
+  renderVals() {
+    const s = this.state;
+    const pm = s.role === 'pm';
+    const allData = this.data();
+    const byName = {};
+    allData.forEach((p) => { byName[p.name] = p; });
+    // Portfolio filter: the dashboard's own rules (lib/propertyGroups.js,
+    // copied in by sync-property-groups.mjs). The arcade is a current
+    // snapshot, so Farquhar uses farquharPropertiesToday, as that file says.
+    const PG = this.propertyGroups();
+    const names = allData.map((p) => p.name);
+    const PRESETS = { portfolio: 'Portfolio' };
+    PG.PRESET_PROPERTY_OPTIONS.forEach((o) => { PRESETS[o.value] = o.label; });
+    const pfKey = PRESETS[s.pf] || byName[s.pf] ? s.pf : 'portfolio';
+    const pfProp = PRESETS[pfKey] ? null : byName[pfKey];
+    const pfLabel = pfProp ? pfProp.short : PRESETS[pfKey];
+    const pfSet = new Set(pfKey === 'portfolio' ? names : pfKey === 'farquhar' ? PG.farquharPropertiesToday(names) : PG.resolvePropertySelection(pfKey, names) || names);
+    const inFName = (name) => pfSet.has(name);
+    const all = allData.filter((p) => inFName(p.name));
+    const setPf = (e) => { const v = e && e.target ? e.target.value : e; this.setState({ pf: v, picked: PRESETS[v] ? null : v, pickedB: null, pickedU: null }); };
+    const sum = (arr, f) => arr.reduce((t, p) => t + f(p), 0);
+    const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+    const money = (n) => '$' + Math.round(n).toLocaleString('en-US');
+
+    const W = this.world(allData, s, inFName);
+    const ZOOMS = [0.25, 0.32, 0.4, 0.5, 0.65, 0.85, 1, 1.3, 1.7, 2.2, 3];
+    const zoom = ZOOMS[s.zi];
+
+    const parcels = W.parcels.map((pc) => ({ ...pc, sel: s.picked === pc.name, fill: s.picked === pc.name ? 'rgba(54,226,236,.16)' : 'rgba(141,137,173,.07)', stroke: s.picked === pc.name ? '#36e2ec' : '#5b5296',
+      pick: () => this.setState({ picked: pc.name, pickedB: null, pickedU: null, ...(inFName(pc.name) ? {} : { pf: 'portfolio' }) }) }));
+
+    // ---- Unit-level model ----
+    const UNITS = this.unitsData();
+    const STATUS = W.STATUS;
+    const codeOf = (prop, u) => (s.unitSt[prop + '|' + u]) || (STATUS[prop] || {})[u] || 'O';
+    const darkInfo = {};
+    all.forEach((p) => p.dark.forEach((d) => { darkInfo[p.name + '|' + d.unit] = d; }));
+    const CODE = {
+      O: { bg: '#ffd23f', fg: '#0b0820', label: 'Occupied' }, N: { bg: '#ff4fa8', fg: '#0b0820', label: 'Notice / eviction' },
+      B: { bg: '#36e2ec', fg: '#0b0820', label: 'In rehab' }, R: { bg: '#1f8f96', fg: '#0b0820', label: 'Ready, unleased' },
+      S: { bg: '#120e26', fg: '#ecebff', label: 'Not started' },
+    };
+    const bIndex = {}, unitToB = {}, propBlds = {};
+    W.sites.forEach((site) => site.buildings.forEach((b, bi) => {
+      const key = site.id + ':' + bi;
+      bIndex[key] = { key, b };
+      (propBlds[b.prop] = propBlds[b.prop] || []).push(bIndex[key]);
+      b.units.forEach((u) => { unitToB[b.prop + '|' + u] = key; });
+    }));
+    const unitsOfPropAll = (name) => (propBlds[name] || []).flatMap((x) => x.b.units);
+    const goUnit = (prop, u) => () => this.setState({ picked: prop, pickedB: unitToB[prop + '|' + u] || null, pickedU: u });
+    const goProp = (name) => () => this.setState({ picked: name, pickedB: null, pickedU: null });
+    const goBldg = (prop, key) => () => this.setState({ picked: prop, pickedB: key, pickedU: null });
+    const log = (id, text, xp) => () => { this.setState({ logs: { ...this.state.logs, [id]: text }, xp: this.state.xp + (xp || 0) }); this.flash(xp ? text.toUpperCase() + ' +' + xp + ' XP' : text.toUpperCase()); };
+    const resolve = (id, xp, text) => () => { this.setState({ resolved: { ...this.state.resolved, [id]: true }, xp: this.state.xp + xp }); this.flash((text || 'RESOLVED') + ' +' + xp + ' XP'); };
+    const setStage = (prop, u, code) => () => {
+      const relit = code === 'O';
+      this.setState({ unitSt: { ...this.state.unitSt, [prop + '|' + u]: code }, xp: this.state.xp + (relit ? 500 : 50) });
+      this.flash(relit ? 'UNIT LEASED +500 XP' : 'STAGE MOVED +50 XP');
+    };
+    // ---- Scorecard: one 0–100 number per property and per building, per role. ----
+    // Each component is 0–100; the total is their weighted mean (components
+    // with no data drop out and the rest re-weight). Attention is ranked by
+    // points at stake = (100 − score) × units, so a large place doing badly
+    // outranks a duplex doing badly.
+    const DQ = UNITS.__dq || {};
+    const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
+    const clampR = (v) => Math.max(0, Math.min(100, v));
+    const grade = (v) => (v >= 90 ? 'A' : v >= 80 ? 'B' : v >= 70 ? 'C' : v >= 60 ? 'D' : 'F');
+    // One colour per letter grade, used everywhere a score appears.
+    const GRADE_COLOR = { A: '#36e2ec', B: '#5ef38c', C: '#ffd23f', D: '#ff9f43', F: '#ff4fa8' };
+    const scoreColor = (v) => GRADE_COLOR[grade(v)];
+    const fmtDate = (d) => { if (!d) return ''; const [, mo, da] = d.split('-').map(Number); return ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mo] + ' ' + da; };
+    // Calibration: one place to tune how strict each component is.
+    // Occupancy: today's ~87% should read as a B-.
+    const CAL = {
+      occZero: 70, occFull: 91,          // 70% = 0, 91%+ = 100, linear between
+      vacGoal: 14, vacPerDay: 0.15,       // ≤14 days vacant = 100; −0.15 per extra day
+      renRisk: 0.3,                       // risk points worth 30% of the units = 0
+      colFlat: 88, colPerPct: 0.4,        // flat month-over-month = 88 (a solid B); −0.4 points per % worse
+      woPerUnitZero: 2.5,                 // 2.5 open work orders per unit = 0
+      agedPerUnitZero: 1.0, urgentPenalty: 10,
+      leadZero: 0.4, leadFull: 0.95, missPenalty: 3,
+      evictExtra: 0,                      // eviction = vacant for occupancy; no extra penalty
+    };
+    const WEIGHTS = {
+      pm: [['occ', 'Occupancy', 0.35], ['vac', 'Vacancy speed', 0.25], ['ren', 'Renewals', 0.30], ['col', 'Collections', 0.10]],
+      va: [['wob', 'Work-order backlog', 0.40], ['woa', 'Work-order age', 0.35], ['stl', 'Speed to lead', 0.25]],
+    };
+    // ov (optional) = { resolved, unitSt } overrides, used to ask "what if this were done?"
+    const scoreOf = (propName, unitList, wholeProperty, ov) => {
+      const RS = (ov && ov.resolved) || s.resolved;
+      const codeAt = (u) => (ov && ov.unitSt && ov.unitSt[propName + '|' + u]) || codeOf(propName, u);
+      const p = byName[propName], n = unitList.length;
+      const recs = unitList.map((u) => ({ u, rec: (UNITS[propName] || {})[u] || {}, code: codeAt(u) }));
+      const comp = {};
+      if (pm) {
+        // A unit in eviction counts as vacant here. Its downtime timer (vacancy
+        // speed) only starts once the tenant is out and the unit enters rehab.
+        const occ = recs.filter((x) => x.code === 'O').length;
+        const evict = recs.filter((x) => x.code === 'N' && x.rec.s === 'Evict' && !RS['notice:' + propName + '|' + x.u]).length;
+        const occEff = Math.max(0, occ - evict * CAL.evictExtra);
+        comp.occ = { score: clampR((((occEff / n) * 100 - CAL.occZero) / (CAL.occFull - CAL.occZero)) * 100), detail: occ + ' of ' + n + ' occupied (' + Math.round((occ / n) * 100) + '%)' + (evict ? ' · ' + evict + ' in eviction (counted vacant)' : '') + ' · 70% scores 0, 91% scores 100' };
+        const vac = recs.filter((x) => x.code === 'S' || x.code === 'B' || x.code === 'R').map((x) => (darkInfo[propName + '|' + x.u] || { days: 0 }).days);
+        comp.vac = vac.length
+          ? { score: clampR(vac.reduce((t, d) => t + clampR(100 - Math.max(0, d - CAL.vacGoal) * CAL.vacPerDay), 0) / vac.length), detail: vac.length + ' vacant · average ' + Math.round(vac.reduce((t, d) => t + d, 0) / vac.length) + ' days (goal 14)' }
+          : { score: 100, detail: 'No vacant units' };
+        // Forward-looking only: leases ending soon without a renewal, and
+        // renewals that already failed (tenant on notice). History is ignored.
+        let upcoming = 0, lapsed = 0, notice = 0;
+        recs.forEach((x) => {
+          const r = x.rec;
+          if (x.code === 'N') { if (r.s !== 'Evict' && !RS['notice:' + propName + '|' + x.u]) notice += 1; return; }
+          if (!r.le || r.rn === 'Renewed' || RS['lease:' + propName + '|' + x.u] || r.dl > 60) return;
+          if (r.dl < 0) lapsed += 1; else upcoming += 1;
+        });
+        const atRisk = upcoming + (lapsed + notice) * 2;
+        const parts = [upcoming + ' ending ≤ 60d unrenewed', lapsed ? lapsed + ' lapsed' : '', notice + ' on notice'].filter(Boolean);
+        comp.ren = { score: clampR((1 - atRisk / n / CAL.renRisk) * 100), detail: parts.join(' · ') + ' (lapsed and notice count double)' };
+        let cur = 0, pri = 0;
+        recs.forEach((x) => { cur += RS['due:' + propName + '|' + x.u] ? 0 : (x.rec.due || 0); pri += x.rec.pd || 0; });
+        if (wholeProperty && UNITS[propName] && UNITS[propName].__other) { cur += UNITS[propName].__other.due; pri += UNITS[propName].__other.pd; }
+        if (!pri && !cur) comp.col = { score: 100, detail: 'Nothing past due on ' + fmtDate(DQ.prior) + ' or ' + fmtDate(DQ.latest) };
+        else if (!pri) comp.col = { score: 0, detail: money(cur) + ' past due, up from $0 on ' + fmtDate(DQ.prior) };
+        else { const delta = (cur - pri) / pri; comp.col = { score: clampR(CAL.colFlat - delta * 100 * CAL.colPerPct), delta, detail: money(pri) + ' on ' + fmtDate(DQ.prior) + ' → ' + money(cur) + ' on ' + fmtDate(DQ.latest) + ' (' + (delta >= 0 ? '+' : '') + Math.round(delta * 1000) / 10 + '%) · flat scores 88' }; }
+      } else {
+        const wos = [];
+        recs.forEach((x) => (x.rec.wo || []).forEach((w) => { if (!RS['wo:' + w[0]]) wos.push(w); }));
+        if (wholeProperty) ((UNITS[propName] || {}).__common || []).forEach((w) => { if (!RS['wo:' + w[0]]) wos.push(w); });
+        const per = wos.length / n;
+        comp.wob = { score: clampR((1 - per / CAL.woPerUnitZero) * 100), detail: wos.length + ' open · ' + Math.round(per * 100) / 100 + ' per unit' };
+        const aged = wos.filter((w) => w[4] > 14).length, urgent = wos.filter((w) => w[3] === 'Urgent').length;
+        comp.woa = wos.length ? { score: clampR((1 - aged / n / CAL.agedPerUnitZero) * 100 - urgent * CAL.urgentPenalty), detail: aged + ' older than 14 days · ' + Math.round((aged / n) * 100) / 100 + ' per unit' + (urgent ? ' · ' + urgent + ' urgent' : '') } : { score: 100, detail: 'No open work orders' };
+        comp.stl = p.lead.n
+          ? { score: clampR(((p.lead.perfect / p.lead.n - CAL.leadZero) / (CAL.leadFull - CAL.leadZero)) * 100 - p.lead.missed * CAL.missPenalty), detail: Math.round((p.lead.perfect / p.lead.n) * 100) + '% ≤ 5 min of ' + p.lead.n + ' leads · ' + p.lead.missed + ' unanswered' + (wholeProperty ? '' : ' · property-wide') }
+          : null;
+      }
+      const parts = WEIGHTS[s.role].filter(([id]) => comp[id]).map(([id, label, w]) => ({ id, label, w, ...comp[id] }));
+      const wsum = parts.reduce((t, x) => t + x.w, 0);
+      const raw = parts.reduce((t, x) => t + x.score * x.w, 0) / wsum;
+      parts.forEach((x) => { x.score = Math.round(x.score); });
+      const total = Math.round(raw);
+      const drag = parts.slice().sort((a, b) => (100 - b.score) * b.w - (100 - a.score) * a.w)[0];
+      return { total, raw, parts, drag, stake: (100 - total) * n, n };
+    };
+    const propScore = {}, bldgScore = {};
+    allData.forEach((p) => { propScore[p.name] = scoreOf(p.name, unitsOfPropAll(p.name), true); });
+    Object.values(bIndex).forEach((x) => { bldgScore[x.key] = scoreOf(x.b.prop, x.b.units, false); });
+
+    // ---- Map overlays: name tags, badges, beams, crews. ----
+    const plates = [], marks = [];
+    Object.keys(W.propAnchors).forEach((name) => {
+      const a = W.propAnchors[name], p = byName[name];
+      const x = a.xs.reduce((t, v) => t + v, 0) / a.xs.length;
+      const ps = propScore[name];
+      plates.push({ key: name, short: p.short + ' · ' + grade(ps.total) + ' ' + ps.total, opacity: inFName(name) ? 1 : 0.4, left: Math.round(x), top: Math.round(a.groundMax + 8), w: (p.short.length + 7) * 7 + 14, border: s.picked === name ? '#ffffff' : scoreColor(ps.total), fg: scoreColor(ps.total) });
+      if (!inFName(name)) return; // filtered out: name tag only, no badges or beams
+      let badge = '', bg = '#ffd23f', beamH = 0;
+      if (pm) {
+        const maxDark = p.dark.reduce((m, d) => Math.max(m, d.days), 0);
+        if (p.dark.length) { badge = p.dark.length + ' VACANT' + (maxDark >= 90 ? ' · ' + maxDark + 'D' : ''); if (maxDark >= 90) bg = '#ff4fa8'; }
+      } else {
+        const parts = [];
+        if (p.wo.open) parts.push(p.wo.open + ' WO');
+        if (p.lead.n) parts.push(Math.round((p.lead.perfect / p.lead.n) * 100) + '% ≤5M');
+        badge = parts.join(' · ');
+        bg = (p.wo.open && p.wo.aged / p.wo.open >= 0.5) || (p.lead.n && p.lead.missed / p.lead.n >= 0.2) ? '#ff4fa8' : '#ffd23f';
+        beamH = p.wo.open ? Math.min(14 + p.wo.open * 1.2, 70) : 0;
+      }
+      if (beamH) marks.push({ key: 'beam' + name, isBeam: true, isBadge: false, isVan: false, left: Math.round(a.topX - 4), top: Math.round(a.topY - beamH), h: Math.round(beamH), bg });
+      if (badge) marks.push({ key: 'badge' + name, isBeam: false, isBadge: true, isVan: false, left: Math.round(a.topX), top: Math.round(a.topY - beamH - 26), text: badge, bg });
+      if (pm) a.crews.forEach((c, i) => marks.push({ key: 'van' + name + i, isBeam: false, isBadge: false, isVan: true, left: Math.round(c[0]), top: Math.round(c[1]) }));
+    });
+    if (s.picked) W.objects.filter((o) => o.isB && bIndex[o.key] && bIndex[o.key].b.prop === s.picked).forEach((o) => {
+      const sc = bldgScore[o.key].total;
+      marks.push({ key: 'score' + o.key, isBeam: false, isBadge: true, isVan: false, left: Math.round(o.left + o.w / 2), top: Math.round(o.top - 22), text: grade(sc) + ' ' + sc, bg: scoreColor(sc) });
+    });
+    const placedPlates = [];
+    plates.sort((u, v) => u.top - v.top || u.left - v.left).forEach((q) => {
+      let top = q.top, guard = 0;
+      while (placedPlates.some((o) => Math.abs(o.left - q.left) < (o.w + q.w) / 2 + 4 && Math.abs(o.top - top) < 20) && guard++ < 10) top += 20;
+      placedPlates.push({ ...q, top });
+    });
+    const issuesFor = (prop, u) => {
+      const rec = (UNITS[prop] || {})[u] || {};
+      const code = codeOf(prop, u);
+      const out = [];
+      const add = (o) => { if (!s.resolved[o.id]) out.push({ ...o, prop, unit: u, log: s.logs[o.id] || '', hasLog: !!s.logs[o.id] }); };
+      if (code === 'S' || code === 'B' || code === 'R') {
+        const d = darkInfo[prop + '|' + u];
+        add({ id: 'dark:' + prop + '|' + u, kind: 'dark', kindLabel: 'DOWNTIME', color: code === 'R' ? '#1f8f96' : '#36e2ec', sev: 3, days: d ? d.days : 0,
+          title: code === 'R' ? 'Finished, not leased' : code === 'B' ? 'In rehab' : 'Rehab not started',
+          meta: (d ? 'Vacant ' + d.days + ' days' : 'Vacant') + ' · goal: leased within 14 days', detail: '' });
+      }
+      if (code === 'N') add({ id: 'notice:' + prop + '|' + u, kind: 'notice', kindLabel: 'NOTICE', color: '#ff4fa8', sev: 2,
+        title: rec.s === 'Evict' ? 'Eviction in progress' : 'Tenant on notice', meta: rec.s === 'Evict' ? 'Counts as vacant for occupancy · downtime clock starts at move-out' : 'Pre-lease before move-out to skip the vacancy', detail: '' });
+      (rec.wo || []).forEach((w) => add({ id: 'wo:' + w[0], kind: 'wo', kindLabel: 'WORK ORDER', sev: w[3] === 'Urgent' ? 4 : w[4] > 14 ? 3 : 1, age: w[4], urgent: w[3] === 'Urgent', woNum: w[0], status: w[2], assignee: w[7] || '',
+        color: w[3] === 'Urgent' || w[4] > 14 ? '#ff4fa8' : '#ffd23f', title: w[1],
+        meta: 'WO ' + w[0] + ' · ' + w[2] + ' · ' + w[4] + 'd old' + (w[3] === 'Urgent' ? ' · URGENT' : '') + ' · ' + (w[7] ? w[7] : 'UNASSIGNED'), detail: w[6] }));
+      if (rec.due) add({ id: 'due:' + prop + '|' + u, kind: 'due', kindLabel: 'PAST DUE', color: rec.due >= 1000 ? '#ff4fa8' : '#ffd23f', sev: rec.due >= 1000 ? 3 : 1, amount: rec.due,
+        title: money(rec.due) + ' past due', meta: 'From the delinquency report', detail: '' });
+      if (rec.le) add({ id: 'lease:' + prop + '|' + u, kind: 'lease', kindLabel: 'RENEWAL', color: rec.dl < 0 ? '#ff4fa8' : '#36e2ec', sev: rec.dl < 0 ? 3 : rec.dl <= 30 ? 2 : 1, dl: rec.dl,
+        title: rec.dl < 0 ? 'Lease ended ' + -rec.dl + ' days ago' : 'Lease ends in ' + rec.dl + ' days', meta: 'Ends ' + rec.le + ' · renewal: ' + (rec.rn || 'not started'), detail: '' });
+      return out;
+    };
+    const actionsFor = (i) => {
+      const btn = (label, fn, on) => ({ label, fn, cls: on ? 'chip on' : 'chip', pressed: on ? 'true' : 'false' });
+      if (i.kind === 'wo') return [btn('LOG FOLLOW-UP', log(i.id, 'Followed up', 5), i.log === 'Followed up'), btn('RESOLVED', resolve(i.id, 15, 'WORK ORDER CLOSED'))];
+      if (i.kind === 'due') return [btn('LOG CONTACT', log(i.id, 'Contact logged', 10), i.log === 'Contact logged'), btn('PAID', resolve(i.id, 25, 'BALANCE CLEARED'))];
+      if (i.kind === 'lease') return [btn('OFFER SENT', log(i.id, 'Offer sent', 40), i.log === 'Offer sent'), btn('RENEWED', resolve(i.id, 100, 'RENEWED'))];
+      if (i.kind === 'notice') return [btn('PRE-LEASED', resolve(i.id, 300, 'PRE-LEASED'))];
+      const cur = codeOf(i.prop, i.unit);
+      return [['S', 'NOT STARTED'], ['B', 'BUILDING'], ['R', 'READY'], ['O', 'LEASED']].map(([c, l]) => btn(l, setStage(i.prop, i.unit, c), cur === c));
+    };
+
+    // ---- Scope: portfolio › property › building › unit ----
+    const P = s.picked && inFName(s.picked) ? byName[s.picked] : pfProp;
+    const B = P && s.pickedB && bIndex[s.pickedB] && bIndex[s.pickedB].b.prop === P.name ? bIndex[s.pickedB] : null;
+    const U = B && s.pickedU ? s.pickedU : null;
+    const level = U ? 'unit' : B ? 'bldg' : P ? 'prop' : 'all';
+    const scopeProps = P ? [P] : all;
+    const scopeUnits = [];
+    if (B) B.b.units.forEach((u) => scopeUnits.push({ prop: P.name, u }));
+    else scopeProps.forEach((p) => (propBlds[p.name] || []).forEach((x) => x.b.units.forEach((u) => scopeUnits.push({ prop: p.name, u }))));
+    const issues = [];
+    scopeUnits.forEach(({ prop, u }) => issuesFor(prop, u).forEach((i) => issues.push(i)));
+    if (!B) scopeProps.forEach((p) => ((UNITS[p.name] || {}).__common || []).forEach((w) => {
+      if (!s.resolved['wo:' + w[0]]) issues.push({ id: 'wo:' + w[0], kind: 'wo', kindLabel: 'WORK ORDER', sev: w[4] > 14 ? 3 : 1, age: w[4], woNum: w[0], status: w[2], assignee: w[7] || '', color: w[4] > 14 ? '#ff4fa8' : '#ffd23f', title: w[1], meta: 'WO ' + w[0] + ' · ' + w[2] + ' · ' + w[4] + 'd old · common area · ' + (w[7] ? w[7] : 'UNASSIGNED'), prop: p.name, unit: '—', detail: w[6] });
+    }));
+    const short = (prop) => byName[prop].short;
+    const where = (i) => (P ? '' : short(i.prop) + ' · ') + (i.unit === '—' ? 'Common area' : 'Unit ' + i.unit);
+    const occN = scopeUnits.filter((x) => codeOf(x.prop, x.u) === 'O').length;
+    const darkI = issues.filter((i) => i.kind === 'dark');
+    const leaseI = issues.filter((i) => i.kind === 'lease');
+    const woI = issues.filter((i) => i.kind === 'wo');
+    const dueI = issues.filter((i) => i.kind === 'due');
+    const renewOk = sum(scopeProps, (p) => p.renew.ok), renewDnr = sum(scopeProps, (p) => p.renew.dnr);
+    const renewRate = renewOk + renewDnr ? Math.round((renewOk / (renewOk + renewDnr)) * 100) : null;
+    const leadN = sum(scopeProps, (p) => p.lead.n), leadP = sum(scopeProps, (p) => p.lead.perfect), leadG = sum(scopeProps, (p) => p.lead.good), leadL = sum(scopeProps, (p) => p.lead.late), leadM = sum(scopeProps, (p) => p.lead.missed);
+    const median = this.median(darkI.map((i) => i.days));
+    const woAged = woI.filter((i) => i.age > 14).length, woUrgent = woI.filter((i) => i.urgent).length;
+
+    // Generic expandable sections: same renderer, different rows.
+    const row = (o) => ({ key: o.key, color: o.color || '#4b4380', label: o.label, sub: o.sub || '', value: o.value || '', valueColor: o.valueColor || '#ecebff',
+      hasBar: o.pct !== undefined, pct: o.pct || 0, barColor: o.barColor || o.valueColor || '#ffd23f', go: o.go || (() => {}) });
+    const chipsOf = (stateKey, opts) => opts.map(([id, label, n]) => ({ key: id, label: label + (n !== undefined ? ' · ' + n : ''), cls: s[stateKey] === id ? 'chip on' : 'chip', pressed: s[stateKey] === id ? 'true' : 'false', pick: () => this.setState({ [stateKey]: id }) }));
+    const CAP = 60;
+    const section = (id, title, color, summary, rows, extra) => {
+      const open = s.open[id] !== undefined ? s.open[id] : !!(extra && extra.defaultOpen);
+      const shown = rows.slice(0, CAP);
+      return { key: id, title, color, summary, isOpen: open, expanded: open ? 'true' : 'false', caret: open ? '−' : '+', border: open ? color : '#2c2457',
+        toggle: () => this.setState({ open: { ...this.state.open, [id]: !open } }),
+        rows: shown, empty: rows.length === 0, emptyText: (extra && extra.emptyText) || 'Nothing here.',
+        hasMore: rows.length > CAP, more: rows.length - CAP,
+        hasChips: !!(extra && extra.chips), chips: (extra && extra.chips) || [],
+        hasBands: !!(extra && extra.bands), bands: (extra && extra.bands) || [],
+        hasNote: !!(extra && extra.note), note: (extra && extra.note) || '', hasBadge: false, badge: '', badgeColor: '', hasGroup: false, group: '' };
+    };
+    const occColor = (v) => (v >= 95 ? '#36e2ec' : v >= 88 ? '#ffd23f' : '#ff4fa8');
+    const unitsOfProp = (name) => (propBlds[name] || []).flatMap((x) => x.b.units);
+    const occRows = level === 'all'
+      ? all.map((p) => { const us = unitsOfProp(p.name), o = us.filter((u) => codeOf(p.name, u) === 'O').length, v = Math.round((o / us.length) * 100);
+          return row({ key: p.name, label: p.short, sub: o + ' of ' + us.length + ' occupied' + (p.managed ? ' · managed' : ''), value: v + '%', valueColor: occColor(v), pct: v, go: goProp(p.name), sortKey: v }); }).sort((a, b) => parseFloat(a.value) - parseFloat(b.value))
+      : level === 'prop'
+        ? (propBlds[P.name] || []).map((x) => { const o = x.b.units.filter((u) => codeOf(P.name, u) === 'O').length, v = Math.round((o / x.b.units.length) * 100);
+            return row({ key: x.key, label: x.b.addr, sub: o + ' of ' + x.b.units.length + ' occupied', value: v + '%', valueColor: occColor(v), pct: v, go: goBldg(P.name, x.key) }); })
+        : [];
+    const stageOfIssue = (i) => (i.title.indexOf('Finished') === 0 ? 'ready' : i.title === 'In rehab' ? 'build' : 'stalled');
+    const darkRows = darkI.filter((i) => s.downFilter === 'all' || stageOfIssue(i) === s.downFilter)
+      .sort((a, b) => b.days - a.days)
+      .map((i) => row({ key: i.id, color: i.color, label: where(i), sub: i.title, value: i.days + 'd', valueColor: i.days > 90 ? '#ff4fa8' : i.days > 14 ? '#ffd23f' : '#36e2ec', go: goUnit(i.prop, i.unit) }));
+    const leaseRows = leaseI.sort((a, b) => a.dl - b.dl).map((i) => {
+      const rec = (UNITS[i.prop] || {})[i.unit] || {};
+      return row({ key: i.id, color: i.color, label: where(i) + (rec.t ? ' · ' + rec.t.replace(/\s+/g, ' ') : ''), sub: i.meta, value: i.dl < 0 ? -i.dl + 'd late' : i.dl + 'd', valueColor: i.color, go: goUnit(i.prop, i.unit) });
+    });
+    const woRows = woI.sort((a, b) => (s.woSort === 'recent' ? a.age - b.age : s.woSort === 'urgent' ? (b.urgent - a.urgent) || (b.age - a.age) : b.age - a.age))
+      .map((i) => row({ key: i.id, color: i.color, label: where(i) + ' · ' + i.title, sub: i.meta, value: i.age + 'd', valueColor: i.color, go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) }));
+    const leadRows = level === 'all'
+      ? all.filter((p) => p.lead.n).map((p) => { const v = Math.round((p.lead.perfect / p.lead.n) * 100);
+          return row({ key: p.name, label: p.short, sub: p.lead.n + ' leads · ' + p.lead.missed + ' never answered', value: v + '%', valueColor: v >= 90 ? '#36e2ec' : v >= 80 ? '#ffd23f' : '#ff4fa8', pct: v, go: goProp(p.name) }); }).sort((a, b) => parseFloat(a.value) - parseFloat(b.value))
+      : [];
+    const bandsOf = () => [
+      { key: 'p', name: '≤5m', n: leadP, color: '#36e2ec' }, { key: 'g', name: '5–60m', n: leadG, color: '#ffd23f' },
+      { key: 'l', name: '>1h', n: leadL, color: '#ff4fa8' }, { key: 'm', name: 'none', n: leadM, color: '#6b6590' },
+    ].map((b) => ({ ...b, pct: pct(b.n, leadN) }));
+    // Feed: open work orders nobody owns yet (no assigned user in AppFolio), newest first.
+    const unasgI = woI.filter((i) => !i.assignee).sort((a, b) => a.age - b.age);
+    const unasgRows = unasgI.map((i) => row({ key: 'u' + i.id, color: i.age > 2 ? '#ff4fa8' : '#ffd23f', label: where(i) + ' · ' + i.title,
+      sub: 'WO ' + i.woNum + ' · ' + i.status + (i.urgent ? ' · URGENT' : '') + (i.detail ? ' · ' + i.detail.slice(0, 70) + (i.detail.length > 70 ? '…' : '') : ''),
+      value: i.age === 0 ? 'today' : i.age + 'd', valueColor: i.age > 2 ? '#ff4fa8' : '#ffd23f', go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) }));
+    const unasgSec = section('unasg', 'UNASSIGNED W/O', '#ff4fa8', unasgI.length ? unasgI.length + ' need an owner' : 'all assigned', unasgRows,
+      { defaultOpen: true, emptyText: 'Every open work order has someone assigned.', note: unasgI.length ? 'No assigned user in AppFolio. Newest first; pink after 2 days without an owner.' : '' });
+    const readyN = darkI.filter((i) => i.title.indexOf('Finished') === 0).length, stalledN = darkI.filter((i) => i.title === 'Rehab not started').length;
+
+    // ---- Scorecard for the current scope: one expandable section per component ----
+    const scopeScore = U ? null : B ? bldgScore[B.key] : P ? propScore[P.name] : null;
+    const totalUnits = all.reduce((t, p) => t + propScore[p.name].n, 0);
+    const portRaw = all.reduce((t, p) => t + propScore[p.name].raw * propScore[p.name].n, 0) / totalUnits;
+    const portScore = Math.round(portRaw);
+    const cardScore = scopeScore ? scopeScore.total : portScore;
+    const comps = scopeScore
+      ? scopeScore.parts
+      : WEIGHTS[s.role].map(([id, label, w]) => {
+          const vals = all.map((p) => ({ p, part: propScore[p.name].parts.find((x) => x.id === id) })).filter((x) => x.part);
+          if (!vals.length) return null;
+          const nn = vals.reduce((t, x) => t + propScore[x.p.name].n, 0);
+          const sc = clamp(vals.reduce((t, x) => t + x.part.score * propScore[x.p.name].n, 0) / nn);
+          const worst = vals.slice().sort((a, b) => a.part.score - b.part.score)[0];
+          return { id, label, w, score: sc, detail: 'Lowest: ' + worst.p.short + ' (' + worst.part.score + ') — ' + worst.part.detail };
+        }).filter(Boolean);
+    const rec = (i) => (UNITS[i.prop] || {})[i.unit] || {};
+    const unitRow = (i, sub, value, valueColor) => row({ key: i.id, color: i.color, label: where(i) + (rec(i).t ? ' · ' + rec(i).t.replace(/\s+/g, ' ') : ''), sub, value, valueColor: valueColor || i.color, go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) });
+    const noticeI = issues.filter((i) => i.kind === 'notice');
+    const evictRows = noticeI.filter((i) => rec(i).s === 'Evict').map((i) => unitRow(i, 'Eviction in progress · counted vacant', 'EVICT'));
+    const noticeRows = noticeI.filter((i) => rec(i).s !== 'Evict').map((i) => unitRow(i, 'On notice · counts double until pre-leased', 'NOTICE'));
+    const vacantRows = level === 'bldg' ? scopeUnits.filter((x) => codeOf(x.prop, x.u) !== 'O' && codeOf(x.prop, x.u) !== 'N').map((x) => row({ key: 'v' + x.u, color: '#ff4fa8', label: 'Unit ' + x.u, sub: 'Vacant', value: '', go: goUnit(x.prop, x.u) })) : [];
+    const dueRows = dueI.slice().sort((a, b) => b.amount - a.amount).map((i) => unitRow(i, 'Past due on ' + fmtDate(DQ.latest), money(i.amount)));
+    const agedRows = woI.filter((i) => i.age > 14 || i.urgent).sort((a, b) => (b.urgent - a.urgent) || (b.age - a.age))
+      .map((i) => row({ key: 'a' + i.id, color: i.color, label: where(i) + ' · ' + i.title, sub: i.meta, value: i.age + 'd', valueColor: i.color, go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) }));
+    const COMP_ROWS = {
+      occ: () => ({ rows: occRows.concat(vacantRows, evictRows), note: level === 'all' ? 'Lowest first, then units in eviction.' : '' }),
+      vac: () => ({ rows: darkRows, chips: chipsOf('downFilter', [['all', 'ALL', darkI.length], ['ready', 'READY', readyN], ['build', 'BUILDING', darkI.filter((i) => i.title === 'In rehab').length], ['stalled', 'NOT STARTED', stalledN]]) }),
+      ren: () => ({ rows: noticeRows.concat(leaseRows), note: 'Notices first, then leases ending within 90 days (the score counts ≤ 60).' }),
+      col: () => ({ rows: dueRows, note: 'Largest balance first.' }),
+      wob: () => ({ rows: woRows, chips: chipsOf('woSort', [['aged', 'OLDEST'], ['recent', 'NEWEST'], ['urgent', 'URGENT FIRST']]) }),
+      woa: () => ({ rows: agedRows, note: 'Urgent first, then everything older than 14 days.' }),
+      stl: () => ({ rows: leadRows, bands: leadN ? bandsOf() : null, note: (leadN ? leadN + ' leads in 30 days. Banded — guest cards are polled every 5 minutes.' : 'No guest cards in 30 days.') + (level === 'bldg' ? ' Leads are tracked per property, not per building.' : '') }),
+    };
+    const compSecs = comps.map((c, i) => {
+      const d = COMP_ROWS[c.id]();
+      const sec = section('c_' + c.id, c.label.toUpperCase(), scoreColor(c.score), Math.round(c.w * 100) + '% weight', d.rows,
+        { chips: d.chips, bands: d.bands, note: c.detail + (d.note ? ' · ' + d.note : ''), emptyText: 'Nothing pulling this down.' });
+      return { ...sec, hasBadge: true, badge: grade(c.score) + ' ' + c.score, badgeColor: scoreColor(c.score),
+        hasGroup: i === 0, group: 'SCORECARD · TAP A COMPONENT' };
+    });
+
+    // ---- To-do: every open item, ranked by how much finishing it lifts the score in view ----
+    const scopeRaw = scopeScore ? scopeScore.raw : portRaw;
+    const lift = (i) => {
+      const ov = i.kind === 'dark' ? { unitSt: { ...s.unitSt, [i.prop + '|' + i.unit]: 'O' } } : { resolved: { ...s.resolved, [i.id]: true } };
+      if (B) return { d: scoreOf(B.b.prop, B.b.units, false, ov).raw - scopeRaw, base: bldgScore[B.key], after: scoreOf(B.b.prop, B.b.units, false, ov) };
+      const after = scoreOf(i.prop, unitsOfPropAll(i.prop), true, ov), base = propScore[i.prop];
+      return { d: P ? after.raw - base.raw : ((after.raw - base.raw) * base.n) / totalUnits, base, after };
+    };
+    const ACT = { dark: 'Lease it', notice: 'Pre-lease it', lease: 'Get the renewal signed', due: 'Collect it', wo: 'Close it' };
+    const todo = issues.map((i) => ({ i, ...lift(i) })).filter((x) => x.d > 0.005).sort((a, b) => b.d - a.d);
+    const todoRows = todo.map(({ i, d, base, after }) => {
+      const moved = after.parts.map((x) => ({ x, by: x.score - ((base.parts.find((y) => y.id === x.id) || {}).score || 0) })).sort((a, b) => b.by - a.by)[0];
+      const via = moved && moved.by > 0 ? moved.x.label.toLowerCase() + ' +' + moved.by : 'score';
+      return row({ key: 't' + i.id, color: d >= 1 ? '#36e2ec' : d >= 0.2 ? '#ffd23f' : '#4b4380', label: where(i) + ' · ' + i.title,
+        sub: ACT[i.kind] + ' · ' + via + (i.kind === 'wo' && !i.assignee ? ' · unassigned' : ''),
+        value: '+' + (d >= 1 ? d.toFixed(1) : d.toFixed(2)), valueColor: d >= 1 ? '#36e2ec' : '#ffd23f', go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) });
+    });
+    const todoSec = section('todo', 'TO-DO', '#36e2ec', todo.length + ' items · biggest first', todoRows,
+      { defaultOpen: true, emptyText: 'Nothing open moves this score.', note: 'Points each item adds to the ' + (B ? 'building' : P ? 'property' : 'portfolio') + ' score above when done. Tap one to open the unit.' });
+    const sections = [...compSecs, todoSec, unasgSec];
+    // Leaderboard: every property ranked by its score for the current role.
+    const lbRows = all.map((p) => ({ p, sc: propScore[p.name] })).sort((a, b) => b.sc.total - a.sc.total || b.sc.n - a.sc.n)
+      .map((x, i) => ({ key: x.p.name, rank: String(i + 1).padStart(2, '0'), name: x.p.short, units: x.sc.n + 'u',
+        score: grade(x.sc.total) + ' ' + x.sc.total, color: scoreColor(x.sc.total), medal: i === 0 ? '#ffd23f' : i === 1 ? '#c9c6ea' : i === 2 ? '#e0894a' : '#6b6590',
+        cls: P && P.name === x.p.name ? 'lbrow on' : 'lbrow', cur: P && P.name === x.p.name ? 'true' : 'false', go: goProp(x.p.name) }));
+    const leaderboard = { rows: lbRows, open: s.lbOpen !== false, caret: s.lbOpen !== false ? '−' : '+', expanded: s.lbOpen !== false ? 'true' : 'false',
+      toggle: () => this.setState({ lbOpen: this.state.lbOpen === false }), title: pm ? 'HIGH SCORES · PROPERTY MGR' : 'HIGH SCORES · VIRTUAL ADMIN' };
+
+    // Panel header: where you are + the four numbers that matter for the role.
+    const crumbs = pfProp ? [] : [{ key: 'all', label: pfLabel.toUpperCase(), go: () => this.setState({ picked: null, pickedB: null, pickedU: null }), cur: level === 'all' ? 'page' : 'false', sep: false }];
+    if (P) crumbs.push({ key: 'p', label: P.short, go: goProp(P.name), cur: level === 'prop' ? 'page' : 'false', sep: !pfProp });
+    if (B) crumbs.push({ key: 'b', label: B.b.addr, go: goBldg(P.name, B.key), cur: level === 'bldg' ? 'page' : 'false', sep: true });
+    if (U) crumbs.push({ key: 'u', label: 'UNIT ' + U, go: () => {}, cur: 'page', sep: true });
+    crumbs.forEach((c) => { c.color = c.cur === 'page' ? '#36e2ec' : '#c9c6ea'; });
+    const isEvict = (x) => ((UNITS[x.prop] || {})[x.u] || {}).s === 'Evict';
+    const evictN = scopeUnits.filter((x) => codeOf(x.prop, x.u) === 'N' && isEvict(x)).length;
+    const noticeN = scopeUnits.filter((x) => codeOf(x.prop, x.u) === 'N' && !isEvict(x)).length;
+    const stats = pm ? [
+      { key: 'o', label: 'Occupancy', value: pct(occN, scopeUnits.length) + '%', color: '#ffd23f' },
+      { key: 'd', label: 'Units vacant', value: String(darkI.length), color: darkI.length ? '#ff4fa8' : '#36e2ec' },
+      { key: 'l', label: 'Leases ≤ 90d', value: String(leaseI.length), color: '#36e2ec' },
+      { key: 'r', label: 'Notice · eviction', value: noticeN + ' · ' + evictN, color: noticeN + evictN ? '#ff4fa8' : '#36e2ec' },
+    ] : [
+      { key: 'w', label: 'Open W/O', value: String(woI.length), color: '#ecebff' },
+      { key: 'a', label: 'Over 14 days', value: String(woAged), color: woAged ? '#ff4fa8' : '#36e2ec' },
+      { key: 's', label: 'Speed to lead', value: leadN ? pct(leadP, leadN) + '%' : '—', color: '#36e2ec' },
+      { key: 'm', label: 'No response', value: String(leadM), color: leadM ? '#ff4fa8' : '#36e2ec' },
+    ];
+    const kcN = all.filter((p) => p.district === 'kc').length;
+    const panel = {
+      crumbs, stats, sections, hasScore: level !== 'unit', score: grade(cardScore) + ' ' + cardScore, scoreColor: scoreColor(cardScore),
+      isAll: level === 'all', isProp: level === 'prop', isBldg: level === 'bldg', isUnit: level === 'unit', notUnit: level !== 'unit',
+      title: level === 'all' ? pfLabel : level === 'prop' ? P.name : level === 'bldg' ? B.b.addr : 'Unit ' + U,
+      sub: level === 'all' ? all.length + ' properties · ' + scopeUnits.length + ' units · ' + kcN + ' in Kansas City, ' + (all.length - kcN) + ' in Columbia'
+        : level === 'prop' ? P.address + (P.managed ? ' · managed for an owner' : ' · yours') : level === 'bldg' ? P.name + ' · ' + (B.b.mode === 'town' ? B.b.units.length + ' townhomes' : B.b.floors + ' floors · ' + B.b.units.length + ' units') : B.b.addr + ' · ' + P.name,
+    };
+    if (level === 'prop') {
+      panel.blds = (propBlds[P.name] || []).map((x) => {
+        const list = []; x.b.units.forEach((u) => issuesFor(P.name, u).forEach((i) => list.push(i)));
+        const t = { wo: list.filter((i) => i.kind === 'wo').length, due: list.filter((i) => i.kind === 'due').reduce((a, i) => a + i.amount, 0), lease: list.filter((i) => i.kind === 'lease').length, dark: list.filter((i) => i.kind === 'dark').length };
+        return { key: x.key, addr: x.b.addr, n: x.b.units.length, strip: x.b.units.map((u) => ({ key: u, c: CODE[codeOf(P.name, u)].bg })),
+          summary: [t.wo ? t.wo + ' W/O' : '', t.due ? money(t.due) + ' due' : '', t.lease ? t.lease + ' renewal' + (t.lease === 1 ? '' : 's') : '', t.dark ? t.dark + ' vacant' : ''].filter(Boolean).join(' · ') || 'No open issues', go: goBldg(P.name, x.key) };
+      });
+    }
+    if (B) {
+      const b = B.b, F = b.floors;
+      const tile = (u) => {
+        const c = CODE[codeOf(P.name, u)], mine = issuesFor(P.name, u);
+        const nwo = mine.filter((i) => i.kind === 'wo').length;
+        const bits = [nwo ? nwo + ' WO' : '', mine.some((i) => i.kind === 'due') ? '$' : '', mine.some((i) => i.kind === 'lease') ? 'LEASE' : ''].filter(Boolean);
+        return { key: u, u, bg: c.bg, fg: c.fg, border: U === u ? '#ffffff' : c.bg === '#120e26' ? '#4b4380' : c.bg, sub: bits.join(' · ') || c.label,
+          aria: 'Unit ' + u + ', ' + c.label + (bits.length ? ', ' + bits.join(', ') : ''), go: () => this.setState({ pickedU: u }) };
+      };
+      let floors;
+      if (b.mode === 'town') floors = [{ key: 'row', label: 'TOWNHOMES · BY ADDRESS', units: b.units.map(tile) }];
+      else { const m = Math.ceil(b.units.length / F); floors = []; for (let f = F - 1; f >= 0; f--) floors.push({ key: 'f' + f, label: 'FLOOR ' + (f + 1), units: b.units.slice(f * m, (f + 1) * m).map(tile) }); }
+      const water = [];
+      b.units.forEach((u) => (((UNITS[P.name] || {})[u] || {}).wo || []).forEach((w) => { if (/leak|roof|ceiling|flood|mold|water|mildew/i.test(w[1]) && !s.resolved['wo:' + w[0]]) water.push(u); }));
+      const bid = 'bld:' + B.key;
+      panel.bldg = { floors, hasAlert: water.length >= 3,
+        alertTitle: water.length + ' water-related work orders across ' + new Set(water).size + ' units',
+        alertNote: 'Leaks, ceilings and mold clustered in one building usually share a source — the roof or a riser. Inspect the building before fixing units one at a time.',
+        alertLogged: !!s.logs[bid], alertLog: s.logs[bid] || '', alertAct: log(bid, 'Building inspection opened', 50) };
+    }
+    if (U) {
+      const rec = (UNITS[P.name] || {})[U] || {}, c = CODE[codeOf(P.name, U)];
+      const mine = issuesFor(P.name, U).sort((a, b) => b.sev - a.sev).map((i) => ({ ...i, key: i.id, border: i.sev >= 3 ? i.color : '#2c2457', actions: actionsFor(i).map((a, k) => ({ ...a, key: k })), hasDetail: !!i.detail }));
+      panel.unit = { u: U, statusLabel: c.label, statusBg: c.bg, statusFg: c.fg, rr: rec.s || '',
+        tenant: (rec.t || '').replace(/\s+/g, ' ').trim() || (codeOf(P.name, U) === 'O' ? 'Name not in rent roll' : 'Vacant'),
+        hasPhone: !!rec.ph, noPhone: !rec.ph, phone: rec.ph || '', tel: rec.ph ? 'tel:+1' + rec.ph.replace(/\D/g, '') : '',
+        moveIn: rec.mi || '—', leaseEnd: rec.le || '—', issues: mine, noIssues: mine.length === 0, count: mine.length };
+    }
+
+    const legend = pm ? [
+      { key: 'o', label: 'Occupied', color: '#ffd23f' }, { key: 'n', label: 'Notice / eviction', color: '#ff4fa8' },
+      { key: 'b', label: 'Building', color: '#36e2ec' }, { key: 'r', label: 'Ready, unleased', color: '#1f8f96' }, { key: 's', label: 'Not started', color: '#120e26' },
+    ] : [
+      { key: 'w', label: 'Beam = open work orders', color: '#ffd23f' }, { key: 'p', label: 'Pink = half aged 14d+ or many missed leads', color: '#ff4fa8' },
+    ];
+    const allUnits = all.reduce((t, p) => t + unitsOfProp(p.name).length, 0);
+    const allOcc = all.reduce((t, p) => t + unitsOfProp(p.name).filter((u) => codeOf(p.name, u) === 'O').length, 0);
+    // Tape: every property's score for the role, like a stock ticker.
+    const tickerBase = [{ key: 'port', tag: pfLabel.toUpperCase(), color: scoreColor(portScore), text: grade(portScore) + ' ' + portScore }]
+      .concat(all.map((p) => { const sc = propScore[p.name]; return { key: p.name, tag: p.short, color: scoreColor(sc.total),
+        text: grade(sc.total) + ' ' + sc.total + (sc.drag.score < 100 ? ' · ' + sc.drag.label.toLowerCase() + ' ' + sc.drag.score : '') }; }))
+      .concat(unasgI.length ? [{ key: 'un', tag: 'UNASSIGNED W/O', color: '#ff4fa8', text: String(woI.filter((i) => !i.assignee).length) }] : []);
+    const btn = (on) => (on ? 'hudbtn on' : 'hudbtn');
+    return {
+      scanlines: this.props.scanlines ?? true,
+      roleName: pm ? 'OPERATOR' : 'DISPATCHER', roleColor: pm ? '#36e2ec' : '#ff4fa8',
+      lvl: Math.floor(s.xp / 1000) + 1, xp: s.xp.toLocaleString('en-US'),
+      toastOn: s.toast !== '', toastText: s.toast,
+      pmBtn: btn(pm), vaBtn: btn(!pm), pmPressed: pm ? 'true' : 'false', vaPressed: pm ? 'false' : 'true',
+      setPm: () => this.setState({ role: 'pm' }), setVa: () => this.setState({ role: 'va' }),
+      w: W.paths, objects: W.objects, labels: W.labels, plates: placedPlates, marks, parcels,
+      worldW: W.worldW, worldH: W.worldH,
+      zoom, stageW: Math.round(W.worldW * zoom), stageH: Math.round(W.worldH * zoom), zoomLabel: Math.round(zoom * 100) + '%',
+      compassDeg: s.ang * 45,
+      rotL: () => this.setState({ ang: (s.ang + 7) % 8 }), rotR: () => this.setState({ ang: (s.ang + 1) % 8 }),
+      zoomIn: () => this.setState({ zi: Math.min(s.zi + 1, ZOOMS.length - 1) }), zoomOut: () => this.setState({ zi: Math.max(s.zi - 1, 0) }),
+      legend, panel, leaderboard, pf: pfKey, setPf,
+      ticker: tickerBase.concat(tickerBase.map((t) => ({ ...t, key: t.key + '2' }))),
+    };
+  }
+}
+</script>
+</body>
+</html>

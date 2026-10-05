@@ -1,0 +1,6 @@
+# The repo is public. Tenant names, phones, balances and work-order text stay
+# out of git: they live only in data/*.json (except sites.json) and dist/.
+data/*.json
+!data/sites.json
+data/osm/
+dist/
