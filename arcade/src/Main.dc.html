@@ -1002,6 +1002,9 @@ class Component extends DCLogic {
     const UNITS = this.unitsData();
     const STATUS = W.STATUS;
     const codeOf = (prop, u) => (s.unitSt[prop + '|' + u]) || (STATUS[prop] || {})[u] || 'O';
+    // Occupied for scoring: a tenant on notice still lives there (the notice
+    // counts in Renewals); only vacant units and evictions count against it.
+    const occupiedAt = (prop, u) => { const c = codeOf(prop, u); return c === 'O' || (c === 'N' && ((UNITS[prop] || {})[u] || {}).s !== 'Evict'); };
     const darkInfo = {};
     all.forEach((p) => p.dark.forEach((d) => { darkInfo[p.name + '|' + d.unit] = d; }));
     const CODE = {
@@ -1066,7 +1069,7 @@ class Component extends DCLogic {
       if (pm) {
         // A unit in eviction counts as vacant here. Its downtime timer (vacancy
         // speed) only starts once the tenant is out and the unit enters rehab.
-        const occ = recs.filter((x) => x.code === 'O').length;
+        const occ = recs.filter((x) => x.code === 'O' || (x.code === 'N' && x.rec.s !== 'Evict')).length;
         const evict = recs.filter((x) => x.code === 'N' && x.rec.s === 'Evict' && !RS['notice:' + propName + '|' + x.u]).length;
         const occEff = Math.max(0, occ - evict * CAL.evictExtra);
         comp.occ = { score: clampR((((occEff / n) * 100 - CAL.occZero) / (CAL.occFull - CAL.occZero)) * 100), detail: occ + ' of ' + n + ' occupied (' + Math.round((occ / n) * 100) + '%)' + (evict ? ' · ' + evict + ' in eviction (counted vacant)' : '') + ' · 70% scores 0, 91% scores 100' };
@@ -1083,9 +1086,9 @@ class Component extends DCLogic {
           if (!r.le || r.rn === 'Renewed' || RS['lease:' + propName + '|' + x.u] || r.dl > 60) return;
           if (r.dl < 0) lapsed += 1; else upcoming += 1;
         });
-        const atRisk = upcoming + (lapsed + notice) * 2;
+        const atRisk = upcoming + notice + lapsed * 2;
         const parts = [upcoming + ' ending ≤ 60d unrenewed', lapsed ? lapsed + ' lapsed' : '', notice + ' on notice'].filter(Boolean);
-        comp.ren = { score: clampR((1 - atRisk / n / CAL.renRisk) * 100), detail: parts.join(' · ') + ' (lapsed and notice count double)' };
+        comp.ren = { score: clampR((1 - atRisk / n / CAL.renRisk) * 100), detail: parts.join(' · ') + (lapsed ? ' (lapsed count double)' : '') };
         let cur = 0, pri = 0;
         recs.forEach((x) => { cur += RS['due:' + propName + '|' + x.u] ? 0 : (x.rec.due || 0); pri += x.rec.pd || 0; });
         if (wholeProperty && UNITS[propName] && UNITS[propName].__other) { cur += UNITS[propName].__other.due; pri += UNITS[propName].__other.pd; }
@@ -1198,7 +1201,7 @@ class Component extends DCLogic {
     }));
     const short = (prop) => byName[prop].short;
     const where = (i) => (P ? '' : short(i.prop) + ' · ') + (i.unit === '—' ? 'Common area' : 'Unit ' + i.unit);
-    const occN = scopeUnits.filter((x) => codeOf(x.prop, x.u) === 'O').length;
+    const occN = scopeUnits.filter((x) => occupiedAt(x.prop, x.u)).length;
     const darkI = issues.filter((i) => i.kind === 'dark');
     const leaseI = issues.filter((i) => i.kind === 'lease');
     const woI = issues.filter((i) => i.kind === 'wo');
@@ -1228,10 +1231,10 @@ class Component extends DCLogic {
     const occColor = (v) => (v >= 95 ? '#36e2ec' : v >= 88 ? '#ffd23f' : '#ff4fa8');
     const unitsOfProp = (name) => (propBlds[name] || []).flatMap((x) => x.b.units);
     const occRows = level === 'all'
-      ? all.map((p) => { const us = unitsOfProp(p.name), o = us.filter((u) => codeOf(p.name, u) === 'O').length, v = Math.round((o / us.length) * 100);
+      ? all.map((p) => { const us = unitsOfProp(p.name), o = us.filter((u) => occupiedAt(p.name, u)).length, v = Math.round((o / us.length) * 100);
           return row({ key: p.name, label: p.short, sub: o + ' of ' + us.length + ' occupied' + (p.managed ? ' · managed' : ''), value: v + '%', valueColor: occColor(v), pct: v, go: goProp(p.name), sortKey: v }); }).sort((a, b) => parseFloat(a.value) - parseFloat(b.value))
       : level === 'prop'
-        ? (propBlds[P.name] || []).map((x) => { const o = x.b.units.filter((u) => codeOf(P.name, u) === 'O').length, v = Math.round((o / x.b.units.length) * 100);
+        ? (propBlds[P.name] || []).map((x) => { const o = x.b.units.filter((u) => occupiedAt(P.name, u)).length, v = Math.round((o / x.b.units.length) * 100);
             return row({ key: x.key, label: x.b.addr, sub: o + ' of ' + x.b.units.length + ' occupied', value: v + '%', valueColor: occColor(v), pct: v, go: goBldg(P.name, x.key) }); })
         : [];
     const stageOfIssue = (i) => (i.title.indexOf('Finished') === 0 ? 'ready' : i.title === 'In rehab' ? 'build' : 'stalled');
@@ -1281,7 +1284,7 @@ class Component extends DCLogic {
     const unitRow = (i, sub, value, valueColor) => row({ key: i.id, color: i.color, label: where(i) + (rec(i).t ? ' · ' + rec(i).t.replace(/\s+/g, ' ') : ''), sub, value, valueColor: valueColor || i.color, go: i.unit === '—' ? goProp(i.prop) : goUnit(i.prop, i.unit) });
     const noticeI = issues.filter((i) => i.kind === 'notice');
     const evictRows = noticeI.filter((i) => rec(i).s === 'Evict').map((i) => unitRow(i, 'Eviction in progress · counted vacant', 'EVICT'));
-    const noticeRows = noticeI.filter((i) => rec(i).s !== 'Evict').map((i) => unitRow(i, 'On notice · counts double until pre-leased', 'NOTICE'));
+    const noticeRows = noticeI.filter((i) => rec(i).s !== 'Evict').map((i) => unitRow(i, 'On notice · counts in renewals until pre-leased', 'NOTICE'));
     const vacantRows = level === 'bldg' ? scopeUnits.filter((x) => codeOf(x.prop, x.u) !== 'O' && codeOf(x.prop, x.u) !== 'N').map((x) => row({ key: 'v' + x.u, color: '#ff4fa8', label: 'Unit ' + x.u, sub: 'Vacant', value: '', go: goUnit(x.prop, x.u) })) : [];
     const dueRows = dueI.slice().sort((a, b) => b.amount - a.amount).map((i) => unitRow(i, 'Past due on ' + fmtDate(DQ.latest), money(i.amount)));
     const agedRows = woI.filter((i) => i.age > 14 || i.urgent).sort((a, b) => (b.urgent - a.urgent) || (b.age - a.age))
@@ -1403,7 +1406,7 @@ class Component extends DCLogic {
       { key: 'w', label: 'Beam = open work orders', color: '#ffd23f' }, { key: 'p', label: 'Pink = half aged 14d+ or many missed leads', color: '#ff4fa8' },
     ];
     const allUnits = all.reduce((t, p) => t + unitsOfProp(p.name).length, 0);
-    const allOcc = all.reduce((t, p) => t + unitsOfProp(p.name).filter((u) => codeOf(p.name, u) === 'O').length, 0);
+    const allOcc = all.reduce((t, p) => t + unitsOfProp(p.name).filter((u) => occupiedAt(p.name, u)).length, 0);
     // Tape: every property's score for the role, like a stock ticker.
     const tickerBase = [{ key: 'port', tag: pfLabel.toUpperCase(), color: scoreColor(portScore), text: grade(portScore) + ' ' + portScore }]
       .concat(all.map((p) => { const sc = propScore[p.name]; return { key: p.name, tag: p.short, color: scoreColor(sc.total),
