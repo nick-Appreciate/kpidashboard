@@ -160,35 +160,69 @@ export async function fetchActiveListings(): Promise<Listing[]> {
     photosByListing.set(p.listing_id, arr);
   }
 
-  return (listingRows || []).map(row =>
+  const listings = (listingRows || []).map(row =>
     rowToListing(row, photosByListing.get(row.id) || [], identities.get(String(row.id)) ?? {
       property_name: null,
       unit_name: null,
     }),
   );
+  return cleanListings(listings);
 }
 
-/** Fetch one listing by id + its photos. Returns null if not found or inactive. */
+/** Same grouping key groupByProperty uses: the property, else the building's coordinates. */
+function propertyKey(l: Listing): string {
+  return l.property_name
+    ? `p:${l.property_name}`
+    : `c:${l.latitude.toFixed(5)}_${l.longitude.toFixed(5)}`;
+}
+
+/**
+ * Fixes AppFolio's listing feed for display:
+ *  - AppFolio appends the company logo to every listing's photos. Any photo
+ *    shared by listings at 3+ different properties is branding, not the
+ *    unit, so it's dropped (it showed as a cropped "APPRECIATE" tile).
+ *  - The marketing description is written per property, but AppFolio leaves
+ *    it blank on some unit listings; those borrow a sibling unit's copy.
+ */
+function cleanListings(listings: Listing[]): Listing[] {
+  const propsByPhoto = new Map<string, Set<string>>();
+  const descByProperty = new Map<string, string>();
+  for (const l of listings) {
+    const key = propertyKey(l);
+    for (const url of l.photos) {
+      if (!propsByPhoto.has(url)) propsByPhoto.set(url, new Set());
+      propsByPhoto.get(url)!.add(key);
+    }
+    if (l.marketing_description?.trim() && !descByProperty.has(key)) {
+      descByProperty.set(key, l.marketing_description);
+    }
+  }
+  const isBranding = (url: string | null) => !!url && (propsByPhoto.get(url)?.size ?? 0) >= 3;
+  // default_photo_url is AppFolio's medium-size copy of a photo; match on the image id.
+  const brandingIds = new Set(
+    Array.from(propsByPhoto.keys()).filter(isBranding).map(u => u.split('/images/')[1]?.split('/')[0]),
+  );
+  return listings.map(l => {
+    const photos = l.photos.filter(u => !isBranding(u));
+    const defaultId = l.default_photo_url?.split('/images/')[1]?.split('/')[0];
+    return {
+      ...l,
+      photos,
+      default_photo_url: defaultId && brandingIds.has(defaultId) ? photos[0] ?? null : l.default_photo_url,
+      marketing_description: l.marketing_description?.trim()
+        ? l.marketing_description
+        : descByProperty.get(propertyKey(l)) ?? null,
+    };
+  });
+}
+
+/**
+ * One active listing by id, or null if not found or inactive. Built from the
+ * full set because cleaning needs every listing (see cleanListings).
+ */
 export async function fetchListingById(id: string): Promise<Listing | null> {
-  const [{ data: listing, error: le }, { data: photos, error: pe }] =
-    await Promise.all([
-      supabase
-        .from('af_listings')
-        .select('*')
-        .eq('id', id)
-        .is('inactive_since', null)
-        .maybeSingle(),
-      supabase
-        .from('af_listing_photos')
-        .select('photo_url, position')
-        .eq('listing_id', id)
-        .order('position', { ascending: true }),
-    ]);
-
-  if (le || !listing) return null;
-  if (pe) console.error('[listings] fetch photos failed:', pe.message);
-
-  return rowToListing(listing, (photos || []).map(p => p.photo_url));
+  const listings = await fetchActiveListings();
+  return listings.find(l => l.id === id) ?? null;
 }
 
 // ─── Grouping ────────────────────────────────────────────────────────
@@ -232,7 +266,9 @@ export function groupByProperty(listings: Listing[]): Property[] {
       zip: sorted[0].zip,
       latitude: sorted[0].latitude,
       longitude: sorted[0].longitude,
-      photos: sorted[0].photos,
+      // The card shows the unit with the most photos, not just the soonest
+      // available one — a new listing often has only an exterior shot.
+      photos: sorted.reduce((best, u) => (u.photos.length > best.length ? u.photos : best), sorted[0].photos),
       units: sorted,
       minRent: rents.length ? Math.min(...rents) : 0,
       maxRent: rents.length ? Math.max(...rents) : 0,

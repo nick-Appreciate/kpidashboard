@@ -262,6 +262,18 @@ function PhotoGallery({
     );
   }
 
+  // Fill the grid whatever the photo count: the hero takes the left half and
+  // the thumbnails share the right half, widening when there are fewer of them.
+  const n = thumbs.length;
+  const thumbClass = (i: number) =>
+    n === 1
+      ? 'md:col-span-2 md:row-span-2 md:aspect-auto'
+      : n === 2
+        ? 'md:col-span-2 md:aspect-auto'
+        : n === 3 && i === 2
+          ? 'md:col-span-2 md:aspect-auto'
+          : '';
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 md:grid-rows-2 gap-2 rounded-3xl overflow-hidden relative">
       <button
@@ -283,7 +295,7 @@ function PhotoGallery({
         <button
           key={photo}
           onClick={() => onOpen(i + 1)}
-          className="relative aspect-square bg-[#F1F0EC] hidden md:block cursor-zoom-in group"
+          className={`relative aspect-square bg-[#F1F0EC] hidden md:block cursor-zoom-in group ${thumbClass(i)}`}
           aria-label={t.openPhoto(i + 2)}
         >
           <Image
