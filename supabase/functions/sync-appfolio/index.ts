@@ -15,6 +15,14 @@ interface SyncResult {
   error?: string;
 }
 
+// Truncate RPCs must succeed before we insert, otherwise every run appends a
+// full copy of the report. (af_income_register grew to 157M rows this way
+// after a FK made its truncate fail silently.)
+async function truncateOrThrow(fn: string): Promise<void> {
+  const { error } = await supabase.rpc(fn);
+  if (error) throw new Error(`${fn} failed: ${error.message}`);
+}
+
 async function fetchAppFolioReport(reportName: string, filters: Record<string, unknown> = {}): Promise<unknown[]> {
   const url = `https://${appfolioDatabase}.appfolio.com/api/v2/reports/${reportName}.json`;
   const auth = btoa(`${appfolioClientId}:${appfolioClientSecret}`);
@@ -404,7 +412,7 @@ async function syncVendorDirectory(): Promise<SyncResult> {
       portal_activated: row.portal_activated === 'Yes'
     }));
     
-    await supabase.rpc('truncate_af_vendor_directory');
+    await truncateOrThrow('truncate_af_vendor_directory');
     const { error } = await supabase.from('af_vendor_directory').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -504,7 +512,7 @@ async function syncOwnerDirectory(): Promise<SyncResult> {
       synced_at: new Date().toISOString()
     }));
 
-    await supabase.rpc('truncate_af_owner_directory');
+    await truncateOrThrow('truncate_af_owner_directory');
     const { error } = await supabase.from('af_owner_directory').insert(records);
     if (error) throw new Error(JSON.stringify(error));
 
@@ -562,7 +570,7 @@ async function syncPropertyDirectory(): Promise<SyncResult> {
       premium_leads_monthly_cap: row.premium_leads_monthly_cap ? parseFloat(row.premium_leads_monthly_cap) : null,
     }));
     
-    await supabase.rpc('truncate_af_property_directory');
+    await truncateOrThrow('truncate_af_property_directory');
     const { error } = await supabase.from('af_property_directory').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -588,7 +596,7 @@ async function syncTenantLedger(): Promise<SyncResult> {
       credit_debit_balance: row.credit_debit_balance ? parseFloat(row.credit_debit_balance) : null
     }));
     
-    await supabase.rpc('truncate_af_tenant_ledger');
+    await truncateOrThrow('truncate_af_tenant_ledger');
     
     // Insert in batches
     const batchSize = 100;
@@ -629,7 +637,7 @@ async function syncLeaseHistory(): Promise<SyncResult> {
       unit_id: row.unit_id
     }));
     
-    await supabase.rpc('truncate_af_lease_history');
+    await truncateOrThrow('truncate_af_lease_history');
     const { error } = await supabase.from('af_lease_history').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -663,7 +671,7 @@ async function syncOccupancySummary(): Promise<SyncResult> {
       notice_unrented: row.notice_unrented ? parseInt(row.notice_unrented) : null
     }));
     
-    await supabase.rpc('truncate_af_occupancy_summary');
+    await truncateOrThrow('truncate_af_occupancy_summary');
     const { error } = await supabase.from('af_occupancy_summary').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -704,7 +712,7 @@ async function syncChargeDetail(): Promise<SyncResult> {
       created_at: row.created_at || null
     }));
     
-    await supabase.rpc('truncate_af_charge_detail');
+    await truncateOrThrow('truncate_af_charge_detail');
     
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
@@ -746,7 +754,7 @@ async function syncGeneralLedger(): Promise<SyncResult> {
       created_by: row.created_by
     }));
     
-    await supabase.rpc('truncate_af_general_ledger');
+    await truncateOrThrow('truncate_af_general_ledger');
     
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
@@ -775,7 +783,7 @@ async function syncChartOfAccounts(): Promise<SyncResult> {
       hidden: row.hidden === 'Yes' || row.hidden === true
     }));
     
-    await supabase.rpc('truncate_af_chart_of_accounts');
+    await truncateOrThrow('truncate_af_chart_of_accounts');
     const { error } = await supabase.from('af_chart_of_accounts').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -799,7 +807,7 @@ async function syncTrialBalance(): Promise<SyncResult> {
       ending_balance: row.ending_balance ? parseFloat(row.ending_balance) : null
     }));
     
-    await supabase.rpc('truncate_af_trial_balance');
+    await truncateOrThrow('truncate_af_trial_balance');
     const { error } = await supabase.from('af_trial_balance').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -824,7 +832,7 @@ async function syncProspectSourceTracking(): Promise<SyncResult> {
       converted_tenants: row.converted_tenants ? parseInt(row.converted_tenants) : null
     }));
     
-    await supabase.rpc('truncate_af_prospect_source_tracking');
+    await truncateOrThrow('truncate_af_prospect_source_tracking');
     const { error } = await supabase.from('af_prospect_source_tracking').insert(records);
     if (error) throw new Error(JSON.stringify(error));
     
@@ -878,7 +886,7 @@ async function syncBillDetail(): Promise<SyncResult> {
       };
     });
 
-    await supabase.rpc('truncate_af_bill_detail');
+    await truncateOrThrow('truncate_af_bill_detail');
 
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
@@ -919,7 +927,7 @@ async function syncTenantDirectory(): Promise<SyncResult> {
       synced_at: new Date().toISOString()
     }));
     
-    await supabase.rpc('truncate_af_tenant_directory');
+    await truncateOrThrow('truncate_af_tenant_directory');
     
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
@@ -1006,7 +1014,7 @@ async function syncWorkOrders(): Promise<SyncResult> {
       synced_at: new Date().toISOString()
     }));
 
-    await supabase.rpc('truncate_af_work_orders');
+    await truncateOrThrow('truncate_af_work_orders');
 
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
@@ -1045,7 +1053,7 @@ async function syncIncomeRegister(): Promise<SyncResult> {
       account_number: row.account_number || null,
     }));
 
-    await supabase.rpc('truncate_af_income_register');
+    await truncateOrThrow('truncate_af_income_register');
 
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
