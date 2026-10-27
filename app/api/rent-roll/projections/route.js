@@ -375,6 +375,54 @@ export async function GET(request) {
         .map(e => `${e.property}||${e.unit}`.toLowerCase())
     );
 
+    // --- Future tenants as scheduled Move-Ins ---
+    // AppFolio's tenant directory lists a signed tenant as status 'Future'
+    // with the scheduled move_in date. That's the authoritative date, and it
+    // catches leases set up without an online application (which would
+    // otherwise never show: tenant_events only records move-ins that already
+    // happened). Applications for the same unit defer to it.
+    const { data: futureTenants } = await supabase
+      .from('af_tenant_directory')
+      .select('property_name, unit, move_in')
+      .eq('status', 'Future')
+      .not('move_in', 'is', null);
+
+    const directoryMoveIns = [];
+    const directoryKeys = new Set();
+    for (const t of futureTenants || []) {
+      if (!t.property_name || !t.unit) continue;
+      if (property && property !== 'all' && t.property_name.toLowerCase() !== property.toLowerCase()) continue;
+      if (region) {
+        const kcProperties = REGION_PROPERTIES.region_kansas_city;
+        const isKc = kcProperties.some(kc => t.property_name.toLowerCase().includes(kc));
+        if (region === 'region_kansas_city' && !isKc) continue;
+        if (region === 'region_columbia' && isKc) continue;
+        if (region === 'farquhar') {
+          const hilltopGone = new Date() >= new Date('2026-04-22T00:00:00');
+          if (t.property_name === 'Glen Oaks') continue;
+          if (hilltopGone && t.property_name === 'Hilltop Townhomes') continue;
+        }
+      }
+      const unitKey = `${t.property_name}||${t.unit}`.toLowerCase();
+      if (occupiedUnitKeys.has(unitKey)) continue;
+      if (!approvedMoveInKeys.has(unitKey)) continue;
+      if (existingMoveInKeys.has(unitKey)) continue;
+      if (directoryKeys.has(unitKey)) continue; // co-tenants share one move-in
+      // Not moved in yet but the date has passed: snap to today, like events.
+      const moveInDateStr = t.move_in < today ? today : t.move_in;
+      if (moveInDateStr > ninetyDaysOut) continue;
+      directoryKeys.add(unitKey);
+      directoryMoveIns.push({
+        event_date: moveInDateStr,
+        event_type: 'Move-in',
+        property: t.property_name,
+        unit: t.unit,
+        tenant_name: null,
+        rent: null,
+        _source: 'tenant_directory',
+      });
+    }
+
     // Deduplicate by unit (keep one per unit — most recent app wins)
     const seenAppUnits = new Set();
     const appMoveIns = [];
@@ -389,6 +437,7 @@ export async function GET(request) {
       if (occupiedUnitKeys.has(unitKey)) continue;
       if (!approvedMoveInKeys.has(unitKey)) continue;
       if (existingMoveInKeys.has(unitKey)) continue;
+      if (directoryKeys.has(unitKey)) continue;
       if (seenAppUnits.has(unitKey)) continue;
       seenAppUnits.add(unitKey);
 
@@ -423,7 +472,7 @@ export async function GET(request) {
     }
 
     // Combine all events
-    const allFutureEvents = [...(futureEvents || []), ...evictionMoveOuts, ...noticeMoveOuts, ...appMoveIns];
+    const allFutureEvents = [...(futureEvents || []), ...evictionMoveOuts, ...noticeMoveOuts, ...directoryMoveIns, ...appMoveIns];
     
     // Separate move-ins and move-outs
     const upcomingMoveIns = allFutureEvents.filter(e => e.event_type === 'Move-in') || [];
