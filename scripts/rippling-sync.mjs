@@ -1,8 +1,10 @@
 /**
  * scripts/rippling-sync.mjs
  *
- * Pulls Rippling time entries for tracked workers (workers_rippling.is_tracked = true)
- * and upserts into time_entries_rippling. By default, fetches the last 90 days.
+ * Refreshes the full Rippling roster into workers_rippling, links commission
+ * payees to their worker IDs, then pulls time entries for tracked workers
+ * (workers_rippling.is_tracked = true) into time_entries_rippling. By default,
+ * fetches the last 90 days.
  *
  * Run:
  *   node scripts/rippling-sync.mjs                # last 90 days (default)
@@ -109,32 +111,49 @@ function localCalendarDate(iso) {
   if (trErr) throw new Error('workers_rippling: ' + trErr.message);
   console.log(`📋 Tracking ${tracked.length} worker(s):`, tracked.map(t => t.name).join(', '));
 
-  // 2) Refresh workers_rippling for our tracked workers (status, end_date, etc.)
-  console.log('🔄 Refreshing worker metadata from Rippling…');
-  for (const t of tracked) {
-    try {
-      const w = await ripGet(`/workers/${t.worker_id}/`);
-      if (!DRY_RUN) {
-        await sb.from('workers_rippling').update({
-          status: w.status,
-          start_date: w.start_date,
-          end_date: w.end_date,
-          synced_at: new Date().toISOString(),
-        }).eq('worker_id', t.worker_id);
-      }
-      console.log(`   ✓ ${t.name}: ${w.status}, start ${w.start_date}, end ${w.end_date || '(none)'}`);
-    } catch (e) {
-      console.log(`   ⚠️  ${t.name}: ${e.message}`);
+  // 2) Refresh the whole roster in workers_rippling (status, dates, emails).
+  //    is_tracked is left alone, so existing rows keep it and new rows default
+  //    to false (not on the time-card dashboard).
+  console.log('🔄 Refreshing all workers from Rippling…');
+  const workers = await ripPaginate('/workers/?limit=100&expand=user');
+  const roster = workers.map((w) => ({
+    worker_id: w.id,
+    user_id: w.user_id || w.user?.id || null,
+    name: w.user?.name?.formatted || w.user?.display_name || null,
+    work_email: w.work_email || null,
+    personal_email: w.personal_email || null,
+    status: w.status || null,
+    start_date: w.start_date || null,
+    end_date: w.end_date || null,
+    synced_at: new Date().toISOString(),
+  }));
+  if (!DRY_RUN) {
+    const { error } = await sb.from('workers_rippling').upsert(roster, { onConflict: 'worker_id' });
+    if (error) throw new Error('workers_rippling upsert: ' + error.message);
+  }
+  console.log(`   ✓ ${roster.length} workers (${roster.filter((r) => r.status === 'ACTIVE').length} active)`);
+
+  // 3) Link commission payees to their Rippling worker by name (active worker
+  //    preferred), so the commissions export carries worker IDs.
+  const { data: payees, error: pyErr } = await sb.from('commission_payees').select('id, name, rippling_worker_id');
+  if (pyErr) console.log('   ⚠️  commission_payees: ' + pyErr.message);
+  for (const p of payees || []) {
+    const matches = roster.filter((r) => (r.name || '').toLowerCase() === p.name.toLowerCase());
+    const pick = matches.find((r) => r.status === 'ACTIVE') || matches[0];
+    if (!pick) { console.log(`   ⚠️  commission payee ${p.name}: no Rippling worker with that name`); continue; }
+    if (pick.worker_id !== p.rippling_worker_id) {
+      if (!DRY_RUN) await sb.from('commission_payees').update({ rippling_worker_id: pick.worker_id }).eq('id', p.id);
+      console.log(`   ✓ commission payee ${p.name} → ${pick.worker_id}`);
     }
   }
 
-  // 3) Compute window
+  // 4) Compute window
   const sinceISO = SINCE
     ? new Date(SINCE + 'T00:00:00Z').toISOString()
     : new Date(Date.now() - DAYS * 24 * 3600 * 1000).toISOString();
   console.log(`\n📅 Pulling time entries since ${sinceISO.slice(0, 10)}`);
 
-  // 4) Pull time entries per worker
+  // 5) Pull time entries per worker
   let totalEntries = 0;
   let totalUpserts = 0;
   for (const t of tracked) {

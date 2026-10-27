@@ -16,6 +16,7 @@ const PAGES = [
   { key: 'leasing_sources',        label: 'Leasing · Sources' },
   { key: 'collections',            label: 'Ops · Collections' },
   { key: 'occupancy',              label: 'Ops · Occupancy' },
+  { key: 'commissions',            label: 'Ops · Commissions' },
   { key: 'rehabs',                 label: 'Maintenance · Rehabs' },
   { key: 'inspections',            label: 'Maintenance · Inspections' },
   { key: 'work_orders',            label: 'Maintenance · Work Orders' },

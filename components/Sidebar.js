@@ -63,6 +63,7 @@ const DOMAINS = [
     items: [
       { name: 'Collections', href: '/collections', page: 'collections' },
       { name: 'Occupancy',   href: '/occupancy',   page: 'occupancy' },
+      { name: 'Commissions', href: '/commissions', page: 'commissions' },
     ],
   },
   {
