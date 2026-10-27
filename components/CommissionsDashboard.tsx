@@ -9,7 +9,7 @@
  * month, which freezes it, then downloads the Rippling import file.
  */
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import DarkSelect from './DarkSelect';
 
@@ -41,6 +41,12 @@ export default function CommissionsDashboard() {
   const [picked, setPicked] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (month: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(month)) next.delete(month); else next.add(month);
+    return next;
+  });
 
   // Default to the most recent finished month: that's the one to pay.
   const selected = months.find((m) => m.month === picked) ?? months.find((m) => m.status !== 'open') ?? months[0];
@@ -158,6 +164,7 @@ export default function CommissionsDashboard() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="sticky top-0 z-10">
               <tr className="dark-thead text-xs">
+                <th className="px-2 py-2 w-8"><span className="sr-only">Expand</span></th>
                 <th className="px-3 py-2 text-left">Month</th>
                 <th className="px-3 py-2 text-right">Gross</th>
                 <th className="px-3 py-2 text-right">Occupancy</th>
@@ -168,21 +175,40 @@ export default function CommissionsDashboard() {
               </tr>
             </thead>
             <tbody>
-              {months.map((m) => (
-                <tr key={m.month} onClick={() => setPicked(m.month)}
-                  className={`border-t border-white/5 cursor-pointer hover:bg-white/5 ${m.month === selected.month ? 'bg-white/5' : ''}`}>
-                  <td className="px-3 py-2 text-slate-200">{monthLabel(m.month)}</td>
-                  <td className="px-3 py-2 text-right text-slate-300">{usd(m.gross)}</td>
-                  <td className="px-3 py-2 text-right text-slate-400">{m.occupancy_pct == null ? '—' : `${m.occupancy_pct.toFixed(1)}%`}</td>
-                  <td className="px-3 py-2 text-right text-slate-400">{Math.round(m.multiplier * 100)}%</td>
-                  <td className="px-3 py-2 text-right font-medium text-slate-100">{usd(m.net)}</td>
-                  {people.map((p) => {
-                    const l = m.lines.find((x) => x.name === p);
-                    return <td key={p} className="px-3 py-2 text-right text-slate-400">{l ? usd(l.amount) : '—'}</td>;
-                  })}
-                  <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs ${STATUS[m.status].cls}`}>{STATUS[m.status].label}</span></td>
-                </tr>
-              ))}
+              {months.map((m) => {
+                const open = expanded.has(m.month);
+                return (
+                  <Fragment key={m.month}>
+                    <tr onClick={() => setPicked(m.month)}
+                      className={`border-t border-white/5 cursor-pointer hover:bg-white/5 ${m.month === selected.month ? 'bg-white/5' : ''}`}>
+                      <td className="px-2 py-2">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); toggle(m.month); }}
+                          aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${monthLabel(m.month)} line items`}
+                          className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-white/10">
+                          <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-slate-200">{monthLabel(m.month)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{usd(m.gross)}</td>
+                      <td className="px-3 py-2 text-right text-slate-400">{m.occupancy_pct == null ? '—' : `${m.occupancy_pct.toFixed(1)}%`}</td>
+                      <td className="px-3 py-2 text-right text-slate-400">{Math.round(m.multiplier * 100)}%</td>
+                      <td className="px-3 py-2 text-right font-medium text-slate-100">{usd(m.net)}</td>
+                      {people.map((p) => {
+                        const l = m.lines.find((x) => x.name === p);
+                        return <td key={p} className="px-3 py-2 text-right text-slate-400">{l ? usd(l.amount) : '—'}</td>;
+                      })}
+                      <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs ${STATUS[m.status].cls}`}>{STATUS[m.status].label}</span></td>
+                    </tr>
+                    {open && (
+                      <tr className="bg-black/20">
+                        <td colSpan={people.length + 7} className="px-3 py-3">
+                          <LineItems month={m} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -222,6 +248,55 @@ export default function CommissionsDashboard() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Every fee bill in a month, with what it contributes to the payout
+// (fee × accelerator) and each person's cut of that. Per-line cuts are
+// unrounded shares, so the footer shows the month's actual paid amounts.
+function LineItems({ month: m }: { month: Month }) {
+  if (m.items.length === 0) return <p className="text-sm text-slate-500 px-1">No lease or renewal fees paid in {monthLabel(m.month)}.</p>;
+  const payees = m.lines;
+  return (
+    <div className="overflow-x-auto rounded border border-white/5">
+      <table className="w-full text-xs whitespace-nowrap">
+        <thead>
+          <tr className="text-slate-500 border-b border-white/5">
+            <th className="px-3 py-1.5 text-left font-medium">Paid</th>
+            <th className="px-3 py-1.5 text-left font-medium">Property</th>
+            <th className="px-3 py-1.5 text-left font-medium">Unit</th>
+            <th className="px-3 py-1.5 text-left font-medium">Type</th>
+            <th className="px-3 py-1.5 text-left font-medium">Memo</th>
+            <th className="px-3 py-1.5 text-right font-medium">Fee</th>
+            <th className="px-3 py-1.5 text-right font-medium">× {Math.round(m.multiplier * 100)}%</th>
+            {payees.map((l) => <th key={l.name} className="px-3 py-1.5 text-right font-medium">{l.name.split(' ')[0]}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {m.items.map((i, idx) => {
+            const payout = i.amount * m.multiplier;
+            return (
+              <tr key={`${i.bill_id}-${i.unit}-${idx}`} className="border-t border-white/5">
+                <td className="px-3 py-1 text-slate-400">{shortDate(i.paid_date)}</td>
+                <td className="px-3 py-1 text-slate-300">{i.property_name}</td>
+                <td className="px-3 py-1 text-slate-400">{i.unit || '—'}</td>
+                <td className="px-3 py-1 text-slate-300">{i.type}</td>
+                <td className="px-3 py-1 text-slate-500 truncate max-w-[260px]" title={i.memo || ''}>{i.memo || '—'}</td>
+                <td className="px-3 py-1 text-right text-slate-200">{usd(i.amount)}</td>
+                <td className="px-3 py-1 text-right text-slate-300">{usd(payout)}</td>
+                {payees.map((l) => <td key={l.name} className="px-3 py-1 text-right text-slate-400">{usd(payout * l.share)}</td>)}
+              </tr>
+            );
+          })}
+          <tr className="border-t border-white/10 font-semibold">
+            <td className="px-3 py-1.5 text-slate-200" colSpan={5}>{m.items.length} fees · paid out</td>
+            <td className="px-3 py-1.5 text-right text-slate-100">{usd(m.gross)}</td>
+            <td className="px-3 py-1.5 text-right text-slate-100">{usd(m.net)}</td>
+            {payees.map((l) => <td key={l.name} className="px-3 py-1.5 text-right text-slate-100">{usd(l.amount)}</td>)}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

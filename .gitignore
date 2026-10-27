@@ -75,3 +75,4 @@ tsconfig.tsbuildinfo
 # Local capex scratch files
 capex_2025_by_unit.xlsx
 capex_2025_unified.csv
+/exports/
