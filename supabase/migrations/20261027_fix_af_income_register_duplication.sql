@@ -12,7 +12,7 @@
 --    row's uuid on each reload, so any af_id resolution is orphaned on the
 --    next run. (0 of 6 resolutions use af_id today.)
 -- 2) Empty the table. Its contents are a pure cache of AppFolio's
---    income_register report (receipt_date >= 2025-10-01), which the sync
+--    income_register report (receipt_date_from 2025-10-01), which the sync
 --    re-pulls in full on its next run — so there is nothing to preserve,
 --    and TRUNCATE returns the 30 GB to the OS immediately (no VACUUM FULL,
 --    no 30 GB CREATE TABLE AS SELECT DISTINCT copy).
@@ -20,7 +20,7 @@
 
 -- Don't queue behind a long-running v_simmons_reconcile scan and block
 -- every reader; fail fast and retry instead.
-SET lock_timeout = '10s';
+SET LOCAL lock_timeout = '10s';
 
 ALTER TABLE public.simmons_reconcile_resolutions
   DROP CONSTRAINT IF EXISTS simmons_reconcile_resolutions_af_id_fkey;
