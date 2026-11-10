@@ -142,7 +142,7 @@ export default function ListingsClient({ listings, locale }: Props) {
       {/* FILTER BAR */}
       <section
         id="grid"
-        className="sticky top-16 z-40 bg-[#FAFAF7]/95 backdrop-blur-md border-y border-black/5"
+        className="sticky top-[var(--public-header-h,64px)] z-40 bg-[#FAFAF7]/95 backdrop-blur-md border-y border-black/5"
       >
         <div className="max-w-[1280px] mx-auto px-6 lg:px-10 py-4 flex flex-wrap items-center gap-3">
           <FilterSelect

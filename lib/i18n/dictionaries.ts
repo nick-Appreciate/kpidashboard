@@ -101,6 +101,11 @@ interface Dictionary {
     copied: string;
     pressToCopy: (combo: string) => string;
   };
+  promo: {
+    winterSpecial: string;
+    callCta: string;
+    dismiss: string;
+  };
   lightbox: {
     closeGallery: string;
     galleryLabel: string;
@@ -246,6 +251,11 @@ const en: Dictionary = {
     clickToCopy: 'Click to copy · tap to call on mobile',
     copied: 'Copied!',
     pressToCopy: (combo) => `Press ${combo} to copy`,
+  },
+  promo: {
+    winterSpecial: 'Ask about our Winter Leasing Special',
+    callCta: 'Call',
+    dismiss: 'Dismiss',
   },
   lightbox: {
     closeGallery: 'Close gallery',
@@ -393,6 +403,11 @@ const es: Dictionary = {
     clickToCopy: 'Haz clic para copiar · toca para llamar en el móvil',
     copied: '¡Copiado!',
     pressToCopy: (combo) => `Pulsa ${combo} para copiar`,
+  },
+  promo: {
+    winterSpecial: 'Pregunta por nuestra promoción de invierno',
+    callCta: 'Llama',
+    dismiss: 'Cerrar',
   },
   lightbox: {
     closeGallery: 'Cerrar galería',

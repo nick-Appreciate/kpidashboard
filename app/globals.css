@@ -128,6 +128,24 @@ html, body {
   html { width: 100vw; }
 }
 
+/* Public promo banner: a soft glimmer sweeps across every ~6s, and the
+   snowflake turns slowly. Reduced-motion users get a still bar (rule below). */
+.promo-sheen {
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  transform: translateX(0);
+  animation: promo-sheen 6s ease-in-out 0.6s infinite both;
+}
+@keyframes promo-sheen {
+  0% { transform: translateX(0); }
+  30%, 100% { transform: translateX(400%); }
+}
+.promo-flake {
+  animation: promo-flake 12s linear infinite;
+}
+@keyframes promo-flake {
+  to { transform: rotate(360deg); }
+}
+
 /* Respect reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
