@@ -1,19 +1,34 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TENANT_PORTAL_URL, LEASING_PHONE } from '../../lib/listings';
 import PhoneLink from './PhoneLink';
 import { getDictionary, getListingPath, type Locale } from '../../lib/i18n';
 import LanguageSwitcher from './LanguageSwitcher';
+import PromoBanner from './PromoBanner';
 
 export default function PublicNav({ locale }: { locale: Locale }) {
   const [open, setOpen] = useState(false);
   const t = getDictionary(locale).nav;
   const listingsHref = getListingPath(locale);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publish the header's height (it grows with the promo banner and the mobile
+  // menu) so sticky elements below it, like the listings filter bar, sit flush.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--public-header-h', `${el.offsetHeight}px`);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 bg-[#FAFAF7]/85 backdrop-blur-md border-b border-black/5">
+    <header ref={headerRef} className="sticky top-0 z-50 bg-[#FAFAF7]/85 backdrop-blur-md border-b border-black/5">
+      <PromoBanner locale={locale} />
       <nav className="max-w-[1280px] mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
         <Link
           href={listingsHref}
