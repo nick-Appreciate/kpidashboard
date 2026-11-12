@@ -2,7 +2,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 // Lead engine — our own prospect messaging, independent of AppFolio's
 // automations. Every message it sends (or decides not to send) is a row in
-// lead_outbox, so the Speed to Lead timeline shows exactly what each
+// lead_outbox, so the Leasing Automations timeline shows exactly what each
 // prospect received and why.
 //
 // Modes (POST/GET ?mode=…):
@@ -93,6 +93,7 @@ interface Settings {
   booked_template_en: string; booked_template_es: string;
   email_enabled: boolean; email_from: string; email_reply_to: string | null; email_footer: string;
   nurture_enabled: boolean; alerts_enabled: boolean;
+  alert_mention: string | null; alert_mention_kinds: string[] | null;
 }
 interface OutboxRow {
   kind: string; dedupe_key: string; phone_norm: string | null; email?: string | null;
@@ -139,7 +140,7 @@ function fmtShowing(iso: string): string {
 }
 
 async function getSettings(): Promise<Settings> {
-  const { data, error } = await supabase.from('lead_engine_settings').select('enabled, dry_run, live_since, from_number, instant_template_en, instant_template_es, booked_template_en, booked_template_es, email_enabled, email_from, email_reply_to, email_footer, nurture_enabled, alerts_enabled').eq('id', 1).single();
+  const { data, error } = await supabase.from('lead_engine_settings').select('enabled, dry_run, live_since, from_number, instant_template_en, instant_template_es, booked_template_en, booked_template_es, email_enabled, email_from, email_reply_to, email_footer, nurture_enabled, alerts_enabled, alert_mention, alert_mention_kinds').eq('id', 1).single();
   if (error) throw new Error(`settings: ${error.message}`);
   return data as Settings;
 }
@@ -592,24 +593,26 @@ async function queueNurture(s: Settings): Promise<Record<string, number>> {
 // ---------- Slack alerts (#leasing) ----------
 
 const SLACK_URL = Deno.env.get('SLACK_LEASING_WEBHOOK_URL') || '';
-const DASH = 'https://www.appreciate.io/leasing/speed-to-lead';
+const DASH = 'https://www.appreciate.io/leasing/automations';
 const fmtPhone = (p: string) => `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}`;
-const links = (phone: string | null) => phone ? `\n<${DASH}?q=${phone}|Open in Speed to Lead>` : `\n<${DASH}|Open Speed to Lead>`;
+const links = (phone: string | null) => phone ? `\n<${DASH}?q=${phone}|Open in Leasing Automations>` : `\n<${DASH}|Open Leasing Automations>`;
 
 async function alert(kind: string, key: string, phone: string | null, text: string) {
   const { error } = await supabase.from('lead_alerts').insert({ kind, dedupe_key: key, phone_norm: phone, text });
   if (error && error.code !== '23505') console.error('alert insert', error.message);
 }
 
-async function flushAlerts(): Promise<Record<string, number>> {
-  const { data } = await supabase.from('lead_alerts').select('id, text').eq('status', 'pending').order('created_at').limit(20);
+async function flushAlerts(s: Settings): Promise<Record<string, number>> {
+  const { data } = await supabase.from('lead_alerts').select('id, kind, text').eq('status', 'pending').order('created_at').limit(20);
   const tally: Record<string, number> = {};
   if (!data?.length) return tally;
   if (!SLACK_URL) { tally.waiting_for_webhook = data.length; return tally; }
   for (const a of data) {
     const { data: claimed } = await supabase.from('lead_alerts').update({ status: 'sending' }).eq('id', a.id).eq('status', 'pending').select('id');
     if (!claimed?.length) continue;
-    const res = await fetch(SLACK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: a.text }) });
+    // @mention whoever owns follow-up on the alerts that need someone to act.
+    const mention = s.alert_mention && (s.alert_mention_kinds || []).includes(a.kind) ? `${s.alert_mention} ` : '';
+    const res = await fetch(SLACK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: mention + a.text }) });
     if (res.ok) { await supabase.from('lead_alerts').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', a.id); tally.sent = (tally.sent || 0) + 1; }
     else { await supabase.from('lead_alerts').update({ status: 'failed', error: `${res.status} ${(await res.text()).slice(0, 200)}` }).eq('id', a.id); tally.failed = (tally.failed || 0) + 1; }
   }
@@ -784,7 +787,7 @@ Deno.serve(async (req: Request) => {
       return json({ error: `unknown mode ${mode}` }, 400);
     }
     out.sent = await drain(s);
-    if (s.alerts_enabled) out.alerts = await flushAlerts();
+    if (s.alerts_enabled) out.alerts = await flushAlerts(s);
     out.ms = Date.now() - t0;
     return json(out);
   } catch (e: any) {

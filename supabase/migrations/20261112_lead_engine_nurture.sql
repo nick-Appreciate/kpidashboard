@@ -40,3 +40,8 @@ ALTER TABLE public.lead_alerts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.showing_confirmations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "authenticated_read" ON public.lead_alerts FOR SELECT TO authenticated USING (true);
 CREATE POLICY "authenticated_read" ON public.showing_confirmations FOR SELECT TO authenticated USING (true);
+
+-- Slack @mention for alerts someone has to act on (Jader handles lead follow-up).
+ALTER TABLE public.lead_engine_settings
+  ADD COLUMN IF NOT EXISTS alert_mention text DEFAULT '<@U08KSLADF0W>',
+  ADD COLUMN IF NOT EXISTS alert_mention_kinds text[] NOT NULL DEFAULT ARRAY['prospect_reply','missed_call','needs_person'];

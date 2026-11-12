@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * LeadTimelineDashboard — /leasing/speed-to-lead
+ * LeadTimelineDashboard — /leasing/automations
  *
  * Every lead (any source: Zillow, Apartments.com, our website, walk-ins…),
  * filterable by property, with every touch point on one timeline — our
@@ -130,7 +130,7 @@ export default function LeadTimelineDashboard() {
       {/* ── Header + filters ───────────────────────────────────────── */}
       <div className="sticky-header -mx-4 md:-mx-6 px-4 md:px-6 py-3 flex flex-wrap items-center gap-3 border-b border-[var(--glass-border)]">
         <div className="mr-auto">
-          <h1 className="text-lg font-semibold text-slate-100">Speed to Lead</h1>
+          <h1 className="text-lg font-semibold text-slate-100">Leasing Automations</h1>
           <p className="text-[11px] text-slate-500">
             Every lead and every touch — ours, AppFolio&apos;s and the team&apos;s. Refreshes every 30s.
             {data?.engine && (
