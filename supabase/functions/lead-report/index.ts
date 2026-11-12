@@ -208,10 +208,14 @@ Write for Slack (mrkdwn: *bold*, bullets with •). 150–250 words. Lead with t
 
 async function postDm(user: string, text: string) {
   if (!SLACK_TOKEN) throw new Error('SLACK_BOT_TOKEN not set');
+  const headers = { Authorization: `Bearer ${SLACK_TOKEN}`, 'Content-Type': 'application/json; charset=utf-8' };
+  // Open (or reuse) the 1:1 DM and post there — more reliable than posting to a user ID.
+  const open = await (await fetch('https://slack.com/api/conversations.open', { method: 'POST', headers, body: JSON.stringify({ users: user }) })).json();
+  if (!open.ok) throw new Error(`Slack conversations.open: ${open.error}`);
   const res = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${SLACK_TOKEN}`, 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ channel: user, text, unfurl_links: false, mrkdwn: true }),
+    headers,
+    body: JSON.stringify({ channel: open.channel.id, text, unfurl_links: false, mrkdwn: true }),
   });
   const body = await res.json();
   if (!body.ok) throw new Error(`Slack: ${body.error}`);
