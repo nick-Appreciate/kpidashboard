@@ -133,6 +133,12 @@ Deno.serve(async (req: Request) => {
     const fromDatetime = new Date(Date.now() - days * 86_400_000)
       .toISOString().slice(0, 19).replace('T', ' '); // "yyyy-mm-dd hh:mm:ss"
 
+    // ?only=texts backfills the SMS log without re-pulling calls (stays under JustCall's rate limit).
+    if (url.searchParams.get('only') === 'texts') {
+      const textsProcessed = await syncTexts(fromDatetime);
+      return new Response(JSON.stringify({ success: true, from_datetime: fromDatetime, textsProcessed }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+
     // Page through results until a short page signals the end.
     const all: any[] = [];
     for (let page = 1; page <= 50; page++) {
