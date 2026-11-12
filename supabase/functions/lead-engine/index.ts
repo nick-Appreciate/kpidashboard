@@ -437,6 +437,10 @@ const EMAIL = {
     en: { subject: 'Still looking? Tour {property} this week', lines: ['Hi {first},', 'Units at {property} are leasing quickly. If you\'re still looking, grab a tour time that works for you — it only takes a minute to book.', 'Reply to this email with any questions.'] },
     es: { subject: '¿Sigues buscando? Visita {property} esta semana', lines: ['Hola {first},', 'Las unidades en {property} se están rentando rápido. Si sigues buscando, elige una hora para tu visita; agendar toma un minuto.', 'Responde a este correo con cualquier pregunta.'] },
   },
+  nurture_2_special: {
+    en: { subject: 'Ask about our {special} at {property}', lines: ['Hi {first},', 'We\'re running our {special} at {property}{details}. If you\'re still looking, grab a tour time and ask us about it — booking takes a minute.', 'Reply to this email with any questions.'] },
+    es: { subject: 'Pregunta por nuestra {special} en {property}', lines: ['Hola {first},', 'Tenemos nuestra {special} en {property}{details}. Si sigues buscando, elige una hora para tu visita y pregúntanos; agendar toma un minuto.', 'Responde a este correo con cualquier pregunta.'] },
+  },
   nurture_4: {
     en: { subject: 'Checking in about {property}', lines: ['Hi {first},', 'Just checking in one last time. If you\'re still looking for a place, we\'d love to show you {property} — pick a time below or reply to this email.', 'If you\'ve already found a home, congratulations! You won\'t hear from us again about this inquiry.'] },
     es: { subject: 'Seguimiento sobre {property}', lines: ['Hola {first},', 'Una última nota. Si sigues buscando lugar, nos encantaría mostrarte {property}: elige una hora abajo o responde a este correo.', 'Si ya encontraste casa, ¡felicidades! No te escribiremos más sobre esta consulta.'] },
@@ -444,9 +448,9 @@ const EMAIL = {
 } as const;
 
 /** Compose an email outbox row (body = plain text; the link line becomes a button). */
-function emailRow(base: OutboxRow, kind: keyof typeof EMAIL, name: string | null, property: string | null, link: string | null, es: boolean): OutboxRow {
+function emailRow(base: OutboxRow, kind: keyof typeof EMAIL, name: string | null, property: string | null, link: string | null, es: boolean, extra: Record<string, string> = {}): OutboxRow {
   const t = EMAIL[kind][es ? 'es' : 'en'];
-  const vars = { first: firstName(name), property: property || (es ? 'nuestros apartamentos' : 'our apartments') };
+  const vars = { first: firstName(name), property: property || (es ? 'nuestros apartamentos' : 'our apartments'), ...extra };
   const lines = t.lines.map((l) => fill(l, vars));
   if (link) lines.splice(2, 0, `${es ? 'Elegir hora' : 'Pick a tour time'}: https://${link.replace(/^https?:\/\//, '')}`);
   return { ...base, kind: `${kind}_email`, channel: 'email', phone_norm: base.phone_norm, subject: fill(t.subject, vars), body: lines.join('\n\n') };
@@ -487,9 +491,12 @@ const NURTURE = [
   { kind: 'nurture_1', afterH: 24, email: false,
     en: 'Hi {first}, it\'s Appreciate Leasing — still looking for a place? {property} is available. {tour}',
     es: 'Hola {first}, somos Appreciate Leasing. ¿Sigues buscando lugar? {property} está disponible. {tour}' },
+  // Text #2 leads with the current leasing special (leasing_specials) when one is active.
   { kind: 'nurture_2', afterH: 48, email: true,
     en: '{first}, units at {property} are leasing quickly. Tours take about 15 minutes. {tour}',
-    es: '{first}, las unidades en {property} se rentan rápido. La visita toma unos 15 minutos. {tour}' },
+    es: '{first}, las unidades en {property} se rentan rápido. La visita toma unos 15 minutos. {tour}',
+    special_en: '{first}, ask about our {special} at {property}! Tours take about 15 minutes. {tour}',
+    special_es: '{first}, ¡pregunta por nuestra {special} en {property}! La visita toma unos 15 minutos. {tour}' },
   { kind: 'nurture_3', afterH: 96, email: false,
     en: 'Hi {first}, any questions about {property}? Pets, parking, move-in costs — just reply here. {tour}',
     es: 'Hola {first}, ¿tienes preguntas sobre {property}? Mascotas, estacionamiento, costos de mudanza: responde aquí. {tour}' },
@@ -547,6 +554,7 @@ async function queueNurture(s: Settings): Promise<Record<string, number>> {
     .in('kind', ['instant', 'instant_email']).in('status', ['sent', 'dry_run']).gte('created_at', floor);
   const tally: Record<string, number> = {};
   const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
+  const { data: special } = await supabase.from('leasing_specials').select('name_en, name_es, details_en, details_es').eq('active', true).maybeSingle();
   // One sequence per lead: prefer the SMS instant; email-only leads run off instant_email.
   const seqs = new Map<string, any>();
   for (const r of starts || []) {
@@ -577,13 +585,17 @@ async function queueNurture(s: Settings): Promise<Record<string, number>> {
       es = w?.locale === 'es';
     }
     const link = (r.body || '').match(LINK_RE)?.[0] || null;
-    const vars = { first: firstName(r.lead_name), property: r.property_name || (es ? 'nuestros apartamentos' : 'our apartments'), tour: nurtureTour(link, es) };
+    const specialName = special ? (es ? special.name_es : special.name_en) : '';
+    const specialDetails = special ? (es ? special.details_es : special.details_en) : null;
+    const vars = { first: firstName(r.lead_name), property: r.property_name || (es ? 'nuestros apartamentos' : 'our apartments'), tour: nurtureTour(link, es), special: specialName };
+    const useSpecial = !!special && 'special_en' in step;
+    const tpl = useSpecial ? (es ? (step as any).special_es : (step as any).special_en) : (es ? step.es : step.en);
     if (r.phone_norm && r.kind === 'instant') {
-      if (await enqueue({ ...base, body: fill(es ? step.es : step.en, vars) })) bump(step.kind);
+      if (await enqueue({ ...base, body: fill(tpl, vars) })) bump(step.kind);
     }
     if (r.email && (step.email || !r.phone_norm)) {
-      const ek = (step.kind === 'nurture_4' ? 'nurture_4' : 'nurture_2') as keyof typeof EMAIL;
-      const row = emailRow(base, ek, r.lead_name, r.property_name, link, es);
+      const ek = (step.kind === 'nurture_4' ? 'nurture_4' : useSpecial ? 'nurture_2_special' : 'nurture_2') as keyof typeof EMAIL;
+      const row = emailRow(base, ek, r.lead_name, r.property_name, link, es, { special: specialName, details: specialDetails ? ` (${specialDetails})` : '' });
       if (await enqueue({ ...row, kind: `${step.kind}_email` })) bump(`${step.kind}_email`);
     }
   }

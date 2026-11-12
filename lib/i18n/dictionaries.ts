@@ -102,7 +102,8 @@ interface Dictionary {
     pressToCopy: (combo: string) => string;
   };
   promo: {
-    winterSpecial: string;
+    /** "Ask about our {special}" — the special's name comes from leasing_specials. */
+    askAbout: (special: string) => string;
     callCta: string;
     dismiss: string;
   };
@@ -303,7 +304,7 @@ const en: Dictionary = {
     pressToCopy: (combo) => `Press ${combo} to copy`,
   },
   promo: {
-    winterSpecial: 'Ask about our Winter Leasing Special',
+    askAbout: (special) => `Ask about our ${special}`,
     callCta: 'Call',
     dismiss: 'Dismiss',
   },
@@ -505,7 +506,7 @@ const es: Dictionary = {
     pressToCopy: (combo) => `Pulsa ${combo} para copiar`,
   },
   promo: {
-    winterSpecial: 'Pregunta por nuestra promoción de invierno',
+    askAbout: (special) => `Pregunta por nuestra ${special}`,
     callCta: 'Llama',
     dismiss: 'Cerrar',
   },

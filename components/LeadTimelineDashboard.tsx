@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
 import JustCallDialerBase, { useJustCall } from './JustCallDialer';
+import LeasingSpecialCard from './LeasingSpecialCard';
 
 const JustCallDialer: any = JustCallDialerBase;
 
@@ -155,6 +156,8 @@ export default function LeadTimelineDashboard() {
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, phone, unit…"
           className="dark-input px-2.5 py-1.5 text-xs w-48" />
       </div>
+
+      <LeasingSpecialCard />
 
       {/* ── KPIs ───────────────────────────────────────────────────── */}
       {k && (
