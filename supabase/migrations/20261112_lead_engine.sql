@@ -133,3 +133,26 @@ UPDATE public.lead_engine_settings SET
   instant_template_en = 'Hi {first}, this is Appreciate Leasing. Thanks for your interest in {property}! {tour_line} Questions? Reply here or call (816) 765-0427. Reply STOP to opt out.',
   instant_template_es = 'Hola {first}, somos Appreciate Leasing. ¡Gracias por tu interés en {property}! {tour_line} ¿Preguntas? Responde aquí o llama al (816) 765-0427. Responde STOP para no recibir mensajes.'
 WHERE id = 1;
+
+-- Personal tour links (appreciate.io/t/<token>) in lead texts: open straight to
+-- the tour picker with the prospect's guest card + contact info pre-attached,
+-- so booking is two taps (time → confirm). Read only server-side.
+CREATE TABLE IF NOT EXISTS public.tour_links (
+  token             text PRIMARY KEY,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  listing_id        text NOT NULL,
+  property_name     text,
+  guest_card_id     text,
+  leasing_report_id uuid,
+  first_name        text,
+  last_name         text,
+  phone_norm        text,
+  email             text,
+  locale            text NOT NULL DEFAULT 'en',
+  opened_at         timestamptz,
+  booked_at         timestamptz
+);
+CREATE INDEX IF NOT EXISTS tour_links_phone_idx ON public.tour_links (phone_norm);
+ALTER TABLE public.tour_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "authenticated_read" ON public.tour_links FOR SELECT TO authenticated USING (true);
+ALTER TABLE public.web_inquiries ADD COLUMN IF NOT EXISTS tour_token text;

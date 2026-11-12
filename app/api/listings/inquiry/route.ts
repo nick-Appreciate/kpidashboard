@@ -95,6 +95,14 @@ export async function POST(req: NextRequest) {
   // Retry after a taken slot: reuse the inquiry + guest card from the first try.
   let inquiryId: string | null = null;
   let guestCardId: string | null = null;
+
+  // Personal tour link from one of our texts: the prospect's AppFolio guest
+  // card is already known, so book against it instead of creating another.
+  const tourToken = clean(body.tour_token, 32);
+  if (tourToken) {
+    const { data: link } = await sb.from('tour_links').select('token, listing_id, guest_card_id').eq('token', tourToken).maybeSingle();
+    if (link && link.listing_id === listing_id && link.guest_card_id) guestCardId = String(link.guest_card_id);
+  }
   if (isUuid(retryId)) {
     const { data: prev } = await sb.from('web_inquiries').select('id, appfolio_guest_card_id, listing_id').eq('id', retryId).maybeSingle();
     if (prev && prev.listing_id === listing_id) { inquiryId = prev.id; guestCardId = prev.appfolio_guest_card_id; }
@@ -112,6 +120,9 @@ export async function POST(req: NextRequest) {
       sms_consent: !!phone_norm && body.sms_consent !== false,
       marketing_consent: !!phone_norm && body.marketing_consent === true,
       locale,
+      tour_token: tourToken || null,
+      appfolio_guest_card_id: guestCardId,
+      appfolio_status: guestCardId ? 'existing' : null,
       user_agent: req.headers.get('user-agent')?.slice(0, 300) || null,
     }).select('id').single();
     if (error || !row) {
@@ -147,6 +158,7 @@ export async function POST(req: NextRequest) {
       if (r.ok) {
         booked = true;
         await sb.from('web_inquiries').update({ showing_status: 'booked', showing_start: new Date(slotTime).toISOString(), showing_agent_id: slotAgent, showing_error: null }).eq('id', inquiryId);
+        if (tourToken) await sb.from('tour_links').update({ booked_at: new Date().toISOString() }).eq('token', tourToken);
       } else {
         await sb.from('web_inquiries').update({ showing_status: r.slotTaken ? 'slot_taken' : 'failed', showing_error: r.error }).eq('id', inquiryId);
         if (r.slotTaken) {

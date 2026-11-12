@@ -21,6 +21,9 @@ interface Props {
   listingId: string;
   mode: 'tour' | 'question';
   locale: Locale;
+  /** Personal tour link (/t/<token>): who's booking is already known. */
+  tourToken?: string;
+  prefill?: { first?: string | null; last?: string | null; phone?: string | null; email?: string | null };
 }
 
 interface Slot { time: string; agentId: number }
@@ -38,7 +41,7 @@ const addDays = (iso: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-export default function InquiryModal({ open, onClose, listingId, mode, locale }: Props) {
+export default function InquiryModal({ open, onClose, listingId, mode, locale, tourToken, prefill }: Props) {
   const t = getDictionary(locale).inquiry;
   const lang = locale === 'es' ? 'es-US' : 'en-US';
   const fmtDay = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString(lang, { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
@@ -58,10 +61,13 @@ export default function InquiryModal({ open, onClose, listingId, mode, locale }:
   const [slot, setSlot] = useState<Slot | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [first, setFirst] = useState('');
-  const [last, setLast] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
+  const [first, setFirst] = useState(prefill?.first || '');
+  const [last, setLast] = useState(prefill?.last || '');
+  const [phone, setPhone] = useState(prefill?.phone || '');
+  const [email, setEmail] = useState(prefill?.email || '');
+  // With a known prospect (personal link), skip the form: time → Confirm.
+  const known = !!(prefill?.first && prefill?.phone && prefill.phone.replace(/\D/g, '').length >= 10);
+  const [editing, setEditing] = useState(!known);
   const [moveIn, setMoveIn] = useState('');
   const [message, setMessage] = useState('');
   const [smsConsent, setSmsConsent] = useState(true);
@@ -154,6 +160,7 @@ export default function InquiryModal({ open, onClose, listingId, mode, locale }:
           slot_time: slot?.time ?? null,
           slot_agent_id: slot?.agentId ?? null,
           inquiry_id: inquiryId,
+          tour_token: tourToken || null,
           locale,
           website,
         }),
@@ -270,6 +277,16 @@ export default function InquiryModal({ open, onClose, listingId, mode, locale }:
               <p className="text-[13px] text-[#0A0A0A]/60 mb-5">{mode === 'tour' ? t.subtitle : t.questionSubtitle}</p>
             )}
 
+            {slot && !editing ? (
+              <div className="flex items-center justify-between gap-3 mb-5 px-3 py-2.5 rounded-lg border border-black/10 text-[13px]">
+                <span>
+                  <span className="text-[#0A0A0A]/60">{t.bookingAs} </span>
+                  <span className="font-medium text-[#0A0A0A]">{[first, last].filter(Boolean).join(' ')}</span>
+                  <span className="text-[#0A0A0A]/60"> · {digits.length === 10 ? formatPhone(digits) : phone}</span>
+                </span>
+                <button onClick={() => setEditing(true)} className="shrink-0 font-medium text-[#0891b2] hover:underline">{t.editDetails}</button>
+              </div>
+            ) : (<>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <label className="block">
                 <span className="block text-[12px] font-medium text-[#0A0A0A] mb-1">{t.firstName}</span>
@@ -315,6 +332,7 @@ export default function InquiryModal({ open, onClose, listingId, mode, locale }:
               <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="mt-0.5 accent-[#0891b2]" />
               <span>{t.marketingConsent}</span>
             </label>
+            </>)}
 
             {errorMsg && (
               <div className="mb-3 text-[13px] text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">{errorMsg}</div>
@@ -325,7 +343,7 @@ export default function InquiryModal({ open, onClose, listingId, mode, locale }:
               disabled={submitting}
               className="w-full px-4 py-3 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
-              {submitting ? (slot ? t.booking : t.submitting) : (slot ? t.bookTour : t.submit)}
+              {submitting ? (slot ? t.booking : t.submitting) : (slot ? (editing ? t.bookTour : t.confirmTour) : t.submit)}
             </button>
             <button
               onClick={() => (mode === 'tour' && !requestOnly ? setStep('time') : mode === 'tour' ? (setRequestOnly(false), setStep('time')) : onClose())}

@@ -30,12 +30,23 @@ const JC_AUTH = `${Deno.env.get('JUSTCALL_API_KEY')}:${Deno.env.get('JUSTCALL_AP
 const LISTINGS_URL = 'appreciate.io/listings';
 const SITE = 'https://appreciate.io';
 
+interface Person {
+  locale?: string; guest_card_id?: string | null; leasing_report_id?: string | null;
+  name?: string | null; phone?: string | null; email?: string | null;
+}
+const TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function newToken(len = 7): string {
+  const b = crypto.getRandomValues(new Uint8Array(len));
+  return [...b].map((x) => TOKEN_ALPHABET[x % TOKEN_ALPHABET.length]).join('');
+}
+
 /**
- * Link straight into our tour picker (live slots from the property manager's
- * AppFolio calendar) for the unit the lead asked about — or, if that unit
- * isn't listed, any live listing at the same property. null if none.
+ * Personal tour link: appreciate.io/t/<token> opens straight to live tour
+ * times (the property manager's AppFolio calendar) for the unit the lead asked
+ * about — or any live listing at the same property — with their guest card and
+ * contact info attached, so booking is two taps. null if nothing is listed.
  */
-async function tourLink(property: string | null, unit: string | null, locale?: string): Promise<string | null> {
+async function tourLink(property: string | null, unit: string | null, person: Person = {}): Promise<string | null> {
   if (!property) return null;
   const { data } = await supabase.from('af_listing_unit_public').select('rentable_uid, unit_name').eq('property_name', property);
   const uids = (data || []).map((r: any) => String(r.rentable_uid));
@@ -45,7 +56,24 @@ async function tourLink(property: string | null, unit: string | null, locale?: s
   const match = (data || []).find((r: any) => unit && r.unit_name === unit && liveSet.has(String(r.rentable_uid)))
     || (data || []).find((r: any) => liveSet.has(String(r.rentable_uid)));
   if (!match) return null;
-  return `${SITE}${locale === 'es' ? '/es' : ''}/listings/${match.rentable_uid}?tour=1`;
+
+  // AppFolio names are "Last, First".
+  const raw = String(person.name || '').trim();
+  const [first, last] = raw.includes(',')
+    ? [raw.split(',').slice(1).join(' ').trim(), raw.split(',')[0].trim()]
+    : [raw.split(/\s+/)[0] || '', raw.split(/\s+/).slice(1).join(' ')];
+  for (let i = 0; i < 3; i++) {
+    const token = newToken();
+    const { error } = await supabase.from('tour_links').insert({
+      token, listing_id: String(match.rentable_uid), property_name: property,
+      guest_card_id: person.guest_card_id || null, leasing_report_id: person.leasing_report_id || null,
+      first_name: first || null, last_name: last || null, phone_norm: phone10(person.phone), email: person.email || null,
+      locale: person.locale === 'es' ? 'es' : 'en',
+    });
+    if (!error) return `${SITE.replace('https://', '')}/t/${token}`;
+    if (error.code !== '23505') throw new Error(`tour link: ${error.message}`);
+  }
+  return null;
 }
 function tourLine(link: string | null, es: boolean): string {
   if (link) return es
@@ -176,37 +204,46 @@ async function enqueue(row: OutboxRow): Promise<boolean> {
 async function queueInstant(s: Settings, lead: {
   phone: string | null; name: string; property: string | null; locale?: string;
   leasing_report_id?: string | null; web_inquiry_id?: string | null; email?: string | null; received: string;
-  showing_start?: string | null; unit?: string | null;
+  unit?: string | null;
 }): Promise<string> {
   const phone = phone10(lead.phone);
   const es = lead.locale === 'es';
-  // A tour booked on our site gets a booking confirmation instead of "when can you come?".
-  const tpl = lead.showing_start
-    ? (es ? s.booked_template_es : s.booked_template_en)
-    : (es ? s.instant_template_es : s.instant_template_en);
-  const when = lead.showing_start
-    ? new Date(lead.showing_start).toLocaleString(es ? 'es-US' : 'en-US', { timeZone: 'America/Chicago', weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-    : '';
-  const tour_line = lead.showing_start ? '' : tourLine(await tourLink(lead.property, lead.unit ?? null, lead.locale), es);
-  const body = fill(tpl, { first: firstName(lead.name), property: lead.property || 'our apartments', listings: LISTINGS_URL, when, tour_line })
-    .replace(/\s{2,}/g, ' ').trim();
   const day = centralParts(new Date(lead.received)).date;
+  const dedupe_key = `${phone || lead.email || lead.name}|${day}`;
+
+  // Cheap checks first — the poll sees each recent lead every 30s.
+  const { data: existing } = await supabase.from('lead_outbox').select('id').eq('kind', 'instant').eq('dedupe_key', dedupe_key).limit(1);
+  if (existing?.length) return 'dup';
   const base: OutboxRow = {
-    kind: 'instant', dedupe_key: `${phone || lead.email || lead.name}|${day}`, phone_norm: phone, email: lead.email || null,
+    kind: 'instant', dedupe_key, phone_norm: phone, email: lead.email || null,
     leasing_report_id: lead.leasing_report_id || null, web_inquiry_id: lead.web_inquiry_id || null,
-    property_name: lead.property, lead_name: lead.name, body,
+    property_name: lead.property, lead_name: lead.name, body: null,
   };
-  if (!phone) return (await enqueue({ ...base, status: 'skipped', skip_reason: 'no valid phone' })) ? 'skipped' : 'dup';
-  if (await optedOut(phone)) return (await enqueue({ ...base, status: 'skipped', skip_reason: 'opted out' })) ? 'skipped' : 'dup';
+  const skip = async (reason: string) => (await enqueue({ ...base, status: 'skipped', skip_reason: reason })) ? 'skipped' : 'dup';
+  if (!phone) return skip('no valid phone');
+  if (await optedOut(phone)) return skip('opted out');
   // A website visitor who unticked "text me" also lands in AppFolio a minute
   // later; respect their choice when the poll sees that guest card.
   if (!lead.web_inquiry_id) {
     const { data: web } = await supabase.from('web_inquiries').select('id').eq('phone_norm', phone).eq('sms_consent', false)
       .gte('created_at', new Date(Date.now() - 86_400_000).toISOString()).limit(1);
-    if (web?.length) return (await enqueue({ ...base, status: 'skipped', skip_reason: 'declined texts on website' })) ? 'skipped' : 'dup';
+    if (web?.length) return skip('declined texts on website');
   }
   if (await recentlyTexted(phone)) return 'dup';
-  return (await enqueue(base)) ? 'queued' : 'dup';
+
+  // Only now mint the personal tour link and compose the text.
+  let gcid: string | null = null;
+  if (lead.leasing_report_id) {
+    const { data: lrow } = await supabase.from('leasing_reports').select('guest_card_id').eq('id', lead.leasing_report_id).maybeSingle();
+    gcid = lrow?.guest_card_id ?? null;
+  }
+  const link = await tourLink(lead.property, lead.unit ?? null, {
+    locale: lead.locale, guest_card_id: gcid, leasing_report_id: lead.leasing_report_id, name: lead.name, phone, email: lead.email,
+  });
+  const body = fill(es ? s.instant_template_es : s.instant_template_en, {
+    first: firstName(lead.name), property: lead.property || 'our apartments', listings: LISTINGS_URL, tour_line: tourLine(link, es),
+  }).replace(/\s{2,}/g, ' ').trim();
+  return (await enqueue({ ...base, body })) ? 'queued' : 'dup';
 }
 
 async function queueNewAppFolioLeads(s: Settings): Promise<Record<string, number>> {
@@ -227,10 +264,19 @@ async function queueWebInquiry(s: Settings, id: string): Promise<string> {
     .select('id, first_name, last_name, phone, email, property_name, listing_address, locale, sms_consent, created_at, showing_start, showing_status').eq('id', id).single();
   if (error || !w) throw new Error(`web inquiry ${id} not found`);
   if (!w.sms_consent) return 'no consent';
+  if (w.showing_status === 'booked' && w.showing_start) {
+    const phone = phone10(w.phone);
+    if (!phone) return 'no phone';
+    const es = w.locale === 'es';
+    const when = new Date(w.showing_start).toLocaleString(es ? 'es-US' : 'en-US', { timeZone: 'America/Chicago', weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const body = fill(es ? s.booked_template_es : s.booked_template_en, { first: firstName(w.first_name), property: w.property_name || w.listing_address || 'the property', when });
+    const row: OutboxRow = { kind: 'tour_booked', dedupe_key: w.id, phone_norm: phone, email: w.email, web_inquiry_id: w.id, property_name: w.property_name, lead_name: w.first_name, body };
+    if (await optedOut(phone)) { row.status = 'skipped'; row.skip_reason = 'opted out'; }
+    return (await enqueue(row)) ? 'queued' : 'dup';
+  }
   return queueInstant(s, {
     phone: w.phone, name: w.first_name, property: w.property_name || w.listing_address, locale: w.locale,
     web_inquiry_id: w.id, email: w.email, received: w.created_at,
-    showing_start: w.showing_status === 'booked' ? w.showing_start : null,
   });
 }
 
@@ -248,7 +294,7 @@ async function queueSequences(s: Settings): Promise<Record<string, number>> {
   const now = Date.now();
   const floor = new Date(Math.max(now - 48 * 3600e3, new Date(s.live_since).getTime() - 48 * 3600e3)).toISOString();
   const { data, error } = await supabase.from('showings')
-    .select('showing_id, guest_card_name, phone, email, property, showing_time, status, rental_application_id')
+    .select('showing_id, guest_card_id, guest_card_name, phone, email, property, showing_time, status, rental_application_id')
     .gte('showing_time', floor).lte('showing_time', new Date(now + 30 * 3600e3).toISOString());
   if (error) throw new Error(error.message);
   const tally: Record<string, number> = {};
@@ -256,7 +302,9 @@ async function queueSequences(s: Settings): Promise<Record<string, number>> {
     const phone = phone10(sh.phone);
     // Never reach back before go-live (no reminders for tours booked pre-launch that already passed).
     if (sendAfter.getTime() < new Date(s.live_since).getTime()) return;
-    const link = kind === 'no_show' ? await tourLink(sh.property, null) : null;
+    const link = kind === 'no_show' && phone10(sh.phone)
+      ? await tourLink(sh.property, null, { guest_card_id: sh.guest_card_id ? String(sh.guest_card_id) : null, name: sh.guest_card_name, phone: sh.phone, email: sh.email })
+      : null;
     const body = fill(TPL[kind], {
       rebook: link ? `Grab one here: ${link}` : 'Reply with a day and time that works and we\'ll get you on the schedule.',
       first: firstName(sh.guest_card_name), property: sh.property || 'the property',
@@ -379,7 +427,7 @@ Deno.serve(async (req: Request) => {
       if (!to) return json({ error: 'to must be a 10-digit number' }, 400);
       if (await optedOut(to)) return json({ error: 'number has opted out' }, 400);
       const property = url.searchParams.get('property') || 'Oakwood Gardens';
-      const link = await tourLink(property, null);
+      const link = await tourLink(property, null, { name: url.searchParams.get('first') || null, phone: to });
       const body = fill(s.instant_template_en, { first: url.searchParams.get('first') || 'there', property, tour_line: tourLine(link, false) })
         .replace(/\s{2,}/g, ' ').trim();
       const { data: row, error } = await supabase.from('lead_outbox').insert({

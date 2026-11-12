@@ -202,6 +202,10 @@ interface Dictionary {
     bookedTitle: string;
     bookedBody: (when: string) => string;
     bookedText: (phone: string) => string;
+    bookingAs: string;
+    editDetails: string;
+    confirmTour: string;
+    viewListing: string;
   };
 }
 
@@ -399,6 +403,10 @@ const en: Dictionary = {
     bookedTitle: 'You\'re booked!',
     bookedBody: (when) => `Your tour is set for ${when}.`,
     bookedText: (phone) => `We'll text a confirmation to ${phone}. Reply there anytime with questions.`,
+    bookingAs: 'Booking as',
+    editDetails: 'Edit',
+    confirmTour: 'Confirm tour',
+    viewListing: 'See the listing',
   },
 };
 
@@ -597,6 +605,10 @@ const es: Dictionary = {
     bookedTitle: '¡Visita agendada!',
     bookedBody: (when) => `Tu visita es el ${when}.`,
     bookedText: (phone) => `Te enviaremos una confirmación al ${phone}. Responde ahí con cualquier pregunta.`,
+    bookingAs: 'Agendando a nombre de',
+    editDetails: 'Editar',
+    confirmTour: 'Confirmar visita',
+    viewListing: 'Ver la propiedad',
   },
 };
 
