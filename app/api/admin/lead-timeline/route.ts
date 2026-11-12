@@ -87,7 +87,7 @@ const fmtDur = (sec: number | null | undefined) => {
 };
 
 // AppFolio activity types that are AppFolio's own automation vs. a person in AppFolio.
-const AF_AUTO = /auto|call to action|reminder|status changed/i;
+const AF_AUTO = /auto|call to action|reminder|status changed|task created|task cleared/i;
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -163,12 +163,12 @@ export async function GET(request: NextRequest) {
     a.lrIds.add(l.id);
     a.timeline.push({ at: l.inquiry_received, actor: 'prospect', channel: 'inquiry', label: `Inquiry via ${l.source || 'unknown source'}`, detail: [l.property, l.unit].filter(Boolean).join(' · ') || null });
     if (l.first_response_at) {
-      a.timeline.push({ at: l.first_response_at, actor: 'appfolio', channel: 'appfolio', label: `AppFolio: ${l.first_response_type || 'first response'}`, detail: 'observed by 5-min poll (±5 min)' });
+      a.timeline.push({ at: l.first_response_at, actor: 'appfolio', channel: 'appfolio', label: `AppFolio: ${l.first_response_type || 'first response'}`, detail: 'observed by 5-min poll (±5 min)', status: 'first_response' });
     }
     if (l.last_activity_type && l.last_activity_at && l.last_activity_type !== l.first_response_type) {
       a.timeline.push({
         at: l.last_activity_at, actor: AF_AUTO.test(l.last_activity_type) ? 'appfolio' : 'human', channel: 'appfolio',
-        label: `AppFolio: ${l.last_activity_type}`, detail: 'latest AppFolio activity (date only)',
+        label: `AppFolio: ${l.last_activity_type}`, detail: 'latest AppFolio activity — AppFolio only reports the date', status: 'date_only',
       });
     }
   }
@@ -285,7 +285,18 @@ export async function GET(request: NextRequest) {
   const properties = new Map<string, number>();
   for (const a of leads.values()) {
     a.timeline.sort((x, y) => x.at.localeCompare(y.at));
-    const firstAuto = a.timeline.find((t) => t.actor === 'auto' && (t.status === 'sent' || t.status === 'dry_run' || !t.status));
+    // One guest card per unit asked about → identical AppFolio rows; keep one.
+    const seenT = new Set<string>();
+    a.timeline = a.timeline.filter((t) => {
+      if (t.channel !== 'appfolio') return true;
+      const k = `${t.at}|${t.label}`;
+      if (seenT.has(k)) return false;
+      seenT.add(k); return true;
+    });
+    // First automated reply to the inquiry: our instant text or AppFolio's auto-response.
+    const firstAuto = a.timeline.find((t) =>
+      (t.actor === 'auto' && t.label === 'Instant text' && (t.status === 'sent' || t.status === 'dry_run'))
+      || t.status === 'first_response');
     const firstHuman = a.timeline.find((t) => t.actor === 'human' && t.channel !== 'appfolio');
     const humanTouches = a.timeline.filter((t) => t.actor === 'human' && t.channel !== 'appfolio').length;
     const autoTouches = a.timeline.filter((t) => t.actor === 'auto' && t.status !== 'skipped' && t.status !== 'scheduled').length;

@@ -147,7 +147,7 @@ export default function LeadTimelineDashboard() {
       {k && (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <Kpi label="Leads" value={String(k.leads)} sub={`${k.needs_human} need a person now`} subCls={k.needs_human ? 'text-rose-300' : 'text-slate-500'} />
-          <Kpi label="Texted within 1 min" value={`${k.auto_within_1m_pct}%`} sub={`median ${fmtSec(k.median_auto_sec)}`} />
+          <Kpi label="Auto reply within 1 min" value={`${k.auto_within_1m_pct}%`} sub={`median ${fmtSec(k.median_auto_sec)} (ours or AppFolio's)`} />
           <Kpi label="Person within 5 min" value={`${k.human_within_5m_pct}%`} sub={`${k.human_within_1h_pct}% within 1h`} />
           <Kpi label="Median to a person" value={fmtMin(k.median_human_min)} sub={`${k.never_human} never reached by a person`} subCls={k.never_human ? 'text-amber-300' : 'text-slate-500'} />
           <Kpi label="Tours" value={String(k.tour_scheduled)} sub={`${k.toured} toured`} />
@@ -281,7 +281,11 @@ function LeadRows({ l, isOpen, timeline, onToggle, onCall }: {
                     <li key={i} className="ml-4">
                       <span className={`absolute -left-[4px] mt-1.5 w-2 h-2 rounded-full ${a.dot} ${future ? 'opacity-40' : ''}`} />
                       <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="text-[11px] text-slate-500 tabular-nums w-28 shrink-0">{fmtDateTime(t.at)}</span>
+                        <span className="text-[11px] text-slate-500 tabular-nums w-28 shrink-0">
+                          {t.status === 'date_only'
+                            ? new Date(t.at).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })
+                            : fmtDateTime(t.at)}
+                        </span>
                         <span className={`text-[11px] ${a.text}`}>{a.label}</span>
                         <span className="text-slate-200">{t.label}</span>
                         {t.agent && <span className="text-[11px] text-slate-500">· {t.agent}</span>}

@@ -90,14 +90,21 @@ export async function bookShowing(p: {
 }): Promise<BookResult> {
   const start = new Date(p.startAt);
   const end = new Date(start.getTime() + p.durationMin * 60_000);
+  // showing_type must be the listing's allowed_showing_type label ("In Person"),
+  // not the availability API's "in-person" — the wrong value comes back as a
+  // misleading "property is ineligible for scheduling" 422.
+  const listing = await afJson(`/listings/${p.listingUid}`);
+  const showingType = listing.body?.allowed_showing_type || 'In Person';
   const r = await afJson('/showings', {
     method: 'POST',
     body: JSON.stringify({
       start_at: start.toISOString(), end_at: end.toISOString(), assigned_user_id: p.agentId,
-      listable_uid: p.listingUid, guest_card_id: Number(p.guestCardId), showing_type: 'in-person',
+      listable_uid: p.listingUid, guest_card_id: Number(p.guestCardId), showing_type: showingType,
+      from_idv: false, from_leasing_ai_agent: false,
     }),
   });
   if (r.ok) return { ok: true };
   const error = String(r.body?.error || JSON.stringify(r.body)).slice(0, 300);
-  return { ok: false, slotTaken: r.status === 422, error };
+  // Only a genuine conflict is "slot taken"; anything else is a booking failure.
+  return { ok: false, slotTaken: r.status === 422 && /time block|unavailable|pick a different/i.test(error), error };
 }
