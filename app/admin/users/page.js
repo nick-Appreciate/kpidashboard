@@ -9,7 +9,7 @@ import { Users, Shield, Clock, Plus, Pencil, Mail, X, Loader2, UserCheck, UserX,
 // migration + Sidebar DOMAINS. Labels drive the matrix's row headers.
 const PAGES = [
   { key: 'leasing_overview',       label: 'Leasing · Overview' },
-  { key: 'leasing_speed_to_lead',  label: 'Leasing · Speed to Lead' },
+  { key: 'leasing_speed_to_lead',  label: 'Leasing · Leasing Automations' },
   { key: 'renewals',               label: 'Leasing · Renewals' },
   { key: 'leasing_coverage',       label: 'Leasing · Coverage' },
   { key: 'leasing_publishing',     label: 'Leasing · Publishing' },

@@ -51,7 +51,7 @@ const DOMAINS = [
     key: 'leasing', label: 'Leasing', icon: Icon.leasing,
     items: [
       { name: 'Overview',      href: '/leasing',              page: 'leasing_overview' },
-      { name: 'Speed to Lead', href: '/leasing/speed-to-lead', page: 'leasing_speed_to_lead' },
+      { name: 'Leasing Automations', href: '/leasing/automations', page: 'leasing_speed_to_lead' },
       { name: 'Renewals',      href: '/renewals',             page: 'renewals' },
       { name: 'Coverage',      href: '/leasing/coverage',     page: 'leasing_coverage' },
       { name: 'Publishing',    href: '/leasing/publishing',   page: 'leasing_publishing' },

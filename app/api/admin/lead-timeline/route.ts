@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
       .select('id, created_at, first_name, last_name, email, phone_norm, property_name, listing_address, wants_tour, message, showing_status, showing_start, appfolio_status')
       .gte('created_at', since)),
     fetchAllRows(() => supabase.from('lead_outbox')
-      .select('id, kind, status, skip_reason, phone_norm, leasing_report_id, web_inquiry_id, body, send_after, sent_at, created_at, error, external_id')
+      .select('id, kind, channel, subject, status, skip_reason, phone_norm, leasing_report_id, web_inquiry_id, body, send_after, sent_at, created_at, error, external_id')
       .gte('created_at', touchSince)),
     fetchAllRows(() => supabase.from('justcall_texts')
       .select('id, contact_number_norm, direction, body, sms_at, agent_name, justcall_line_name')
@@ -124,6 +124,7 @@ export async function GET(request: NextRequest) {
       .gte('received', touchSince)),
     supabase.from('sms_opt_outs').select('phone_norm, opted_out_at'),
   ]);
+  const { data: confirms } = await supabase.from('showing_confirmations').select('showing_id, phone_norm, confirmed_at, message').gte('confirmed_at', touchSince);
   for (const r of [lr, web, outbox, texts, calls, showings, apps]) {
     if (r.error) return NextResponse.json({ error: r.error.message || String(r.error) }, { status: 500 });
   }
@@ -211,8 +212,13 @@ export async function GET(request: NextRequest) {
 
   const outboxExt = new Set<string>();
   const KIND_LABEL: Record<string, string> = {
-    instant: 'Instant text', tour_reminder_day: 'Tour reminder (day before)', tour_reminder_2h: 'Tour reminder (2h before)',
-    no_show: 'No-show rebook text', post_tour: 'Post-tour follow-up', reengage: 'Re-engagement text',
+    instant: 'Instant text', instant_email: 'Instant email',
+    tour_booked: 'Tour booking confirmation', confirm_ack: 'Tour confirmed — reply',
+    tour_reminder_day: 'Tour reminder (day before)', tour_reminder_2h: 'Tour reminder (2h before)',
+    no_show: 'No-show rebook text', post_tour: 'Post-tour follow-up',
+    nurture_1: 'Follow-up #1 (day 1)', nurture_2: 'Follow-up #2 (day 2)', nurture_3: 'Follow-up #3 (day 4)', nurture_4: 'Follow-up #4 (day 7)',
+    nurture_1_email: 'Follow-up email (day 1)', nurture_2_email: 'Follow-up email (day 2)', nurture_3_email: 'Follow-up email (day 4)', nurture_4_email: 'Follow-up email (day 7)',
+    reengage: 'Re-engagement text', test: 'Test text',
   };
   for (const o of outbox.data as any[]) {
     // The JustCall copy of a text we sent shouldn't show twice.
@@ -222,8 +228,10 @@ export async function GET(request: NextRequest) {
     const status = o.status === 'pending' ? 'scheduled' : o.status;
     const at = o.sent_at || (o.status === 'pending' ? o.send_after : o.created_at);
     a.timeline.push({
-      at, actor: 'auto', channel: 'sms', label: KIND_LABEL[o.kind] || o.kind, status,
-      detail: o.status === 'skipped' ? `Not sent: ${o.skip_reason}` : o.status === 'failed' ? `Failed: ${o.error}` : o.body,
+      at, actor: 'auto', channel: o.channel === 'email' ? 'email' : 'sms', label: KIND_LABEL[o.kind] || o.kind, status,
+      detail: o.status === 'skipped' ? `Not sent: ${o.skip_reason}`
+        : o.status === 'failed' ? `Failed: ${o.error}`
+        : o.channel === 'email' ? `${o.subject ? `“${o.subject}” — ` : ''}${o.body || ''}` : o.body,
     });
   }
 
@@ -272,6 +280,11 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  for (const c of (confirms || []) as any[]) {
+    const a = c.phone_norm && byPhone.get(c.phone_norm);
+    if (a) a.timeline.push({ at: c.confirmed_at, actor: 'prospect', channel: 'showing', label: 'Confirmed tour by text', detail: c.message, status: 'confirmed' });
+  }
+
   const optedOut = new Map<string, string>();
   for (const o of (optouts.data || []) as any[]) optedOut.set(o.phone_norm, o.opted_out_at);
   for (const [p, at] of optedOut) {
@@ -295,7 +308,7 @@ export async function GET(request: NextRequest) {
     });
     // First automated reply to the inquiry: our instant text or AppFolio's auto-response.
     const firstAuto = a.timeline.find((t) =>
-      (t.actor === 'auto' && t.label === 'Instant text' && (t.status === 'sent' || t.status === 'dry_run'))
+      (t.actor === 'auto' && (t.label === 'Instant text' || t.label === 'Instant email') && (t.status === 'sent' || t.status === 'dry_run'))
       || t.status === 'first_response');
     const firstHuman = a.timeline.find((t) => t.actor === 'human' && t.channel !== 'appfolio');
     const humanTouches = a.timeline.filter((t) => t.actor === 'human' && t.channel !== 'appfolio').length;

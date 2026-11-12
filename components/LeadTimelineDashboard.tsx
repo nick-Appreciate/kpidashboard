@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * LeadTimelineDashboard — /leasing/speed-to-lead
+ * LeadTimelineDashboard — /leasing/automations
  *
  * Every lead (any source: Zillow, Apartments.com, our website, walk-ins…),
  * filterable by property, with every touch point on one timeline — our
@@ -9,10 +9,11 @@
  * people, prospect replies, tours and applications. Data: /api/admin/lead-timeline.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetcher } from '../lib/swr';
 import JustCallDialerBase, { useJustCall } from './JustCallDialer';
+import LeasingSpecialCard from './LeasingSpecialCard';
 
 const JustCallDialer: any = JustCallDialerBase;
 
@@ -87,6 +88,13 @@ export default function LeadTimelineDashboard() {
   const [open, setOpen] = useState<string | null>(null);
   const { makeCall } = useJustCall();
 
+  // ?q=<phone> (links from #leasing Slack alerts) pre-fills the search and opens that lead.
+  const [deepLink, setDeepLink] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) { setQuery(q); setDeepLink(q.replace(/\D/g, '')); }
+  }, []);
+
   const { data, error, isLoading } = useSWR<Api>(
     `/api/admin/lead-timeline?days=${days}&property=${encodeURIComponent(property)}`,
     fetcher, { refreshInterval: 30_000 },
@@ -106,6 +114,12 @@ export default function LeadTimelineDashboard() {
     return xs;
   }, [data, view, query]);
 
+  useEffect(() => {
+    if (!deepLink || !leads.length) return;
+    const hit = leads.find((l) => l.phone && deepLink.length >= 10 && l.phone === deepLink.slice(-10));
+    if (hit) { setOpen(hit.key); setDeepLink(null); }
+  }, [deepLink, leads]);
+
   if (error) return <div className="p-6 text-rose-300 text-sm">Failed to load leads.</div>;
 
   const k = data?.kpis;
@@ -117,7 +131,7 @@ export default function LeadTimelineDashboard() {
       {/* ── Header + filters ───────────────────────────────────────── */}
       <div className="sticky-header -mx-4 md:-mx-6 px-4 md:px-6 py-3 flex flex-wrap items-center gap-3 border-b border-[var(--glass-border)]">
         <div className="mr-auto">
-          <h1 className="text-lg font-semibold text-slate-100">Speed to Lead</h1>
+          <h1 className="text-lg font-semibold text-slate-100">Leasing Automations</h1>
           <p className="text-[11px] text-slate-500">
             Every lead and every touch — ours, AppFolio&apos;s and the team&apos;s. Refreshes every 30s.
             {data?.engine && (
@@ -142,6 +156,8 @@ export default function LeadTimelineDashboard() {
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, phone, unit…"
           className="dark-input px-2.5 py-1.5 text-xs w-48" />
       </div>
+
+      <LeasingSpecialCard />
 
       {/* ── KPIs ───────────────────────────────────────────────────── */}
       {k && (
@@ -293,6 +309,8 @@ function LeadRows({ l, isOpen, timeline, onToggle, onCall }: {
                         {t.status === 'scheduled' && <span className="px-1 rounded bg-white/5 text-slate-400 text-[10px]">scheduled</span>}
                         {t.status === 'skipped' && <span className="px-1 rounded bg-white/5 text-slate-400 text-[10px]">skipped</span>}
                         {t.status === 'failed' && <span className="px-1 rounded bg-rose-500/15 text-rose-300 text-[10px]">failed</span>}
+                        {t.channel === 'email' && <span className="px-1 rounded bg-white/5 text-slate-400 text-[10px]">email</span>}
+                        {t.status === 'confirmed' && <span className="px-1 rounded bg-emerald-500/15 text-emerald-300 text-[10px]">confirmed</span>}
                       </div>
                       {t.detail && <div className="ml-[7.5rem] text-[11px] text-slate-400 whitespace-pre-wrap max-w-3xl">{t.detail}</div>}
                     </li>

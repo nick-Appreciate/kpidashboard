@@ -16,6 +16,17 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 //   signature header = x-justcall-signature, timestamp = x-justcall-request-timestamp
 
 const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+// Hand each new text/call to the lead engine (Slack alerts to #leasing, "reply
+// YES" tour confirmations). Best-effort: a failure here never fails the webhook.
+async function notifyEngine(type: 'sms' | 'call', id: string) {
+  try {
+    await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/lead-engine?mode=inbound&type=${type}&id=${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, 'Content-Type': 'application/json' },
+    });
+  } catch (e) { console.error('notifyEngine', e); }
+}
 const jcSecret = Deno.env.get('JUSTCALL_API_SECRET') || '';
 
 function normPhone(v: unknown): string | null {
@@ -114,6 +125,7 @@ Deno.serve(async (req: Request) => {
           await supabase.from('sms_opt_outs').delete().eq('phone_norm', text.contact_number_norm);
         }
       }
+      await notifyEngine('sms', text.id);
       return new Response(JSON.stringify({ ok: true, stored: true, id: text.id }), { headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -138,6 +150,7 @@ Deno.serve(async (req: Request) => {
     };
     const { error } = await supabase.from('justcall_calls').upsert(record, { onConflict: 'id' });
     if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    await notifyEngine('call', record.id);
 
     return new Response(JSON.stringify({ ok: true, stored: true, id: record.id }), { headers: { 'Content-Type': 'application/json' } });
   } catch (e: any) {

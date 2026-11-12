@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { LEASING_PHONE } from '../../lib/listings';
 import { getDictionary, type Locale } from '../../lib/i18n';
+import { fetchCurrentSpecial, specialDetails, specialName, type LeasingSpecial } from '../../lib/leasingSpecial';
 import PhoneLink from './PhoneLink';
 
 const Snowflake = () => (
@@ -11,33 +12,44 @@ const Snowflake = () => (
   </svg>
 );
 
-// Bump the key when the promotion changes so a new one shows again for
-// visitors who dismissed the last.
-const DISMISS_KEY = 'promo-dismissed:winter-2026';
+// Dismissal is per special, so a new special shows again for visitors who
+// dismissed the last one.
+const dismissKey = (id: string) => `promo-dismissed:${id}`;
 
 /**
- * Slim announcement bar above the public nav. A frosty gradient, a soft
+ * Slim announcement bar above the public nav for the current leasing special
+ * (leasing_specials, edited on Leasing Automations). A frosty gradient, a soft
  * glimmer every few seconds and a slowly turning snowflake catch the eye
- * without flashing; it can be dismissed for the rest of the visit.
+ * without flashing; it can be dismissed for the rest of the visit. No active
+ * special → no banner.
  */
 export default function PromoBanner({ locale }: { locale: Locale }) {
   const t = getDictionary(locale).promo;
+  const [special, setSpecial] = useState<LeasingSpecial | null>(null);
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    try {
-      if (sessionStorage.getItem(DISMISS_KEY)) setHidden(true);
-    } catch {
-      // Storage blocked — just keep showing the banner.
-    }
+    let live = true;
+    fetchCurrentSpecial().then((s) => {
+      if (!live || !s) return;
+      try {
+        if (sessionStorage.getItem(dismissKey(s.id))) setHidden(true);
+      } catch {
+        // Storage blocked — just keep showing the banner.
+      }
+      setSpecial(s);
+    });
+    return () => { live = false; };
   }, []);
 
-  if (hidden) return null;
+  if (!special || hidden) return null;
+  const message = t.askAbout(specialName(special, locale));
+  const details = specialDetails(special, locale);
 
   const dismiss = () => {
     setHidden(true);
     try {
-      sessionStorage.setItem(DISMISS_KEY, '1');
+      sessionStorage.setItem(dismissKey(special.id), '1');
     } catch {
       // Ignore; it stays hidden until the next page load.
     }
@@ -53,12 +65,13 @@ export default function PromoBanner({ locale }: { locale: Locale }) {
         className="sm:hidden relative h-9 pl-4 pr-10 flex items-center justify-center gap-2 text-[12px] font-medium"
       >
         <Snowflake />
-        <span className="truncate">{t.winterSpecial}</span>
+        <span className="truncate">{message}</span>
         <span aria-hidden>→</span>
       </PhoneLink>
       <div className="hidden sm:flex relative max-w-[1280px] mx-auto px-12 h-9 items-center justify-center gap-2.5 text-[13px]">
         <Snowflake />
-        <span className="font-medium tracking-[0.01em] truncate">{t.winterSpecial}</span>
+        <span className="font-medium tracking-[0.01em] truncate">{message}</span>
+        {details && <span className="hidden md:inline text-white/80 truncate">· {details}</span>}
         <PhoneLink
           locale={locale}
           className="inline-flex items-center gap-1 ml-1 px-2.5 py-0.5 rounded-full bg-white/15 hover:bg-white/25 font-medium transition-colors whitespace-nowrap"
