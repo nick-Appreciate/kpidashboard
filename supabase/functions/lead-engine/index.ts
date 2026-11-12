@@ -399,8 +399,15 @@ async function drain(s: Settings): Promise<Record<string, number>> {
       await supabase.from('lead_outbox').update({ status: 'dry_run', sent_at: new Date().toISOString() }).eq('id', m.id); bump('dry_run'); continue;
     }
     if (m.channel === 'email') {
-      if (!s.email_enabled || !m.email) {
-        await supabase.from('lead_outbox').update({ status: 'skipped', skip_reason: !m.email ? 'no email' : 'email sending not enabled yet' }).eq('id', m.id); bump('skipped'); continue;
+      if (!m.email) {
+        await supabase.from('lead_outbox').update({ status: 'skipped', skip_reason: 'no email' }).eq('id', m.id); bump('skipped'); continue;
+      }
+      if (!s.email_enabled) {
+        // Email not switched on yet (domain verifying): hold up to a day, then give up.
+        if (Date.now() - new Date(m.created_at).getTime() < 86_400_000) {
+          await supabase.from('lead_outbox').update({ status: 'pending' }).eq('id', m.id); bump('email_held'); continue;
+        }
+        await supabase.from('lead_outbox').update({ status: 'skipped', skip_reason: 'email sending was not enabled' }).eq('id', m.id); bump('skipped'); continue;
       }
       try {
         const ext = await sendEmail(s, m.email, m.subject || 'Appreciate Leasing', m.body);
