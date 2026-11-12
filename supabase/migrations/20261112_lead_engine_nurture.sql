@@ -45,3 +45,8 @@ CREATE POLICY "authenticated_read" ON public.showing_confirmations FOR SELECT TO
 ALTER TABLE public.lead_engine_settings
   ADD COLUMN IF NOT EXISTS alert_mention text DEFAULT '<@U08KSLADF0W>',
   ADD COLUMN IF NOT EXISTS alert_mention_kinds text[] NOT NULL DEFAULT ARRAY['prospect_reply','missed_call','needs_person'];
+
+UPDATE public.lead_engine_settings SET
+  email_reply_to = 'leasing@appreciate.io',
+  email_footer = 'Appreciate Property Management · 1122 Wilkes Blvd B, Columbia, MO 65201'
+WHERE id = 1;
