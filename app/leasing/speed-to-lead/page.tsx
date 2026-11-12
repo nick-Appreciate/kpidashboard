@@ -1,15 +1,15 @@
 import { Suspense } from 'react';
-import SpeedToLeadDashboard from '../../../components/SpeedToLeadDashboard';
+import LeadTimelineDashboard from '../../../components/LeadTimelineDashboard';
 
 export const metadata = {
   title: 'Speed to Lead — Appreciate Dashboard',
-  description: 'Warm-contact and automated first-touch response times',
+  description: 'Every lead and every touch point, human or automated',
 };
 
 export default function SpeedToLeadPage() {
   return (
     <Suspense fallback={null}>
-      <SpeedToLeadDashboard />
+      <LeadTimelineDashboard />
     </Suspense>
   );
 }
