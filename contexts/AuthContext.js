@@ -228,6 +228,7 @@ export function AuthProvider({ children }) {
       pathname === '/terms' ||
       authPages.includes(pathname) ||
       pathname?.startsWith('/listings') ||
+      pathname?.startsWith('/t/') || // personal tour links in lead texts
       pathname === '/es' ||
       pathname?.startsWith('/es/');
     if (!loading && !user && !isPublic) {

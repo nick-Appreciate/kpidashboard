@@ -53,6 +53,54 @@ async function fetchCallsPage(fromDatetime: string, page: number): Promise<any[]
   return json.data || json.calls || (Array.isArray(json) ? json : []);
 }
 
+// SMS log → public.justcall_texts. Same shape the justcall-webhook writes for
+// sms.sent / sms.received, so the poll backfills anything the webhook missed.
+// Texts pagination is 0-indexed (current_page: 0 on the first page).
+function textRecord(row: any) {
+  const d = row.sms_date || null;
+  const t = row.sms_time || null;
+  const at = d ? new Date(t ? `${d}T${t}Z` : `${d}T00:00:00Z`) : null;
+  return {
+    id: String(row.id),
+    contact_number: row.contact_number ?? null,
+    contact_number_norm: normPhone(row.contact_number),
+    contact_name: row.contact_name || null,
+    justcall_number: row.justcall_number ?? null,
+    justcall_number_norm: normPhone(row.justcall_number),
+    justcall_line_name: row.justcall_line_name ?? null,
+    direction: row.direction ?? row.sms_info?.direction ?? null,
+    body: row.sms_info?.body ?? row.body ?? null,
+    is_mms: (row.sms_info?.is_mms ?? row.is_mms) === 'yes' || (row.sms_info?.is_mms ?? row.is_mms) === true,
+    sms_at: at && !isNaN(at.getTime()) ? at.toISOString() : null,
+    agent_id: row.agent_id != null ? String(row.agent_id) : null,
+    agent_name: row.agent_name || null,
+    agent_email: row.agent_email || null,
+    delivery_status: row.delivery_status ?? null,
+    synced_at: new Date().toISOString(),
+  };
+}
+
+async function syncTexts(fromDatetime: string): Promise<number> {
+  const all: any[] = [];
+  for (let page = 0; page < 50; page++) {
+    const url = new URL('https://api.justcall.io/v2.1/texts');
+    url.searchParams.set('from_datetime', fromDatetime);
+    url.searchParams.set('per_page', '100');
+    url.searchParams.set('page', String(page));
+    const res = await fetch(url.toString(), { headers: { 'Authorization': `${jcKey}:${jcSecret}`, 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error(`JustCall texts API error ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const rows = (await res.json()).data || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  const records = all.filter((r) => r?.id != null).map(textRecord);
+  for (let i = 0; i < records.length; i += 100) {
+    const { error } = await supabase.from('justcall_texts').upsert(records.slice(i, i + 100), { onConflict: 'id' });
+    if (error) throw new Error(JSON.stringify(error));
+  }
+  return records.length;
+}
+
 // Diagnostic: list every phone number + every user on the JustCall
 // account so we can prove the poll (which is un-filtered by number)
 // covers everything. Invoke: ?probe=inventory
@@ -122,11 +170,14 @@ Deno.serve(async (req: Request) => {
       if (error) throw new Error(JSON.stringify(error));
     }
 
+    const textsProcessed = await syncTexts(fromDatetime);
+
     return new Response(JSON.stringify({
       success: true,
       syncedAt: new Date().toISOString(),
       from_datetime: fromDatetime,
       rowsProcessed: records.length,
+      textsProcessed,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (error: any) {
     return new Response(JSON.stringify({ success: false, error: error?.message || String(error) }), {

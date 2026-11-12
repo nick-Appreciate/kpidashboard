@@ -28,6 +28,8 @@ interface Props {
   listingAddress?: string;
   applicationUrl: string;
   locale: Locale;
+  /** Offered on the "may not qualify" step so the lead isn't a dead end. */
+  onTalkToUs?: () => void;
 }
 
 interface ApiResponse {
@@ -45,7 +47,7 @@ function formatMoney(n: number) {
 export default function PreQualModal({
   open, onClose,
   listingId, listingRent, listingAddress,
-  applicationUrl, locale,
+  applicationUrl, locale, onTalkToUs,
 }: Props) {
   const t = getDictionary(locale).prequal;
 
@@ -271,9 +273,19 @@ export default function PreQualModal({
               <li>• {t.failedRequirementIncome(formatMoney(result.requirements.min_income_monthly))}</li>
               <li>• {t.failedRequirementCredit}</li>
             </ul>
+            {onTalkToUs && (
+              <button
+                onClick={onTalkToUs}
+                className="w-full mb-2 px-4 py-3 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
+              >
+                {getDictionary(locale).inquiry.talkToUs}
+              </button>
+            )}
             <button
               onClick={onClose}
-              className="w-full px-4 py-3 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
+              className={onTalkToUs
+                ? 'w-full px-4 py-2 rounded-full text-[13px] text-[#0A0A0A]/60 hover:text-[#0A0A0A] transition-colors'
+                : 'w-full px-4 py-3 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors'}
             >
               {t.close}
             </button>

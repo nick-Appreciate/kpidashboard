@@ -26,6 +26,7 @@ function LayoutContent({ children }) {
   const isPublicPage =
     pathname === '/listings' ||
     pathname?.startsWith('/listings/') ||
+    pathname?.startsWith('/t/') ||
     pathname === '/es' ||
     pathname?.startsWith('/es/');
 

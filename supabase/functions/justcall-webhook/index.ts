@@ -1,6 +1,11 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-// Real-time JustCall receiver for the `call.completed` event. JustCall POSTs
+// Real-time JustCall receiver for `call.completed`, `sms.sent` and
+// `sms.received`. SMS events land in justcall_texts (the lead timeline), and an
+// inbound STOP/UNSUBSCRIBE adds the number to sms_opt_outs so the lead engine
+// never texts it again (START/UNSTOP removes it).
+//
+// Original note for calls: JustCall POSTs
 // here the moment a call ends, so we don't depend on the /calls list API
 // (which lags ~2 days). Upserts into justcall_calls by call id — idempotent
 // with the 15-min poll, which stays on as a backfill safety net.
@@ -73,6 +78,43 @@ Deno.serve(async (req: Request) => {
     if (!d || !d.id) {
       // Validation ping (sent when saving the webhook URL) — no call payload.
       return new Response(JSON.stringify({ ok: true, validated: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (String(type).startsWith('sms.')) {
+      const at = d.sms_date ? new Date(d.sms_time ? `${d.sms_date}T${d.sms_time}Z` : `${d.sms_date}T00:00:00Z`) : new Date();
+      const body = d.sms_info?.body ?? d.body ?? null;
+      const direction = d.direction ?? d.sms_info?.direction ?? (type === 'sms.received' ? 'Incoming' : 'Outgoing');
+      const text = {
+        id: String(d.id),
+        contact_number: d.contact_number ?? null,
+        contact_number_norm: normPhone(d.contact_number),
+        contact_name: d.contact_name || null,
+        justcall_number: d.justcall_number ?? null,
+        justcall_number_norm: normPhone(d.justcall_number),
+        justcall_line_name: d.justcall_line_name ?? null,
+        direction,
+        body,
+        is_mms: (d.sms_info?.is_mms ?? d.is_mms) === 'yes' || (d.sms_info?.is_mms ?? d.is_mms) === true,
+        sms_at: isNaN(at.getTime()) ? new Date().toISOString() : at.toISOString(),
+        agent_id: d.agent_id != null ? String(d.agent_id) : null,
+        agent_name: d.agent_name || null,
+        agent_email: d.agent_email || null,
+        delivery_status: d.delivery_status ?? null,
+        synced_at: new Date().toISOString(),
+      };
+      const { error: tErr } = await supabase.from('justcall_texts').upsert(text, { onConflict: 'id' });
+      if (tErr) return new Response(JSON.stringify({ error: tErr.message }), { status: 500 });
+
+      // Carrier-standard opt-out keywords, matched on the whole message.
+      const word = String(body || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+      if (/^incoming$/i.test(direction) && text.contact_number_norm) {
+        if (['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'OPTOUT', 'REVOKE'].includes(word)) {
+          await supabase.from('sms_opt_outs').upsert({ phone_norm: text.contact_number_norm, source: 'justcall_stop', message: body, opted_out_at: text.sms_at }, { onConflict: 'phone_norm' });
+        } else if (['START', 'UNSTOP'].includes(word)) {
+          await supabase.from('sms_opt_outs').delete().eq('phone_norm', text.contact_number_norm);
+        }
+      }
+      return new Response(JSON.stringify({ ok: true, stored: true, id: text.id }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     const record = {

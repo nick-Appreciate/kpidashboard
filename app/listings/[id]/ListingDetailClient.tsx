@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import PublicNav from '../../../components/public/PublicNav';
 import PublicFooter from '../../../components/public/PublicFooter';
 import PhotoLightbox from '../../../components/public/PhotoLightbox';
 import PreQualModal from '../../../components/public/PreQualModal';
+import InquiryModal from '../../../components/public/InquiryModal';
 import PhoneLink from '../../../components/public/PhoneLink';
 import {
   TENANT_PORTAL_URL,
@@ -28,6 +29,12 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [prequalOpen, setPrequalOpen] = useState(false);
+  const [inquiryMode, setInquiryMode] = useState<'tour' | 'question' | null>(null);
+
+  // ?tour=1 (the link in our lead texts) opens the tour picker on arrival.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tour') === '1') setInquiryMode('tour');
+  }, []);
 
   const openLightbox = (idx: number) => {
     setLightboxIndex(idx);
@@ -113,8 +120,15 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
 
             <button
               type="button"
-              onClick={() => setPrequalOpen(true)}
+              onClick={() => setInquiryMode('tour')}
               className="flex items-center justify-center w-full px-4 py-3.5 rounded-full bg-[#0A0A0A] text-white text-[14px] font-medium hover:bg-[#06b6d4] transition-colors"
+            >
+              {t.inquiry.scheduleTour}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrequalOpen(true)}
+              className="flex items-center justify-center w-full mt-2.5 px-4 py-3.5 rounded-full border border-[#0A0A0A]/15 text-[14px] font-medium text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-white transition-colors"
             >
               {t.detail.applyNow}
             </button>
@@ -130,6 +144,13 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
             <p className="mt-1.5 text-center text-[12px] text-[#0A0A0A]/50">
               {t.detail.callAbout}
             </p>
+            <button
+              type="button"
+              onClick={() => setInquiryMode('question')}
+              className="block w-full mt-1 text-center text-[12px] font-medium text-[#0891b2] hover:underline"
+            >
+              {t.inquiry.askQuestion}
+            </button>
             <a
               href={TENANT_PORTAL_URL}
               target="_blank"
@@ -218,6 +239,15 @@ export default function ListingDetailClient({ listing, siblings, locale }: Props
         listingRent={listing.rent}
         listingAddress={fullAddress}
         applicationUrl={listing.application_url}
+        locale={locale}
+        onTalkToUs={() => { setPrequalOpen(false); setInquiryMode('question'); }}
+      />
+
+      <InquiryModal
+        open={inquiryMode !== null}
+        onClose={() => setInquiryMode(null)}
+        listingId={listing.id}
+        mode={inquiryMode ?? 'tour'}
         locale={locale}
       />
     </main>
