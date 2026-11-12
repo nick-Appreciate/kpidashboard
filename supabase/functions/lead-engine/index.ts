@@ -297,7 +297,7 @@ async function sendJustCall(from: string, to10: string, body: string): Promise<s
   const txt = await res.text();
   if (!res.ok) throw new Error(`JustCall ${res.status}: ${txt.slice(0, 300)}`);
   let id = '';
-  try { const j = JSON.parse(txt); id = String(j.data?.id ?? j.id ?? ''); } catch { /* keep raw */ }
+  try { const j = JSON.parse(txt); const d = Array.isArray(j.data) ? j.data[0] : j.data; id = String(d?.id ?? j.id ?? ''); } catch { /* keep raw */ }
   return id || txt.slice(0, 100);
 }
 
@@ -372,6 +372,28 @@ Deno.serve(async (req: Request) => {
       const id = url.searchParams.get('id');
       if (!id) return json({ error: 'id required' }, 400);
       out.queued = await queueWebInquiry(s, id);
+    } else if (mode === 'test') {
+      // Send one real instant text to a given number even while dry_run is on,
+      // so the team can see exactly what prospects receive. Never touches leads.
+      const to = phone10(url.searchParams.get('to'));
+      if (!to) return json({ error: 'to must be a 10-digit number' }, 400);
+      if (await optedOut(to)) return json({ error: 'number has opted out' }, 400);
+      const property = url.searchParams.get('property') || 'Oakwood Gardens';
+      const link = await tourLink(property, null);
+      const body = fill(s.instant_template_en, { first: url.searchParams.get('first') || 'there', property, tour_line: tourLine(link, false) })
+        .replace(/\s{2,}/g, ' ').trim();
+      const { data: row, error } = await supabase.from('lead_outbox').insert({
+        kind: 'test', dedupe_key: `${to}|${Date.now()}`, phone_norm: to, property_name: property, lead_name: 'Test', body, status: 'sending',
+      }).select('id').single();
+      if (error) throw new Error(error.message);
+      try {
+        const ext = await sendJustCall(s.from_number, to, body);
+        await supabase.from('lead_outbox').update({ status: 'sent', sent_at: new Date().toISOString(), external_id: ext }).eq('id', row.id);
+        return json({ ok: true, sent_to: to, body, justcall_id: ext });
+      } catch (e: any) {
+        await supabase.from('lead_outbox').update({ status: 'failed', error: String(e?.message || e).slice(0, 500) }).eq('id', row.id);
+        throw e;
+      }
     } else if (mode === 'sequences') {
       out.queued = await queueSequences(s);
     } else if (mode !== 'send') {
