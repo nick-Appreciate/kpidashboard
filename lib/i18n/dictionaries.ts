@@ -157,6 +157,52 @@ interface Dictionary {
     failedRequirementCredit: string;
     close: string;
   };
+  inquiry: {
+    scheduleTour: string;
+    askQuestion: string;
+    title: string;
+    subtitle: string;
+    questionTitle: string;
+    questionSubtitle: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    email: string;
+    moveIn: string;
+    message: string;
+    messagePlaceholder: string;
+    smsConsent: string;
+    marketingConsent: string;
+    submit: string;
+    submitting: string;
+    cancel: string;
+    errorRequired: string;
+    errorSubmit: string;
+    successTitle: string;
+    successBody: (phone: string) => string;
+    successBodyNoPhone: string;
+    close: string;
+    talkToUs: string;
+    pickTime: string;
+    pickTimeSub: string;
+    loadingTimes: string;
+    laterDates: string;
+    earlierDates: string;
+    noTimes: string;
+    noTimesCta: string;
+    timesError: string;
+    slotTaken: string;
+    yourTour: string;
+    changeTime: string;
+    back: string;
+    next: string;
+    bookTour: string;
+    booking: string;
+    phoneRequired: string;
+    bookedTitle: string;
+    bookedBody: (when: string) => string;
+    bookedText: (phone: string) => string;
+  };
 }
 
 const en: Dictionary = {
@@ -307,6 +353,52 @@ const en: Dictionary = {
     failedRequirementIncome: (minIncome) => `Monthly income of at least ${minIncome}`,
     failedRequirementCredit: 'Credit score of 620 or higher',
     close: 'Close',
+  },
+  inquiry: {
+    scheduleTour: 'Schedule a tour',
+    askQuestion: 'Ask a question',
+    title: 'Schedule a tour',
+    subtitle: 'Tell us how to reach you and we\'ll text you right away to set a time.',
+    questionTitle: 'Ask a question',
+    questionSubtitle: 'We\'ll text you back right away.',
+    firstName: 'First name',
+    lastName: 'Last name',
+    phone: 'Mobile phone',
+    email: 'Email',
+    moveIn: 'Desired move-in',
+    message: 'Message (optional)',
+    messagePlaceholder: 'Best days or times for a tour, questions about the unit…',
+    smsConsent: 'Text me about this inquiry. Msg & data rates may apply; reply STOP to opt out.',
+    marketingConsent: 'Also text me about specials and new availability.',
+    submit: 'Send',
+    submitting: 'Sending…',
+    cancel: 'Cancel',
+    errorRequired: 'Please add your first name and a mobile phone or email.',
+    errorSubmit: 'Something went wrong. Please call us or try again.',
+    successTitle: 'Got it — we\'re on it',
+    successBody: (phone) => `We'll text ${phone} in just a moment. Reply there with a day and time that works, and we'll get you on the schedule.`,
+    successBodyNoPhone: 'Our leasing team will reach out shortly to set a time.',
+    close: 'Close',
+    talkToUs: 'Talk to our leasing team',
+    pickTime: 'Pick a tour time',
+    pickTimeSub: 'Live openings from our leasing calendar.',
+    loadingTimes: 'Loading open times…',
+    laterDates: 'Later dates →',
+    earlierDates: '← Earlier',
+    noTimes: 'No open tour times in the next few weeks.',
+    noTimesCta: 'Request a time instead',
+    timesError: 'We couldn\'t load tour times. Request a time instead and we\'ll text you.',
+    slotTaken: 'Someone just grabbed that time — please pick another.',
+    yourTour: 'Your tour',
+    changeTime: 'Change',
+    back: 'Back',
+    next: 'Continue',
+    bookTour: 'Book my tour',
+    booking: 'Booking…',
+    phoneRequired: 'Please add your first name and a mobile phone number.',
+    bookedTitle: 'You\'re booked!',
+    bookedBody: (when) => `Your tour is set for ${when}.`,
+    bookedText: (phone) => `We'll text a confirmation to ${phone}. Reply there anytime with questions.`,
   },
 };
 
@@ -459,6 +551,52 @@ const es: Dictionary = {
     failedRequirementIncome: (minIncome) => `Ingreso mensual de al menos ${minIncome}`,
     failedRequirementCredit: 'Puntaje de crédito de 620 o más',
     close: 'Cerrar',
+  },
+  inquiry: {
+    scheduleTour: 'Agendar una visita',
+    askQuestion: 'Hacer una pregunta',
+    title: 'Agendar una visita',
+    subtitle: 'Dinos cómo contactarte y te enviaremos un mensaje de texto enseguida para fijar la hora.',
+    questionTitle: 'Hacer una pregunta',
+    questionSubtitle: 'Te responderemos por mensaje de texto enseguida.',
+    firstName: 'Nombre',
+    lastName: 'Apellido',
+    phone: 'Celular',
+    email: 'Correo electrónico',
+    moveIn: 'Fecha de mudanza deseada',
+    message: 'Mensaje (opcional)',
+    messagePlaceholder: 'Mejores días u horas para la visita, preguntas sobre la unidad…',
+    smsConsent: 'Envíenme mensajes de texto sobre esta consulta. Pueden aplicar tarifas; responde STOP para cancelar.',
+    marketingConsent: 'También envíenme mensajes sobre promociones y nuevas unidades disponibles.',
+    submit: 'Enviar',
+    submitting: 'Enviando…',
+    cancel: 'Cancelar',
+    errorRequired: 'Agrega tu nombre y un celular o correo electrónico.',
+    errorSubmit: 'Algo salió mal. Llámanos o inténtalo de nuevo.',
+    successTitle: 'Recibido — ya estamos en ello',
+    successBody: (phone) => `En un momento te enviaremos un mensaje al ${phone}. Responde con un día y hora que te funcione y te agendamos.`,
+    successBodyNoPhone: 'Nuestro equipo de arrendamiento te contactará pronto para fijar la hora.',
+    close: 'Cerrar',
+    talkToUs: 'Habla con nuestro equipo',
+    pickTime: 'Elige una hora para la visita',
+    pickTimeSub: 'Horarios disponibles en nuestro calendario.',
+    loadingTimes: 'Cargando horarios…',
+    laterDates: 'Fechas posteriores →',
+    earlierDates: '← Anteriores',
+    noTimes: 'No hay horarios disponibles en las próximas semanas.',
+    noTimesCta: 'Solicitar una hora',
+    timesError: 'No pudimos cargar los horarios. Solicita una hora y te enviaremos un mensaje.',
+    slotTaken: 'Alguien acaba de tomar ese horario — elige otro.',
+    yourTour: 'Tu visita',
+    changeTime: 'Cambiar',
+    back: 'Atrás',
+    next: 'Continuar',
+    bookTour: 'Agendar mi visita',
+    booking: 'Agendando…',
+    phoneRequired: 'Agrega tu nombre y un número de celular.',
+    bookedTitle: '¡Visita agendada!',
+    bookedBody: (when) => `Tu visita es el ${when}.`,
+    bookedText: (phone) => `Te enviaremos una confirmación al ${phone}. Responde ahí con cualquier pregunta.`,
   },
 };
 
