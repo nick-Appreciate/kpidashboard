@@ -50,3 +50,29 @@ UPDATE public.lead_engine_settings SET
   email_reply_to = 'leasing@appreciate.io',
   email_footer = 'Appreciate Property Management · 1122 Wilkes Blvd B, Columbia, MO 65201'
 WHERE id = 1;
+
+-- Status reports to Nick's Slack DM: daily for the first 3 mornings, then
+-- weekly (Mondays) with Claude's review. Runs 8am Central; the function decides.
+CREATE TABLE IF NOT EXISTS public.lead_reports (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  kind         text NOT NULL,
+  period_start timestamptz NOT NULL,
+  period_end   timestamptz NOT NULL,
+  metrics      jsonb NOT NULL,
+  feedback     text,
+  slack_text   text,
+  status       text NOT NULL DEFAULT 'pending',
+  error        text,
+  UNIQUE (kind, period_end)
+);
+ALTER TABLE public.lead_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "authenticated_read" ON public.lead_reports FOR SELECT TO authenticated USING (true);
+ALTER TABLE public.lead_engine_settings ADD COLUMN IF NOT EXISTS report_slack_user text DEFAULT 'U039CBF4PJ9';
+SELECT cron.schedule('lead-report-daily-8am-ct', '0 14 * * *', $$
+  SELECT net.http_post(
+    url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url') || '/functions/v1/lead-report',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'anon_key'),
+      'x-lead-engine-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'lead_engine_secret')),
+    body := '{}'::jsonb, timeout_milliseconds := 180000) $$);
