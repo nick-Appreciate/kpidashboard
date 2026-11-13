@@ -97,7 +97,9 @@ export default function LeadTimelineDashboard() {
 
   const { data, error, isLoading } = useSWR<Api>(
     `/api/admin/lead-timeline?days=${days}&property=${encodeURIComponent(property)}`,
-    fetcher, { refreshInterval: 30_000 },
+    // Every 2 min, and only while the tab is visible — the route reads several large
+    // tables, and staff keep this page open all day.
+    fetcher, { refreshInterval: 120_000, refreshWhenHidden: false, revalidateOnFocus: true, dedupingInterval: 60_000 },
   );
 
   const leads = useMemo(() => {
@@ -133,7 +135,7 @@ export default function LeadTimelineDashboard() {
         <div className="mr-auto">
           <h1 className="text-lg font-semibold text-slate-100">Leasing Automations</h1>
           <p className="text-[11px] text-slate-500">
-            Every lead and every touch — ours, AppFolio&apos;s and the team&apos;s. Refreshes every 30s.
+            Every lead and every touch — ours, AppFolio&apos;s and the team&apos;s. Refreshes every 2 min.
             {data?.engine && (
               <span className={`ml-2 px-1.5 py-0.5 rounded ${!data.engine.enabled ? 'bg-rose-500/15 text-rose-300' : data.engine.dry_run ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
                 Lead engine: {!data.engine.enabled ? 'off' : data.engine.dry_run ? 'dry run (not texting yet)' : 'live'}
