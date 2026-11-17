@@ -304,7 +304,10 @@ async function queueWebInquiry(s: Settings, id: string): Promise<string> {
 
 const ACTIVE_SHOWING = ['Scheduled', 'Confirmation Pending', 'Prospect Confirmed'];
 const TPL = {
-  tour_reminder_day: 'Hi {first}, this is Appreciate Leasing — just a reminder of your tour of {property} {when}. Reply YES to confirm or let us know if you need a different time. Reply STOP to opt out.',
+  // Plain reminder only: AppFolio asks the prospect to confirm ~2h before the
+  // tour, and that reply is what marks the showing "Prospect Confirmed" on the
+  // AppFolio/Google calendar. Don't collect confirmations AppFolio can't see.
+  tour_reminder_day: 'Hi {first}, this is Appreciate Leasing — just a reminder of your tour of {property} {when}. Need a different time? Just reply here. Reply STOP to opt out.',
   tour_reminder_2h: 'Hi {first}, see you soon! Your tour of {property} is at {time}. Questions or running late? Reply here or call (816) 765-0427.',
   no_show: 'Hi {first}, sorry we missed you at {property} today! Want to pick a new time? {rebook}',
   post_tour: 'Hi {first}, thanks for touring {property}! If you liked it, you can apply in about 10 minutes at {listings} — units go fast. Any questions, just reply here.',
@@ -343,8 +346,8 @@ async function queueSequences(s: Settings): Promise<Record<string, number>> {
     if (!sh.showing_id || !sh.showing_time) continue;
     const t = new Date(sh.showing_time).getTime();
     if (ACTIVE_SHOWING.includes(sh.status) && t > now) {
+      // Day-before reminder only — AppFolio sends its own confirmation text ~2h before.
       if (t - now > 3 * 3600e3) await add('tour_reminder_day', sh, new Date(Math.max(now, t - 24 * 3600e3)));
-      await add('tour_reminder_2h', sh, new Date(Math.max(now, t - 2 * 3600e3)));
     }
     // Follow-ups only for tours that happened after go-live (no backlog blast).
     const postLaunch = t >= new Date(s.live_since).getTime();
@@ -659,6 +662,8 @@ async function findLead(phone: string): Promise<KnownLead | null> {
 }
 
 const YES_RE = /^\s*(yes|yep|yeah|yea|y|si|sí|confirm(ed)?|confirmo|ok|okay|👍)\b/i;
+// A request to change an upcoming tour (the bare word CANCEL is a carrier opt-out keyword, handled above).
+const CHANGE_RE = /\b(cancel|can'?t make|cannot make|won'?t make|not going to make|resched\w*|another (day|time)|different (day|time)|move (it|my)|push (it|back)|running late)\b/i;
 
 /** A text or call from JustCall just landed (via justcall-webhook). */
 async function handleInbound(s: Settings, type: string, id: string): Promise<string> {
@@ -674,19 +679,25 @@ async function handleInbound(s: Settings, type: string, id: string): Promise<str
       await alert('opted_out', String(t.id), phone, `:no_bell: *${who}* replied STOP — no more automated texts. ${fmtPhone(phone)}${links(phone)}`);
       return 'opt-out alert';
     }
-    if (YES_RE.test(t.body || '')) {
-      // Confirm their next tour, if they have one coming up.
-      const { data: shows } = await supabase.from('showings').select('showing_id, phone, showing_time, status, property')
-        .gte('showing_time', new Date(Date.now() - 2 * 3600e3).toISOString()).lte('showing_time', new Date(Date.now() + 5 * 86_400_000).toISOString()).order('showing_time');
-      const sh = (shows || []).find((x: any) => phone10(x.phone) === phone && !/cancel|no show|completed/i.test(x.status || ''));
-      if (sh) {
-        const { error } = await supabase.from('showing_confirmations').insert({ showing_id: String(sh.showing_id), phone_norm: phone, message: t.body, justcall_text_id: String(t.id) });
-        if (!error) {
-          await enqueue({ kind: 'confirm_ack', dedupe_key: String(sh.showing_id), phone_norm: phone, property_name: sh.property, lead_name: lead.name,
-            body: `Great, you're confirmed! See you ${fmtShowing(sh.showing_time)} at ${sh.property}. Reply here if anything changes.` });
-          await alert('tour_confirmed', String(sh.showing_id), phone, `:white_check_mark: *${who}* confirmed their tour ${fmtShowing(sh.showing_time)}. ${fmtPhone(phone)}${links(phone)}`);
-          return 'confirmed';
-        }
+    // Upcoming tour for this prospect, if any (for YES / cancel / reschedule replies).
+    const { data: shows } = await supabase.from('showings').select('showing_id, phone, showing_time, status, property, guest_card_uuid')
+      .gte('showing_time', new Date(Date.now() - 2 * 3600e3).toISOString()).lte('showing_time', new Date(Date.now() + 7 * 86_400_000).toISOString()).order('showing_time');
+    const sh = (shows || []).find((x: any) => phone10(x.phone) === phone && !/cancel|no show|completed/i.test(x.status || ''));
+    const afLink = sh?.guest_card_uuid ? `\n<https://appreciateinc.appfolio.com/crm/leasing/prospects/${sh.guest_card_uuid}|Open in AppFolio>` : '';
+    // AppFolio is the source of truth for confirmations and cancellations (it
+    // drives the AppFolio + Google calendar). Replies to OUR texts can't update
+    // AppFolio, so hand them to the team with a direct link.
+    if (sh && CHANGE_RE.test(t.body || '')) {
+      await alert('tour_change_request', String(t.id), phone,
+        `:calendar: *${who}* wants to cancel, reschedule or is running late for their tour ${fmtShowing(sh.showing_time)}:\n> ${String(t.body).slice(0, 300).replace(/\n/g, '\n> ')}\n*Update the showing in AppFolio* so the calendar is right. ${fmtPhone(phone)}${afLink}${links(phone)}`);
+      return 'change-request alert';
+    }
+    if (sh && YES_RE.test(t.body || '')) {
+      const { error } = await supabase.from('showing_confirmations').insert({ showing_id: String(sh.showing_id), phone_norm: phone, message: t.body, justcall_text_id: String(t.id) });
+      if (!error) {
+        await alert('tour_confirmed', String(sh.showing_id), phone,
+          `:white_check_mark: *${who}* replied YES for their tour ${fmtShowing(sh.showing_time)}. If AppFolio still shows it unconfirmed, mark it *Prospect Confirmed* there. ${fmtPhone(phone)}${afLink}${links(phone)}`);
+        return 'confirmed (alerted)';
       }
     }
     await alert('prospect_reply', String(t.id), phone, `:speech_balloon: *Text from ${who}*\n> ${String(t.body || '(media)').slice(0, 300).replace(/\n/g, '\n> ')}\nReply from the JustCall Leasing line · ${fmtPhone(phone)}${links(phone)}`);
