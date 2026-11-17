@@ -322,6 +322,10 @@ async function queueSequences(s: Settings): Promise<Record<string, number>> {
     const phone = phone10(sh.phone);
     // Never reach back before go-live (no reminders for tours booked pre-launch that already passed).
     if (sendAfter.getTime() < new Date(s.live_since).getTime()) return;
+    // Already queued for this showing? Stop before minting a tour link — this
+    // runs every 5 min for every recent showing.
+    const { data: already } = await supabase.from('lead_outbox').select('id').eq('kind', kind).eq('dedupe_key', String(sh.showing_id)).limit(1);
+    if (already?.length) return;
     const link = kind === 'no_show' && phone10(sh.phone)
       ? await tourLink(sh.property, null, { guest_card_id: sh.guest_card_id ? String(sh.guest_card_id) : null, name: sh.guest_card_name, phone: sh.phone, email: sh.email })
       : null;

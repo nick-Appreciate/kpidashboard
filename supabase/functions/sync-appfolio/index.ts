@@ -171,9 +171,14 @@ async function syncRenewalSummary(): Promise<SyncResult> {
   }
 }
 
-async function syncShowings(): Promise<SyncResult> {
+async function syncShowings(days = 30): Promise<SyncResult> {
   try {
-    const data = await fetchAppFolioReport('showings');
+    // Without a date filter the report returns only ~2 weeks of showings.
+    // showing_date_from/to (YYYY-MM-DD) widens it; the 15-min sync keeps the
+    // last 30 days fresh, ?report=showings&days=N backfills further.
+    const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+    const data = await fetchAppFolioReport('showings', { showing_date_from: from, showing_date_to: to });
 
     const records = data.map((row: any) => ({
       showing_id: row.showing_id || null,
@@ -183,12 +188,20 @@ async function syncShowings(): Promise<SyncResult> {
       email: row.email || null,
       phone: row.phone_number || null,
       property: row.property_name,
-      showing_unit: row.unit || null,
+      showing_unit: row.showing_unit || row.unit || null,
       showing_time: row.showing_time || null,
+      confirmation_time: row.confirmation_time || null,
       status: row.status || null,
       source: row.source || null,
       lead_type: row.lead_type || null,
       assigned_user: row.assigned_user || null,
+      // Who/when the tour was booked: a staff name, "System Automation
+      // (AppFolio)" (prospect self-scheduled online) or "Syndication System
+      // (AppFolio)" (booked through a listing site such as Zillow).
+      booked_at: row.created_at || null,
+      booked_by: row.created_by || null,
+      booked_by_id: row.created_by_id != null ? String(row.created_by_id) : null,
+      unit_type: row.unit_type || null,
       updated_at: new Date().toISOString()
     }));
 
@@ -1565,7 +1578,7 @@ Deno.serve(async (req: Request) => {
         'rent_roll': syncRentRoll,
         'tenant_tickler': syncTenantTickler,
         'renewal_summary': syncRenewalSummary,
-        'showings': syncShowings,
+        'showings': () => syncShowings(Math.min(400, Math.max(1, Number(url.searchParams.get('days')) || 30))),
         'rental_applications': syncRentalApplications,
         'guest_cards': syncGuestCards,
         'delinquency': syncDelinquency,
