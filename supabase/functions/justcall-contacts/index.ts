@@ -196,22 +196,44 @@ Deno.serve(async (req: Request) => {
     const bySource: Record<string, number> = {};
     for (const w of want.values()) bySource[w.source] = (bySource[w.source] || 0) + 1;
 
-    let q = supabase.from('justcall_contact_sync').select('phone_norm, source, first_name, last_name, company, desired_hash, synced_hash, prev_name, attempts');
-    q = only ? q.eq('phone_norm', only) : q.or('synced_hash.is.null,synced_hash.neq.desired_hash').lt('attempts', 5);
-    const { data: todo } = await q.limit(2000);
-    const queue = (todo || []).sort((a: any, b: any) => (ORDER[a.source] ?? 9) - (ORDER[b.source] ?? 9));
+    // Pull the queue a source at a time (tenants first) so PostgREST's 1,000-row
+    // cap never starves higher-priority numbers; count the true backlog separately.
+    const cols = 'phone_norm, source, first_name, last_name, company, desired_hash, synced_hash, prev_name, attempts';
+    const pending = () => supabase.from('justcall_contact_sync').select(cols, { count: 'exact' })
+      .or('synced_hash.is.null,synced_hash.neq.desired_hash').lt('attempts', 5);
+    const queue: any[] = [];
+    let backlog = 0;
+    if (only) {
+      const { data } = await supabase.from('justcall_contact_sync').select(cols).eq('phone_norm', only);
+      queue.push(...(data || []));
+      backlog = queue.length;
+    } else {
+      for (const src of Object.keys(ORDER)) {
+        const { data, count } = await pending().eq('source', src).limit(dry ? 4 : Math.max(0, limit - queue.length) || 1);
+        backlog += count || 0;
+        if (queue.length < limit || dry) queue.push(...(data || []));
+      }
+    }
 
     if (dry) {
       const samples: Record<string, string[]> = {};
       for (const r of queue) { (samples[r.source] ||= []).length < 4 && samples[r.source].push(`${r.first_name}${r.company ? ` [${r.company}]` : ''}`); }
-      return json({ dry: true, planned, bySource, remaining: queue.length, samples });
+      return json({ dry: true, planned, bySource, remaining: backlog, samples });
     }
 
     const tally: Record<string, number> = {};
     const errors: string[] = [];
+    // Edge functions get ~150s; keep a margin. When JustCall's per-minute burst
+    // budget runs low, wait for it to refill instead of ending the run.
+    const deadline = Date.now() + 120_000;
+    let done = 0;
     for (const row of queue.slice(0, limit)) {
-      if (burstRemaining < 6) { tally.paused_for_rate_limit = 1; break; }
-      try { const r = await pushOne(row); tally[r] = (tally[r] || 0) + 1; }
+      if (burstRemaining < 6) {
+        if (Date.now() + 25_000 > deadline) { tally.stopped_at_time_budget = 1; break; }
+        await sleep(20_000); burstRemaining = 30;
+      }
+      if (Date.now() > deadline) { tally.stopped_at_time_budget = 1; break; }
+      try { const r = await pushOne(row); tally[r] = (tally[r] || 0) + 1; done++; }
       catch (e: any) {
         const msg = String(e?.message || e);
         if (msg === 'rate limited') { tally.paused_for_rate_limit = 1; break; }
@@ -221,7 +243,7 @@ Deno.serve(async (req: Request) => {
       }
       await sleep(2200); // ~27 requests/min worst case (2 per contact) — leaves room for other JustCall traffic
     }
-    return json({ planned, bySource, remaining: Math.max(0, queue.length - (tally.created || 0) - (tally.updated || 0) - (tally.unchanged || 0)), tally, errors: errors.slice(0, 5) });
+    return json({ planned, bySource, remaining: Math.max(0, backlog - done), tally, errors: errors.slice(0, 5) });
   } catch (e: any) {
     return json({ error: e?.message || String(e) }, 500);
   }
