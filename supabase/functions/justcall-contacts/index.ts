@@ -167,6 +167,19 @@ async function pushOne(row: any): Promise<string> {
 
   const cr = await jc('POST', '/v2.1/contacts', { ...fields, contact_number: number, across_team: true });
   if (cr.status === 429) throw new Error('rate limited');
+  if (cr.status >= 300 && /already exists/i.test(JSON.stringify(cr.body))) {
+    // JustCall's lookup can't see it (e.g. the number is a secondary number on
+    // another contact), but create says it exists — update it by number instead.
+    const up = await jc('PUT', '/v2.1/contacts', { contact_number: number, ...fields, across_team: true });
+    if (up.status === 429) throw new Error('rate limited');
+    const ok = up.status < 300;
+    await supabase.from('justcall_contact_sync').update({
+      synced_hash: row.desired_hash, action: ok ? 'updated' : 'skipped_hidden',
+      error: ok ? null : `hidden duplicate; update ${up.status}: ${JSON.stringify(up.body).slice(0, 150)}`,
+      attempts: row.attempts + 1, synced_at: new Date().toISOString(),
+    }).eq('phone_norm', row.phone_norm);
+    return ok ? 'updated' : 'skipped_hidden';
+  }
   if (cr.status >= 300) throw new Error(`create ${cr.status}: ${JSON.stringify(cr.body).slice(0, 200)}`);
   const ids = (Array.isArray(cr.body?.data) ? cr.body.data : [cr.body?.data]).filter(Boolean).map((c: any) => String(c.id));
   await supabase.from('justcall_contact_sync').update({
@@ -189,6 +202,20 @@ Deno.serve(async (req: Request) => {
   const dry = url.searchParams.get('dry') === '1';
   const only = (url.searchParams.get('only') || '').replace(/\D/g, '').slice(-10) || null;
   const limit = Math.min(60, Math.max(1, Number(url.searchParams.get('limit')) || 25));
+  // Read-only debugging: how JustCall resolves a number in each format.
+  const inspect = (url.searchParams.get('inspect') || '').replace(/\D/g, '').slice(-10);
+  if (inspect) {
+    const out: Record<string, unknown> = {};
+    for (const f of [`+1${inspect}`, `1${inspect}`, inspect, `(${inspect.slice(0, 3)}) ${inspect.slice(3, 6)}-${inspect.slice(6)}`]) {
+      for (const team of [true, false]) {
+        const r = await jc('GET', `/v2.1/contacts?contact_number=${encodeURIComponent(f)}${team ? '&across_team=true' : ''}`);
+        out[`${f}${team ? ' team' : ''}`] = (r.body?.data || []).map((c: any) => `${c.id} ${c.agent_id ?? ''} ${c.contact_number} | ${c.first_name} ${c.last_name ?? ''}`);
+      }
+    }
+    const s = await jc('GET', `/v2.1/contacts?search=${inspect}&across_team=true`);
+    out.search = (s.body?.data || []).map((c: any) => `${c.id} ${c.agent_id ?? ''} ${c.contact_number} | ${c.first_name} ${c.last_name ?? ''}`);
+    return json(out);
+  }
   try {
     const want = await plan();
     const planned = await savePlan(want);
