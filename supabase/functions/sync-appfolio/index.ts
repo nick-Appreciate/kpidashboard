@@ -903,14 +903,16 @@ async function syncTenantDirectory(): Promise<SyncResult> {
     const records = data.map((row: any) => ({
       // API returns 'selected_tenant_id' for tenant directory
       tenant_id: row.selected_tenant_id,
-      tenant_name: row.tenant_name || row.name || row.tenantName,
+      // The report's name field is "tenant" (also first_name/last_name); the
+      // old tenant_name/name guesses never matched, so names were always null.
+      tenant_name: row.tenant || [row.first_name, row.last_name].filter(Boolean).join(' ') || row.tenant_name || null,
       property_name: row.property_name,
       property_id: row.property_id,
       unit: row.unit,
       unit_id: row.unit_id,
       occupancy_id: row.occupancy_id,
       phone_numbers: row.phone_numbers,
-      email: row.email || row.primary_email,
+      email: row.emails || row.email || row.primary_email || null,
       status: row.status,
       move_in: row.move_in || null,
       move_out: row.move_out || null,
