@@ -25,10 +25,14 @@ CREATE POLICY authenticated_read ON public.justcall_contact_sync FOR SELECT TO a
 -- Every 5 minutes, 25 contacts per run (~50 JustCall requests). Backfill drains
 -- in ~6–7 hours; afterwards runs are no-ops unless a name/unit/number changes.
 SELECT cron.unschedule('justcall-contacts-5min') WHERE EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'justcall-contacts-5min');
-SELECT cron.schedule('justcall-contacts-5min', '2-59/5 * * * *', $$
+SELECT cron.schedule('justcall-contacts-5min', '1-59/3 * * * *', $$
   SELECT net.http_post(
     url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url') || '/functions/v1/justcall-contacts?limit=25',
     headers := jsonb_build_object('Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'anon_key'),
       'x-lead-engine-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'lead_engine_secret')),
     body := '{}'::jsonb, timeout_milliseconds := 150000) $$);
+
+-- PostgREST can't compare two columns, so expose the comparison as a column.
+ALTER TABLE public.justcall_contact_sync ADD COLUMN IF NOT EXISTS needs_sync boolean GENERATED ALWAYS AS (synced_hash IS DISTINCT FROM desired_hash) STORED;
+CREATE INDEX IF NOT EXISTS justcall_contact_sync_needs_sync_idx ON public.justcall_contact_sync (source) WHERE needs_sync;

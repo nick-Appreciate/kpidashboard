@@ -202,6 +202,29 @@ Deno.serve(async (req: Request) => {
   const dry = url.searchParams.get('dry') === '1';
   const only = (url.searchParams.get('only') || '').replace(/\D/g, '').slice(-10) || null;
   const limit = Math.min(60, Math.max(1, Number(url.searchParams.get('limit')) || 25));
+  // Read-only: team members + how many contacts each agent owns.
+  if (url.searchParams.get('agents') === '1') {
+    const users = await jc('GET', '/v2.1/users?per_page=100');
+    const out: any[] = [];
+    for (const u of (users.body?.data || [])) {
+      const c = await jc('GET', `/v2.1/contacts?agent_id=${u.id}&per_page=1`);
+      out.push({ id: u.id, name: u.name, email: u.email, role: u.role, contacts_total: c.body?.total ?? c.body?.count ?? null, keys: Object.keys(c.body || {}) });
+      await sleep(1200);
+    }
+    return json(out);
+  }
+  const countFor = url.searchParams.get('count_agent');
+  if (countFor) {
+    let n = 0, named = 0, page = 0;
+    for (; page < 40; page++) {
+      const r = await jc('GET', `/v2.1/contacts?agent_id=${countFor}&per_page=100&page=${page}`);
+      const d = r.body?.data || [];
+      n += d.length; 
+      if (d.length < 100) break;
+      await sleep(1500);
+    }
+    return json({ agent: countFor, contacts: n, pages: page + 1 });
+  }
   // Read-only debugging: how JustCall resolves a number in each format.
   const inspect = (url.searchParams.get('inspect') || '').replace(/\D/g, '').slice(-10);
   if (inspect) {
@@ -227,7 +250,7 @@ Deno.serve(async (req: Request) => {
     // cap never starves higher-priority numbers; count the true backlog separately.
     const cols = 'phone_norm, source, first_name, last_name, company, desired_hash, synced_hash, prev_name, attempts';
     const pending = () => supabase.from('justcall_contact_sync').select(cols, { count: 'exact' })
-      .or('synced_hash.is.null,synced_hash.neq.desired_hash').lt('attempts', 5);
+      .eq('needs_sync', true).lt('attempts', 5);
     const queue: any[] = [];
     let backlog = 0;
     if (only) {
